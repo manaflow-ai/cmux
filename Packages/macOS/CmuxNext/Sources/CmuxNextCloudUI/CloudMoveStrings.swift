@@ -152,6 +152,7 @@ public struct CloudMoveStrings {
     /// any other one a ``CloudMoveFailure``.
     public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
+            if answer.0.errorCode == "environment_mismatch" { throw CloudStartSessionStrings.environmentMismatch }
             if let code = answer.0.errorCode, CloudSizeLocked.isCode(code) { throw CloudSizeLocked(details: answer.0.sizeLocked) }
             if let tooSmall = CloudSeedRefusal.planRefusal(answer.0) { throw tooSmall } // the folder is more than its machine has room for
             throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""), sendAgain: answer.0.retryable)
@@ -165,6 +166,12 @@ public struct CloudMoveStrings {
     public static func loginFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.loginFailed", defaultValue: "The chat stays here: your agent login for %1$@ couldn't be read: %2$@",
                               table: "Cloud", bundle: .localizedModule), machine, detail)
+    }
+    /// The move can read the chosen connection, but cannot carry it to the machine.
+    package static var loginUnsupported: String {
+        String(localized: "cloud.move.loginUnsupported",
+               defaultValue: "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again.",
+               table: "Cloud", bundle: .localizedModule)
     }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",

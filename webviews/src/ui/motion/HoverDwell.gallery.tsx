@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 
-type Curve = "standard" | "linear" | "ease-out" | "slow" | "before";
+type Curve = "standard" | "linear" | "ease-out" | "slow" | "before" | "queued-90" | "queued-120" | "queued-150";
 type DwellDemoProps = { curve: Curve };
 
 const LANES = [
@@ -119,6 +119,24 @@ export default componentEntry<DwellDemoProps>({
     slow: {
       note: "600 ms ease-out in, 300 ms out: a look never reads as a response.",
       props: { curve: "slow" },
+      play: ran,
+    },
+    // Queued prompt row's actions (ask-0b971a8f69, Leo 2026-11-27: "this animation for this coming out
+    // is a bit slow"): the standard ramp is 400 ms in, so Steer, trash and the menu took most of half a
+    // second to arrive. Arms: in 90, 120 or 150 ms on the scale's ease-out, out on the quick step.
+    "queued-90": {
+      note: "Queued row actions: 90 ms ease-out in, quick step out. Snappiest; Steer's glyph barely reads as a fade.",
+      props: { curve: "queued-90" },
+      play: ran,
+    },
+    "queued-120": {
+      note: "Picked for the queued row's actions: the scale's micro step, ease-out, in; the quick step out. Full by the time the eye lands.",
+      props: { curve: "queued-120" },
+      play: ran,
+    },
+    "queued-150": {
+      note: "Queued row actions: 150 ms ease-out in, quick step out. Still reads as a fade, a touch behind the pointer.",
+      props: { curve: "queued-150" },
       play: ran,
     },
     before: {

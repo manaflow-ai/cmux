@@ -111,9 +111,9 @@ import {
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { classifyFrames, type FrameMetrics, type FrameRecord, type FrameRail } from "./firstLoadFrames";
+import { classifyFrames, type FrameMetrics, type FrameRail, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
-import { newestPage } from "./daemonPage";
+import { kindsMatch, newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
@@ -479,7 +479,7 @@ const session: Record<string, unknown> = NO_MODES ? listedBase : { ...listedRow,
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
-  newestPage(Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events, {
+  newestPage(Array.isArray(kinds) ? events.filter((event) => kindsMatch(kinds, event)) : events, {
     limit,
     beforeSeq,
     maxBytes,
@@ -751,7 +751,10 @@ function installHost({
   refuseUntilMs,
   bridge,
   rows,
+  trace,
 }: {
+  /// WIRE_TRACE=1: every call the page makes to its host and the answer's first 200 characters, to the console.
+  trace: boolean;
   tail: unknown;
   readyDelayMs: number;
   refuseUntilMs: number;
@@ -814,13 +817,22 @@ function installHost({
         if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge && !rows)) continue;
         const post = handler.postMessage.bind(handler);
         const envelope = name === "cmuxPage";
-        handler.postMessage = async (request: {
+        type HostRequest = {
           t?: string;
           id?: unknown;
           method?: string;
           op?: string;
           params?: Record<string, unknown>;
-        }) => {
+        };
+        handler.postMessage = async (request: HostRequest) => {
+          const reply = await answerHost(request);
+          if (trace && !(request.method ?? request.op ?? "").endsWith("transport.send"))
+            console.log(
+              `benchhost ${performance.now().toFixed(0)} ms ${name} ${request.t ?? ""} ${request.method ?? request.op ?? ""} ${JSON.stringify(request.params ?? {}).slice(0, 120)} -> ${String(JSON.stringify(reply)).slice(0, 200)}`,
+            );
+          return reply;
+        };
+        const answerHost = async (request: HostRequest) => {
           if (envelope && request.t !== "call") return post(request);
           const method = (request.method ?? request.op ?? "").replace(/^cmux\.agent\./, "");
           const own = rowsCall(method, request.params) ?? transport(method, request.params);
@@ -1616,8 +1628,26 @@ try {
     console.log(`pane sources read at ${sourceRef}: ${changed.join(", ") || "none"}`);
   }
   console.log(`pane source: ${sourceRef ?? "worktree"}`);
+  // The app's page runs main.tsx as pane.js, preloaded in <head> (build-agent-pane-web.sh): main's code is
+  // there when the document is. dev.tsx instead imports main only after it ran (and after its own awaited
+  // imports), a fetch the app never makes, idle main-thread time a restart here waited and the app's does not.
+  // So the bench's entry keeps dev.tsx's sheet imports (the page's sheet order) and imports main statically,
+  // in the same chunk; the dev host it would install is the init script's (hostScript), as the app's is there first.
+  const devEntry = path.join(webviews, "src/agent-session/acpmux/dev.tsx");
+  const appEntry = (source: string) =>
+    `${source
+      .split("\n")
+      .filter((line) => /^import "[^"]+\.css";$/.test(line))
+      .join("\n")}\nimport "./main";\n`;
   await build({
-    plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
+    plugins: [
+      {
+        name: "immutable-pane-baseline",
+        enforce: "pre",
+        load: (id) =>
+          id === devEntry ? appEntry(priorSources.get(id) ?? fs.readFileSync(id, "utf8")) : priorSources.get(id),
+      },
+    ],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
     build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
@@ -1758,20 +1788,6 @@ try {
   releases.push(["browser", () => browser.close()]);
   /// The reopen modes' warm renderer: one context with another chat page open in it for the whole run.
   let warmContext: Awaited<ReturnType<Browser["newContext"]>> | undefined;
-  if (MODES.some(isReopen)) {
-    warmContext = await browser.newContext({ viewport: VIEWPORT });
-    const other = await warmContext.newPage();
-    await other.goto(url);
-    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, which has no
-    // host of the bench's, so it may never draw it whole: a drawn row is enough to keep the renderer warm.
-    await other.waitForFunction(
-      ({ text, anyRow }) =>
-        (document.body.textContent?.includes(text) ?? false) ||
-        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
-      { text: LATEST, anyRow: !!ROWS_ENDED },
-      { timeout: 120_000, polling: 200 },
-    );
-  }
 
   /// The app host's side of the bridge (Swift AgentPaneTransport) for `page`: `transport.open` opens a
   /// socket to the stand-in from this process and answers once it is open, or `transport.connect_failed`
@@ -1874,6 +1890,7 @@ try {
       readyDelayMs,
       refuseUntilMs,
       bridge: BRIDGE,
+      trace: WIRE_TRACE,
       rows: ROWS_WINDOW
         ? { window: ROWS_WINDOW, delayMs: LINK.rttMs, ended: ends ? ROWS_ENDED : null, endedMs: ROWS_ENDED_MS }
         : null,
@@ -1882,6 +1899,25 @@ try {
     await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
+
+  // After `prepare`: the warm page is a chat page like the others, with the bench's host. Since the bundle
+  // loads main as the app does (#60624), the host is the init script's only, and a page without it never
+  // opens its socket to the stand-in: it drew the composer alone and every reopen mode waited out 120 s.
+  if (MODES.some(isReopen)) {
+    warmContext = await browser.newContext({ viewport: VIEWPORT });
+    const other = await warmContext.newPage();
+    await prepare(other, null, 600_000);
+    await other.goto(url);
+    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, so it may
+    // never draw it whole: a drawn row is enough to keep the renderer warm.
+    await other.waitForFunction(
+      ({ text, anyRow }) =>
+        (document.body.textContent?.includes(text) ?? false) ||
+        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
+      { text: LATEST, anyRow: !!ROWS_ENDED },
+      { timeout: 120_000, polling: 200 },
+    );
+  }
 
   /// TRACE=1: the boxes in the page's bottom band (from the composer's top down), by class, so a composer
   /// that sits elsewhere in the copy than on the live page names what stands under or over it.
@@ -1909,17 +1945,53 @@ try {
     try {
       const page = await context.newPage();
       await prepare(page, null, 120_000);
-      await page.goto(url);
-      await page.waitForFunction(
-        (quietMs) => {
-          const recording = (window as unknown as BenchWindow).__firstLoad;
-          return (
-            recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
-          );
-        },
-        SETTLE_QUIET_MS,
-        { timeout: 120_000, polling: 100 },
+      // What the page said while it loaded, printed only when the load never settles: a timeout alone
+      // names no cause.
+      const said: string[] = [];
+      page.on("pageerror", (error) => said.push(`pageerror ${error.message}`));
+      page.on("console", (message) => {
+        if (message.type() === "error" || message.type() === "warning" || message.text().startsWith("benchhost "))
+          said.push(`${message.type()} ${message.text()}`);
+      });
+      page.on("requestfailed", (request) =>
+        said.push(`requestfailed ${request.url()} ${request.failure()?.errorText ?? ""}`),
       );
+      await page.goto(url);
+      await page
+        .waitForFunction(
+          (quietMs) => {
+            const recording = (window as unknown as BenchWindow).__firstLoad;
+            return (
+              recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
+            );
+          },
+          SETTLE_QUIET_MS,
+          { timeout: Number(process.env.WARM_TIMEOUT_MS ?? 120_000), polling: 100 },
+        )
+        .catch(async (error: unknown) => {
+          const state = await page
+            .evaluate(() => {
+              const recording = (window as unknown as BenchWindow).__firstLoad;
+              const root = document.querySelector<HTMLElement>("#root");
+              return {
+                latestAt: recording?.latestAt ?? null,
+                changedAt: recording?.changedAt ?? null,
+                now: performance.now(),
+                rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
+                root: root ? `${root.childElementCount} children, hidden=${root.hidden}` : "no #root",
+                text: (document.body.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 400),
+                hash: location.hash.slice(0, 200),
+                launch:
+                  (
+                    window as unknown as { cmuxAcpmuxDebug?: { perfStats(): { launch: unknown } } }
+                  ).cmuxAcpmuxDebug?.perfStats().launch ?? null,
+              };
+            })
+            .catch((failed: unknown) => `page state unreadable: ${String(failed)}`);
+          console.log(`WARM never settled: ${JSON.stringify(state)}`);
+          for (const line of said.slice(0, 200)) console.log(`WARM page ${line.slice(0, 600)}`);
+          throw error;
+        });
       await page.addScriptTag({ content: captureScript });
       const written = await page.evaluate((theme) => {
         const w = window as unknown as BenchWindow;
@@ -1965,6 +2037,12 @@ try {
       // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
       if (process.env.PARK)
         await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
+      // REHEARSE=off: the spare skips its offscreen warm-up of a sample chat (spareRehearsal.tsx).
+      if (process.env.REHEARSE)
+        await page.addInitScript(
+          (rehearse) => Object.assign(window, { __cmuxSpareRehearse: rehearse }),
+          process.env.REHEARSE,
+        );
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
@@ -1977,6 +2055,20 @@ try {
         SETTLE_QUIET_MS,
         { timeout: 120_000, polling: 100 },
       );
+      // The app's spare sits parked for seconds or more, so its warm-up ends before a real adopt: wait for it.
+      if (process.env.REHEARSE !== "off")
+        await page
+          .waitForFunction(
+            (quietMs) => {
+              const at = Number(document.documentElement.dataset.spareRehearsed);
+              return at > 0 && performance.now() - at > quietMs;
+            },
+            SETTLE_QUIET_MS,
+            { timeout: 15_000, polling: 100 },
+          )
+          .catch(() => console.log("reopen-spare: no rehearsal finished within 15 s"));
+      // The off side idles as long, so only the warm-up differs between the two.
+      else await page.waitForTimeout(3_000);
       if (TRACE) console.log(`reopen-spare daemon calls before its adopt event: ${spareCalls.splice(0).join(", ")}`);
       if (TRACE)
         console.log(

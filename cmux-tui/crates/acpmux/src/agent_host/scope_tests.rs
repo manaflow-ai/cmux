@@ -25,6 +25,38 @@ fn only_a_user_managers_service_unit_moves_hosts() {
 }
 
 #[test]
+fn a_user_managers_scope_moves_hosts_only_under_a_memory_ceiling() {
+    let bench = "0::/user.slice/user-1001.slice/user@1001.service/app.slice/run-r09.scope\n";
+    let capped = |file: &str| (file == "memory.high").then(|| "805306368\n".to_owned());
+    let maxed = |file: &str| (file == "memory.max").then(|| "1073741824\n".to_owned());
+    let open = |_: &str| Some("max\n".to_owned());
+    let unreadable = |_: &str| None;
+    assert!(in_user_scope(bench));
+    assert!(moves_hosts_from(bench, capped));
+    assert!(moves_hosts_from(bench, maxed));
+    // A terminal's scope with no ceiling, or one whose limits cannot be read, keeps its hosts.
+    let terminal = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/vte-spawn-1.scope\n";
+    assert!(!moves_hosts_from(terminal, open));
+    assert!(!moves_hosts_from(terminal, unreadable));
+    // Never the manager's own scope, a login session scope, a system unit or cgroup v1, capped
+    // or not.
+    for other in [
+        "0::/user.slice/user-1000.slice/user@1000.service/init.scope\n",
+        "0::/user.slice/user-1000.slice/session-4.scope\n",
+        "0::/system.slice/run-r1.scope\n",
+        "1:name=systemd:/user.slice/user-1000.slice/user@1000.service/app.slice/run-r1.scope\n",
+        "",
+    ] {
+        assert!(!in_user_scope(other), "{other}");
+        assert!(!moves_hosts_from(other, capped), "{other}");
+    }
+    // A service unit moves its hosts with or without a ceiling, as before.
+    let service = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/acpmux.service\n";
+    assert!(moves_hosts_from(service, open));
+    assert!(moves_hosts_from(service, unreadable));
+}
+
+#[test]
 fn a_host_counts_as_placed_only_when_its_cgroup_names_its_own_scope() {
     let unit = scope_unit(4242, "0a1b2c3d");
     assert_eq!(unit, "acpmux-agent-host-4242-0a1b2c3d.scope");
@@ -97,4 +129,31 @@ fn a_failure_pauses_moves_for_a_while_not_for_good() {
     assert!(!backing_off(None, now));
     assert!(backing_off(Some(now), now + Duration::from_secs(1)));
     assert!(!backing_off(Some(now), now + RETRY_AFTER));
+}
+
+#[test]
+fn the_daemons_ssh_runs_in_its_own_low_weight_scope() {
+    let argv: Vec<String> =
+        helper_argv("/usr/bin/systemd-run").iter().map(|a| a.to_string_lossy().into()).collect();
+    assert_eq!(
+        argv,
+        [
+            "/usr/bin/systemd-run",
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--slice=acpmuxhelpers.slice",
+            "-p",
+            "CPUWeight=100",
+            "-p",
+            "IOWeight=100",
+            "--",
+        ]
+    );
+    // Below the daemon's own weight, so its children never outrank it or the agents.
+    assert!(HELPER_WEIGHT < crate::daemon_priority::UNIT_WEIGHT);
+    // A test (and a Mac, a terminal) runs the program itself.
+    let (program, lead) = low_weight(std::ffi::OsStr::new("ssh"));
+    assert_eq!((program.to_str(), lead.len()), (Some("ssh"), 0));
 }

@@ -55,7 +55,12 @@ if [ "$1 $2" = "api rate_limit" ]; then
   exit 0
 fi
 # A call on the spare token (GH_TOKEN equal to $SPARE) has its own limit: never refused.
-if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then echo "spare call $*" >> "$state/log"; echo "ok $*"; exit 0; fi
+if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then
+  echo "spare call $*" >> "$state/log"
+  # SPARE_DENY: a read-only pool asked to write answers for its permission, not its limit.
+  if [ -n "${SPARE_DENY:-}" ]; then echo "$SPARE_DENY" >&2; exit 1; fi
+  echo "ok $*"; exit 0
+fi
 echo "call $*" >> "$state/log"
 left="$(cat "$state/refusals" 2>/dev/null || echo 0)"
 if [ "$left" -gt 0 ]; then
@@ -196,6 +201,45 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("the next try goes out on GH_TOKEN_SPARES pool 2 now", result.stderr)
         self.assertEqual(h.waited(), 0)
 
+    def test_a_spare_denied_for_permission_hands_the_call_back_to_its_own_token(self) -> None:
+        # Leo (c-bedbdb1917): "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES." The nightly jobs
+        # now carry the read-only CI pool tokens as spares; a write (a cancel, a release upload) refused on
+        # github.token's hour must not fail on a pool that cannot write: it goes back and waits as before.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", SPARE="pool1",
+                         GH_TOKEN_SPARES="pool1",
+                         SPARE_DENY="gh: Resource not accessible by integration (HTTP 403)")
+        result = h.gh("release", "upload", "nightly", "x.zip")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call release upload nightly x.zip", "spare call release upload nightly x.zip",
+                                     "rate_limit", "call release upload nightly x.zip"])
+        self.assertIn("goes back to its own token", result.stderr)
+        self.assertEqual(h.waited(), 1)
+
+    def test_every_nightly_next_gh_job_has_a_second_token(self) -> None:
+        # Leo (c-bedbdb1917): "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES." Each job on
+        # nightly-next's path whose gh calls ran on github.token alone carries the CI pools' own hours.
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly.yml").read_text())["jobs"]
+        for name in ("resolve-nightly-cmux-tui-client", "published-build"):
+            spares = jobs[name].get("env", {}).get("GH_TOKEN_SPARES", "")
+            self.assertIn("secrets.CI_POOL_TOKEN_1", spares, name)
+            self.assertIn("secrets.CI_POOL_TOKEN_2", spares, name)
+        # nightly-next-one signs, so no secret sits in its job env (the keychain guard): each step whose gh
+        # runs on github.token before its App token (the leave step) carries the spares itself.
+        token_steps = [step for step in jobs["nightly-next-one"]["steps"]
+                       if step.get("name") == "Leave the push slot to a newer nightly-next push"]
+        self.assertEqual(len(token_steps), 1)
+        for step in token_steps:
+            spares = step["env"].get("GH_TOKEN_SPARES", "")
+            self.assertIn("secrets.CI_POOL_TOKEN_1", spares, step.get("name"))
+            self.assertIn("secrets.CI_POOL_TOKEN_2", spares, step.get("name"))
+
+    def test_a_denied_call_on_its_own_token_still_fails_at_once(self) -> None:
+        h = self.harness(refusals=0, GH_TOKEN="workflow", FAKE_FAIL="gh: Not Found (HTTP 404)")
+        result = h.gh("api", "repos/x/y")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(h.calls(), ["call api repos/x/y"])
+
     def test_every_pool_refused_waits_then_rotates_again(self) -> None:
         h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot",
                          GH_TOKEN_SPARES="pool3")
@@ -213,7 +257,9 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", hand_off)
         wait = int(re.search(r"GH_BUDGET_WAIT_MAX_SECONDS: (\d+)", hand_off).group(1))
         timeout = int(re.search(r"timeout-minutes: (\d+)", hand_off).group(1))
-        self.assertGreaterEqual(wait, 3600, "a reset can be an hour away")
+        # The look is advisory: past 2 minutes of rate limit the head's look is skipped, not waited out on a runner
+        # (about 50 runs slept 1,400 s on 11-24; a merged PR gets its receipt at its merge commit).
+        self.assertLessEqual(wait, 120, "a rate limit past 2 minutes skips this head's look")
         self.assertGreater(timeout * 60, wait, "the job must outlive its longest wait")
 
     def test_a_refused_spare_token_waits_as_before(self) -> None:
@@ -258,6 +304,24 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result)
         self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
         self.assertEqual(h.waited(), 1)
+
+    def test_a_dispatch_github_could_not_read_the_workflow_for_is_tried_again(self) -> None:
+        # Run 45798252585: dispatch-published-in got "HTTP 422 ... twirp error resource_exhausted: gitmon refuses
+        # to schedule us"; GitHub never read the workflow file, so nothing ran and the same call is tried again.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Invalid Argument - failed to parse "
+                                    "workflow: failed to fetch workflow: getting blob contents: twirp error resource_exhausted: "
+                                    "gitmon refuses to schedule us: fail-fast:network")
+        result = h.gh("workflow", "run", "nightly.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"] * 2)
+
+    def test_another_422_is_not_tried_again(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Unexpected inputs provided")
+        result = h.gh("workflow", "run", "nightly.yml")
+        self.assertNotEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"])
 
     def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
         # A reset or timeout after the request went out may have dispatched it already.
@@ -465,6 +529,9 @@ PUBLISH_PATH = (
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
     "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
+    # The tail's first job: its one read of the publishing run failed on "API rate limit exceeded for
+    # installation" in tail run 45925996466, and build 4592220755201 got no release notes (2026-11-27).
+    "published-build",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
@@ -538,10 +605,17 @@ SHARED_TOKEN_ONLY = {
     ("prepare-nightly-variant", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant", "Verify shipped libintl has its source"),
     ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
+    # The tail's first job runs secret-free on the nightly's Linux label (no App keys there), so its two reads
+    # go on github.token and wait through a refusal instead (tail run 45925996466 lost a build's notes on one).
+    ("published-build", "Check the run that published"),
+    ("published-build", "Download its record"),
     ("published-in", "Comment the build on its PRs"),
     # A git fetch of the published span (git's own limit, not the REST core budget gh spends).
     ("published-in", "Fetch the published span"),
     ("sign-release-notes", "Build and sign the release notes"),
+    # A git fetch of the notes span with the job token (#58154), like published-in's "Fetch the published span":
+    # git's own limit, not the REST core budget.
+    ("sign-release-notes", "Fetch the commits since the newest published notes"),
     ("publish-nightly-reel", "Build and publish the reel"),
     ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
     ("build-nightly-app", "Stop when the run can no longer publish (before the compile)"),
@@ -610,8 +684,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(scripts)
         for step in scripts:
             script = step["with"]["script"]
-            self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+            self.assertIn("require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
             script = (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text()
+            self.assertIn("github.hook.wrap('request'", script, step.get("name"))
+            self.assertIn("x-ratelimit-reset", script, step.get("name"))
+            self.assertIn("deadline", script, step.get("name"))
+
+    def test_the_failure_close_waits_through_a_rate_limit(self) -> None:
+        # Run 45823496118's close-nightly-failure-issue died on "API rate limit exceeded" (2026-11-26). It has no
+        # checkout, so its github-script carries the same wrap inline.
+        scripts = [s for s in self.jobs["close-nightly-failure-issue"]["steps"] if "github-script" in str(s.get("uses", ""))]
+        self.assertTrue(scripts)
+        for step in scripts:
+            script = step["with"]["script"]
             self.assertIn("github.hook.wrap('request'", script, step.get("name"))
             self.assertIn("x-ratelimit-reset", script, step.get("name"))
             self.assertIn("deadline", script, step.get("name"))

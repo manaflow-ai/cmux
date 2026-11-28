@@ -58,11 +58,11 @@ pub(super) fn transcript_rows_range(
     // Visible items: lifecycle noise and silent turn ends never draw.
     let vis: Vec<usize> = range
         .filter(|&i| {
-            let it = &t.items[i];
+            let Some(it) = t.items.get(i) else { return false };
             if let Item::Permission { title, decided: Some(d), .. } = it {
                 // "✓ Allowed  Write x" right under "✎ Write x" repeats the row.
                 let echoes_tool =
-                    i > 0 && matches!(&t.items[i - 1], Item::Tool { title: tt, .. } if tt == title);
+                    i > 0 && matches!(t.items.get(i - 1), Some(Item::Tool { title: tt, .. }) if tt == title);
                 if d.starts_with("allow") && echoes_tool {
                     return false;
                 }
@@ -87,7 +87,8 @@ pub(super) fn transcript_rows_range(
     // One tool or permission row (plus open details) at `indent`.
     let tool_rows = |rows: &mut Vec<Row>, i: usize, indent: &str| {
         let iw = width.saturating_sub(indent.len());
-        match &t.items[i] {
+        let Some(item) = t.items.get(i) else { return };
+        match item {
             Item::Tool { title, kind, status, detail, .. } => {
                 // Codex app: one muted line per activity, an icon for the
                 // kind, paths shortened, red only when it failed. Details
@@ -207,12 +208,15 @@ pub(super) fn transcript_rows_range(
     let mut kept: std::collections::HashSet<usize> = Default::default();
     let mut trailing: std::collections::HashSet<usize> = Default::default();
     while k < vis.len() {
-        let i = vis[k];
+        let Some(&i) = vis.get(k) else { break };
         if reopen_at == Some(i) {
             turn_open = true;
             reopen_at = None;
         }
-        let item = &t.items[i];
+        let Some(item) = t.items.get(i) else {
+            k += 1;
+            continue;
+        };
         match item {
             Item::User { text, steer, queued } => {
                 k += 1;
@@ -266,7 +270,11 @@ pub(super) fn transcript_rows_range(
                         Span::styled(
                             content.clone(),
                             if r.line.spans.len() > 1 {
-                                r.line.spans[1].style.bg(c.user_bg)
+                                r.line
+                                    .spans
+                                    .get(1)
+                                    .map(|span| span.style.bg(c.user_bg))
+                                    .unwrap_or(style)
                             } else {
                                 style
                             },
@@ -279,7 +287,10 @@ pub(super) fn transcript_rows_range(
                 // The turn's work: everything visible between this message
                 // and the final reply. Two or more blocks get a handle row
                 // that collapses them all; one block collapses on its own.
-                let next_user = t.items[i + 1..]
+                let next_user = t
+                    .items
+                    .get(i + 1..)
+                    .unwrap_or_default()
                     .iter()
                     .position(|x| matches!(x, Item::User { queued: false, .. }))
                     .map(|p| i + 1 + p)
@@ -287,7 +298,12 @@ pub(super) fn transcript_rows_range(
                 let turn_live = running && next_user == t.items.len();
                 // Positions in drawing order (`vis`), which `late_steers_last` may have reordered.
                 let next_pos = (k..vis.len())
-                    .find(|&p| matches!(t.items[vis[p]], Item::User { queued: false, .. }))
+                    .find(|&p| {
+                        matches!(
+                            vis.get(p).and_then(|&j| t.items.get(j)),
+                            Some(Item::User { queued: false, .. })
+                        )
+                    })
                     .unwrap_or(vis.len());
                 // While the turn runs there is no final reply yet: every block
                 // is work and the handle reads "Working for …". Above a late steer
@@ -321,7 +337,7 @@ pub(super) fn transcript_rows_range(
                         })
                         .is_some_and(|x| matches!(x, Item::Error { .. }));
                 let work_end = final_reply.unwrap_or(next_pos);
-                let work: Vec<usize> = vis[k..work_end].to_vec();
+                let work: Vec<usize> = vis.get(k..work_end).unwrap_or_default().to_vec();
                 let mut blocks = 0usize;
                 let mut tools = 0usize;
                 let mut commands = 0usize;
@@ -329,8 +345,8 @@ pub(super) fn transcript_rows_range(
                 let mut thoughts = 0usize;
                 let mut prev_group = false;
                 for &j in &work {
-                    match &t.items[j] {
-                        Item::Tool { title, kind, status, .. } => {
+                    match t.items.get(j) {
+                        Some(Item::Tool { title, kind, status, .. }) => {
                             tools += 1;
                             if matches!(kind.as_str(), "execute" | "terminal" | "shell")
                                 || title.to_ascii_lowercase().contains("command")
@@ -347,24 +363,24 @@ pub(super) fn transcript_rows_range(
                             }
                             prev_group = true;
                         }
-                        Item::Permission { .. } => {
+                        Some(Item::Permission { .. }) => {
                             if !prev_group {
                                 blocks += 1;
                             }
                             prev_group = true;
                         }
-                        Item::Thought { .. } => {
+                        Some(Item::Thought { .. }) => {
                             thoughts += 1;
                             blocks += 1;
                             prev_group = false;
                         }
-                        Item::Assistant { .. } => {
+                        Some(Item::Assistant { .. }) => {
                             blocks += 1;
                             prev_group = false;
                         }
                         // Keep a failed turn's notice visible after the work
                         // summary folds; the error is the useful result.
-                        Item::Error { .. } => {}
+                        Some(Item::Error { .. }) => {}
                         _ => {
                             blocks += 1;
                             prev_group = false;
@@ -380,8 +396,8 @@ pub(super) fn transcript_rows_range(
                     let span = t.turn_span(i);
                     let edited_files = work
                         .iter()
-                        .filter_map(|&j| match &t.items[j] {
-                            Item::Tool { detail, .. } => Some(detail),
+                        .filter_map(|&j| match t.items.get(j) {
+                            Some(Item::Tool { detail, .. }) => Some(detail),
                             _ => None,
                         })
                         .flat_map(|detail| {
@@ -463,7 +479,7 @@ pub(super) fn transcript_rows_range(
                     let mut files: Vec<String> = Vec::new();
                     let (mut plus, mut minus) = (0usize, 0usize);
                     for &j in &work {
-                        if let Item::Tool { detail, .. } = &t.items[j]
+                        if let Some(Item::Tool { detail, .. }) = t.items.get(j)
                             && let Some((p, m)) = acpmux::transcript::diff_counts(detail)
                         {
                             plus += p;
@@ -554,28 +570,29 @@ pub(super) fn transcript_rows_range(
                 if !turn_open || trailing.contains(&i) {
                     continue;
                 }
-                let members = &vis[start_k..k];
+                let members = vis.get(start_k..k).unwrap_or_default();
                 spacer(&mut rows, i, after_user_block);
                 let tools: Vec<usize> = members
                     .iter()
                     .copied()
-                    .filter(|&m| matches!(t.items[m], Item::Tool { .. }))
+                    .filter(|&m| matches!(t.items.get(m), Some(Item::Tool { .. })))
                     .collect();
                 if tools.len() >= 2 {
-                    let g = Toggle::Group(tools[0]);
+                    let Some(&first_tool) = tools.first() else { continue };
+                    let g = Toggle::Group(first_tool);
                     let open = is_open(g, true);
                     let names: Vec<String> = tools
                         .iter()
                         .take(6)
-                        .map(|&m| match &t.items[m] {
-                            Item::Tool { title, .. } => {
+                        .map(|&m| match t.items.get(m) {
+                            Some(Item::Tool { title, .. }) => {
                                 title.split_whitespace().next().unwrap_or("tool").to_owned()
                             }
                             _ => String::new(),
                         })
                         .collect();
-                    let done = tools.iter().filter(|&&m| matches!(&t.items[m], Item::Tool { status, .. } if status == "completed")).count();
-                    let failed = tools.iter().filter(|&&m| matches!(&t.items[m], Item::Tool { status, .. } if status == "failed")).count();
+                    let done = tools.iter().filter(|&&m| matches!(t.items.get(m), Some(Item::Tool { status, .. }) if status == "completed")).count();
+                    let failed = tools.iter().filter(|&&m| matches!(t.items.get(m), Some(Item::Tool { status, .. }) if status == "failed")).count();
                     let state = if failed > 0 {
                         format!(" · {failed} failed")
                     } else if done < tools.len() {
@@ -596,7 +613,7 @@ pub(super) fn transcript_rows_range(
                             Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim()),
                         ]),
                         text,
-                        item: tools[0],
+                        item: first_tool,
                         toggle: Some(g),
                     });
                     if open {
@@ -865,19 +882,27 @@ pub(super) fn late_steers_last(
     running: bool,
 ) -> (Vec<usize>, std::collections::HashSet<usize>) {
     let mut late = std::collections::HashSet::new();
-    let prompt = |i: usize| matches!(t.items[i], Item::User { queued: false, steer: false, .. });
-    let steer = |i: usize| matches!(t.items[i], Item::User { queued: false, steer: true, .. });
-    let text = |i: usize| matches!(t.items[i], Item::Assistant { .. });
+    let prompt =
+        |i: usize| matches!(t.items.get(i), Some(Item::User { queued: false, steer: false, .. }));
+    let steer =
+        |i: usize| matches!(t.items.get(i), Some(Item::User { queued: false, steer: true, .. }));
+    let text = |i: usize| matches!(t.items.get(i), Some(Item::Assistant { .. }));
     let mut start = 0usize;
     while start < vis.len() {
-        let stop = (start + 1..vis.len()).find(|&p| prompt(vis[p])).unwrap_or(vis.len());
+        let stop = (start + 1..vis.len())
+            .find(|&p| vis.get(p).copied().is_some_and(&prompt))
+            .unwrap_or(vis.len());
         let turn = start;
         start = stop;
-        if !prompt(vis[turn]) {
+        let Some(&turn_item) = vis.get(turn) else { continue };
+        if !prompt(turn_item) {
             continue;
         }
         let live = running
-            && !t.items[vis[turn] + 1..]
+            && !t
+                .items
+                .get(turn_item + 1..)
+                .unwrap_or_default()
                 .iter()
                 .any(|x| matches!(x, Item::User { queued: false, steer: false, .. }));
         if live {
@@ -886,27 +911,34 @@ pub(super) fn late_steers_last(
         // The turn's end: its footer (a stop the turn shows) or a queued message waiting under it.
         let end = (turn + 1..stop)
             .find(|&p| {
-                matches!(t.items[vis[p]], Item::TurnEnd { .. } | Item::User { queued: true, .. })
+                matches!(
+                    vis.get(p).and_then(|&i| t.items.get(i)),
+                    Some(Item::TurnEnd { .. } | Item::User { queued: true, .. })
+                )
             })
             .unwrap_or(stop);
         let mut first = None;
         for p in (turn + 1..end).rev() {
-            match &t.items[vis[p]] {
-                Item::Tool { .. } => break,
-                _ if steer(vis[p]) => first = Some(p),
+            let Some(&item) = vis.get(p) else { continue };
+            match t.items.get(item) {
+                Some(Item::Tool { .. }) => break,
+                _ if steer(item) => first = Some(p),
                 _ => {}
             }
         }
         let Some(first) = first else { continue };
         let mut from = first;
-        while from > turn + 1 && text(vis[from - 1]) {
+        while from > turn + 1 && vis.get(from - 1).copied().is_some_and(text) {
             from -= 1;
         }
-        let Some(answer) = (turn + 1..end).rev().find(|&p| text(vis[p])) else { continue };
+        let Some(answer) = (turn + 1..end).rev().find(|&p| vis.get(p).copied().is_some_and(&text))
+        else {
+            continue;
+        };
         if answer < from {
             continue;
         }
-        let region = &vis[from..end];
+        let region = vis.get(from..end).unwrap_or_default();
         let steers: Vec<usize> = region.iter().copied().filter(|&i| steer(i)).collect();
         let mut reordered: Vec<usize> =
             region.iter().copied().filter(|&i| !steer(i) && !text(i)).collect();
@@ -939,7 +971,14 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
         Some((_, start, None)) => duration_label(now_ms().saturating_sub(*start)).to_string(),
         _ => "…".to_owned(),
     };
-    let mut label = format!("Working ({elapsed} · Esc to interrupt)");
+    // A /compact reads as one from its first frame (cmux#55784).
+    let verb = if crate::live_line::compacting(t) { "Compacting conversation" } else { "Working" };
+    let mut label = format!("{verb} ({elapsed} · Esc to interrupt)");
+    // Silent and idle, it names what it waits on (cmux#50146).
+    if let Some(wait) = crate::live_line::waiting(t, now_ms()) {
+        label.push_str(" · ");
+        label.push_str(&wait);
+    }
     if let Some(activity) = t.activity.as_deref().filter(|s| !s.is_empty()) {
         label.push_str(" · ");
         label.push_str(activity);

@@ -28,6 +28,10 @@ const CALLS: usize = 8;
 /// The refusal line of `update` when it is a failed tool result carrying one, masked and
 /// bounded; None for every other update.
 pub(super) fn refusal(update: &Value) -> Option<String> {
+    failed_text(update, |head| REFUSALS.iter().filter_map(|r| head.find(r)).min())
+}
+
+fn failed_text(update: &Value, at: impl Fn(&str) -> Option<usize>) -> Option<String> {
     if update.get("sessionUpdate").and_then(Value::as_str) != Some("tool_call_update")
         || update.get("status").and_then(Value::as_str) != Some("failed")
     {
@@ -38,9 +42,30 @@ pub(super) fn refusal(update: &Value) -> Option<String> {
         let text = block.pointer("/content/text").and_then(Value::as_str)?;
         let head =
             text.char_indices().nth(SCAN).map_or(text, |(i, _)| text.get(..i).unwrap_or(text));
-        let at = REFUSALS.iter().filter_map(|r| head.find(r)).min()?;
-        let line = head.get(at..)?.lines().next().unwrap_or_default();
+        let line = head.get(at(head)?..)?.lines().next().unwrap_or_default();
         Some(super::session::masked_preview(line, MAX_ERROR))
+    })
+}
+
+/// Known denials of repository/state work in a remote platform sandbox. A
+/// generic failed command is not evidence of sandbox refusal. Only read failed
+/// tool results, never successful grep output or the agent's prose.
+fn remote_refusal(update: &Value) -> Option<String> {
+    failed_text(update, |head| {
+        let mut offset = 0;
+        for line in head.split_inclusive('\n') {
+            let denied = line.contains("Permission denied")
+                || line.contains("Operation not permitted")
+                || line.contains("Read-only file system");
+            if line.contains("state path ancestor owned by another user")
+                || line.contains("Read-only file system")
+                || (denied && (line.contains(".git") || line.contains(".sock")))
+            {
+                return Some(offset);
+            }
+            offset += line.len();
+        }
+        None
     })
 }
 
@@ -52,14 +77,33 @@ impl Hub {
         let failing =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_sandbox.clone();
         if !failing.failing {
-            let Some(error) = refusal(update) else { return };
+            let meta = session.meta();
+            let harness_error = refusal(update);
+            let remote = harness_error.is_none() && meta.remote_origin && !meta.vm_boundary;
+            let Some(error) =
+                harness_error.or_else(|| remote.then(|| remote_refusal(update)).flatten())
+            else {
+                return;
+            };
+            let error = if remote {
+                format!(
+                    "{error}. Choose Full access on the starting machine if authorized, or use a folder and tools allowed by this chat's sandbox."
+                )
+            } else {
+                error
+            };
             let first = failing.first_at.unwrap_or_else(crate::store::now_ms);
             self.append(
                 session,
                 "mux",
                 RECORD_KIND,
-                json!({"error": error, "toolCallId": update.get("toolCallId"), "firstAt": first}),
+                json!({"error": error, "toolCallId": update.get("toolCallId"), "firstAt": first, "remote": remote}),
             );
+            return;
+        }
+        // A successful `true` proves nothing about a denied repository path or
+        // socket. Only a new harness clears a platform sandbox refusal.
+        if failing.remote {
             return;
         }
         let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };

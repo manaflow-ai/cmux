@@ -218,9 +218,10 @@ const SubagentStatusRow = memo(function SubagentStatusRow({
   resume?: ResumeActions;
 }) {
   const t = useT();
-  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
-  const connectionQuiet = useConnectionQuietKeys();
   const now = useNow(ticking(agent));
+  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``), on the
+  // row's own clock: the hook hands back a new function each render, so no prop of the memo carries it.
+  const connectionQuiet = useConnectionQuietKeys();
   const waiting = waits ? new Set([agent.id]) : NO_WAITING;
   return (
     <li>

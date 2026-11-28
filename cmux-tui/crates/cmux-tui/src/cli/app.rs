@@ -35,6 +35,7 @@ pub(super) use run::{
 mod agent_open;
 mod batch;
 mod call;
+mod chat_memory;
 mod chat_perf;
 mod classic;
 mod events;
@@ -45,10 +46,12 @@ mod join;
 mod keybinding;
 mod launch_times;
 mod live;
+mod mac_screen_replay;
 mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod phone;
 mod published;
 mod record;
 mod renderers;
@@ -196,6 +199,12 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
+    /// `browser tab_…@phone <verb>`: a page verb on the tab the iPhone shows
+    /// in its own web view, through this Mac's link host (app/phone.rs).
+    Phone {
+        device: Option<String>,
+        then: Box<AppCommand>,
+    },
     /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
     Renderers {
         params: Value,
@@ -209,6 +218,18 @@ pub(super) enum AppCommand {
     ChatPerf {
         params: Value,
         seconds: u64,
+    },
+    /// `app mac-screen-replay`: `mac_screen.replay`, then `mac_screen.state` until the replay's
+    /// pane has presented its frames (app/mac_screen_replay.rs).
+    MacScreenReplay(mac_screen_replay::Replay),
+    /// `app chat memory`: `agent.chat.memory` pids, read here (app/chat_memory.rs).
+    ChatMemory {
+        empty: Value,
+    },
+    /// `app chat perf --page-source`: `agent.chat.perf {"page_source": true}`, how the chat pages
+    /// made since launch got their page; no tab, no capture (app/chat_perf.rs).
+    ChatPageSource {
+        params: Value,
     },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
@@ -259,6 +280,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             timeout: Some(READ_TIMEOUT),
             pick: None,
         }));
+    }
+    if scope == "browser"
+        && let [_, target, phone_args @ ..] = args
+        && let Some(command) = phone::parse(target, phone_args)
+    {
+        return command.map(Some);
     }
     if scope == "browser"
         && let Some(target) = args.get(1)
@@ -363,6 +390,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("web-cas")) => web_cas::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
+        }
+        // A recorded screen share played through a Screen Sharing tab with no host peer
+        // (`mac_screen.replay`, every build), then its Decode and Present once presented.
+        ("app", Some("mac-screen-replay")) => mac_screen_replay::parse(rest)?,
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "memory") => {
+            chat_memory::parse(rest)?
         }
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
@@ -972,6 +1005,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
         AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), then));
+        }
         AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, command)),
         _ => {}
     }
@@ -1110,6 +1146,15 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::MacScreenReplay(replay) => {
+            return Ran::Done(mac_screen_replay::run(global, stream, replay));
+        }
+        AppCommand::ChatMemory { empty } => {
+            return Ran::Done(chat_memory::run(global, stream, &empty));
+        }
+        AppCommand::ChatPageSource { params } => {
+            return Ran::Done(chat_perf::run_page_source(global, stream, params));
+        }
         AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
@@ -1126,6 +1171,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), &then));
+        }
         AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
@@ -1305,7 +1353,7 @@ fn join_change(
 }
 
 /// After a person's `cloud new-machine` (`cmux machine new`) made a machine, the app opens it
-/// (`cloud open-machine`): a workspace on the machine is shown, so the window's new-terminal
+/// (`cloud new-terminal-on-machine`): a workspace on the machine is shown, so the window's new-terminal
 /// button opens there (Leo, 2026-11-06: "the terminal I open on the top right button works thru
 /// that machine"). A JSON or quiet run (a script, an agent) leaves the window as it was, and so
 /// does a machine still starting. A failed open is a note: the machine is made either way.
@@ -1324,11 +1372,13 @@ fn open_created(global: &GlobalArgs, stream: &mut UnixStream, params: &Value, va
     }
 }
 
-/// [`open_created`]'s `cloud open-machine` run. `--focus`: a CLI run changes the window only
-/// when it asks to (the app's `allowsViewChange`).
+/// [`open_created`]'s `cloud new-terminal-on-machine` run: a new machine has no workspace yet,
+/// so this opens its first one. Not `cloud open-machine`, which is the app's own (GUI-only, no
+/// CLI verb: the CLI's run of it failed with "No CLI command"). `--focus`: a CLI run changes
+/// the window only when it asks to (the app's `allowsViewChange`).
 fn open_created_command(target: String) -> Result<AppCommand, UsageError> {
     let args = ["--target".to_owned(), target, "--focus".to_owned()];
-    run_action("cloud open-machine", &args, ActionName::Cli)
+    run_action("cloud new-terminal-on-machine", &args, ActionName::Cli)
 }
 
 /// The machine a person's `cloud new-machine` made, for [`open_created`]; `None` otherwise.

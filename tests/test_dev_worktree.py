@@ -305,6 +305,30 @@ class GitCowTests(unittest.TestCase):
         self.assertFalse(self.f.seed.exists(), "a seed (a full copy) was made where clones are not possible")
         self.assertEqual(git(self.f.tmp / "wt", "status", "--porcelain").stdout, "")
 
+    def test_a_failed_add_leaves_no_worktree_and_no_branch(self) -> None:
+        # read-tree fails: the index lock is taken (another git), as a full disk or a stop would fail it.
+        hooks = self.f.tmp / "hooks"
+        hooks.mkdir()
+        dest = self.f.tmp / "broken"
+        result = self.cow("add", "-b", "broken", str(dest), env={"CMUX_WORKTREE_NO_CLONE": "1",
+                                                                "GIT_INDEX_FILE": "/nonexistent/dir/index"})
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn(str(dest), self.registered())
+        self.assertFalse(dest.exists(), "a half-made worktree folder stayed")
+        self.assertEqual(git(self.f.repo, "branch", "--list", "broken").stdout, "", "the branch the add made stayed")
+
+    def test_the_post_checkout_hook_runs_as_for_git_worktree_add(self) -> None:
+        hooks = self.f.tmp / "hooks"
+        hooks.mkdir()
+        hook = hooks / "post-checkout"
+        hook.write_text(f"#!/bin/sh\necho \"$(pwd -P) $1 $2 $3\" >> {self.f.tmp / 'hook.log'}\n")
+        hook.chmod(0o755)
+        git(self.f.repo, "config", "core.hooksPath", str(hooks))
+        result = self.cow("add", "--detach", str(self.f.tmp / "hooked"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = (self.f.tmp / "hook.log").read_text().splitlines()
+        self.assertIn(f"{self.f.tmp / 'hooked'} {'0' * 40} {self.f.c} 1", lines)
+
     def test_other_commands_are_git_worktrees(self) -> None:
         self.assertEqual(self.cow("add", "-b", "x", str(self.f.tmp / "x")).returncode, 0)
         listed = self.cow("list", "--porcelain")
@@ -316,6 +340,88 @@ class GitCowTests(unittest.TestCase):
         version = self.cow("--version")
         self.assertEqual(version.returncode, 0, version.stderr)
         self.assertTrue(version.stdout.startswith("git-cow "), version.stdout)
+
+    def test_remove_never_collects_an_overlay_checkout_that_is_not_mounted(self) -> None:
+        # A `wt new` overlay checkout after a reboot, which git has let go of: its folder shows only the .git file,
+        # its files are in its layer (<parent>/.wt-overlay/<name>/u). `git cow remove` finishes a mounted one git
+        # unregistered (cmuxterm-hq's tests/test_git_cow.py mounts it for real); this one must stay, every file kept.
+        target = self.f.tmp / "rebooted"
+        self.assertEqual(self.cow("add", "-b", "rebooted", str(target)).returncode, 0)
+        layer = self.f.tmp / ".wt-overlay" / "rebooted"
+        (layer / "u").mkdir(parents=True)
+        (layer / "u" / "mine.txt").write_text("work\n")
+        (layer / "mount.json").write_text(json.dumps({"target": str(target), "upper": str(layer / "u")}))
+        gitdir = Path(git(target, "rev-parse", "--absolute-git-dir").stdout.strip())
+        subprocess.run(["rm", "-rf", "--", str(gitdir)], check=True)
+        removed = self.cow("remove", str(target))
+        self.assertNotEqual(removed.returncode, 0)
+        self.assertIn("not mounted", removed.stderr)
+        self.assertEqual((layer / "u" / "mine.txt").read_text(), "work\n")
+        self.assertTrue(target.is_dir())
+
+
+def load_tool():
+    spec = importlib.util.spec_from_file_location("cmux_worktree_under_test", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look their module up by name
+    spec.loader.exec_module(module)
+    return module
+
+
+@unittest.skipUnless(Path("/proc/self/fd").is_dir(), "reads holders from /proc")
+class MountHolderTests(unittest.TestCase):
+    """A lazy `umount -l` leaves the overlay alive until its holders let go: git cow names them, never silently."""
+
+    def test_names_the_processes_with_a_cwd_or_an_open_file_inside(self) -> None:
+        tool_module = load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp).resolve() / "lane--held"
+            (target / "sub").mkdir(parents=True)
+            (target / "open.txt").write_text("x\n")
+            outside = Path(tmp).resolve() / "lane--held-not"  # a sibling whose name starts with TARGET's
+            outside.mkdir()
+            in_cwd = subprocess.Popen(["sleep", "60"], cwd=target / "sub")
+            out_cwd = subprocess.Popen(["sleep", "60"], cwd=outside)
+            with open(target / "open.txt", encoding="utf-8") as handle:
+                in_fd = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                                         pass_fds=(handle.fileno(),), cwd=tmp)
+            try:
+                time.sleep(0.2)  # sleep-ok: let the children exec before /proc is read
+                held, _ = tool_module.mount_holders(target)
+            finally:
+                for child in (in_cwd, out_cwd, in_fd):
+                    child.kill()
+                    child.wait()
+        text = "\n".join(held)
+        self.assertIn(f"{in_cwd.pid} (sleep: cwd)", text)
+        self.assertRegex(text, rf"{in_fd.pid} \([^:]+: fd \d+\)")
+        self.assertNotIn(f"{out_cwd.pid} (", text)
+
+    def test_counts_the_processes_it_could_not_read(self) -> None:
+        if os.geteuid() == 0:
+            self.skipTest("root reads every process")
+        tool_module = load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp) / "proc"
+            hidden = proc / "4242"
+            (hidden / "fd").mkdir(parents=True)
+            os.chmod(hidden / "fd", 0)
+            try:
+                held, unreadable = tool_module.mount_holders(Path("/no/such/lane"), proc=proc)
+            finally:
+                os.chmod(hidden / "fd", 0o700)
+        self.assertEqual((held, unreadable), ([], 1))
+
+    def test_the_lazy_note_says_umount_l_and_names_holders_or_says_it_could_not_look(self) -> None:
+        tool_module = load_tool()
+        target = Path("/w/lane--x")
+        named = tool_module.lazy_unmount_note(target, ["17 (zsh: cwd)"], 0)
+        self.assertIn("umount -l", named)
+        self.assertIn("still held by 17 (zsh: cwd)", named)
+        blind = tool_module.lazy_unmount_note(target, [], 3)
+        self.assertIn("no holder this user can see", blind)
+        self.assertIn("3 process(es) this user cannot read", blind)
+        self.assertIn(f"fuser -vm {target}", blind)
 
 
 @unittest.skipUnless(DARWIN, "dedupe needs APFS clones")

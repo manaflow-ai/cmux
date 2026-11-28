@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextHomeModel
 import Foundation
 
 nonisolated extension CloudHomeSource {
@@ -167,7 +168,7 @@ nonisolated extension CloudHomeSource {
     /// `maskAddress`; cmux-home-rules' `cloud.source_masked`).
     static func masked(_ contact: ContactAddress) -> String {
         let wire = switch contact { case .email(let value): ["email": value]; case .phone(let value): ["phone": value] }
-        let reply: [String: String]? = HomeRust.call("cloud.source_masked", ["contact": wire])
+        let reply = try? HomeRules.call("cloud.source_masked", ["contact": wire]) as [String: String]
         return reply?["masked"] ?? "***"
     }
 

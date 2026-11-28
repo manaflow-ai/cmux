@@ -15,6 +15,12 @@ import sys
 import tempfile
 import unittest
 import importlib.util
+import hashlib
+import http.server
+import io
+import tarfile
+import threading
+import time
 
 # tests/git_fixture_env.py turns off git's background maintenance in the temp repos; loaded by path for python3 -I.
 _git_fixture_env = importlib.util.spec_from_file_location(
@@ -38,7 +44,9 @@ def write(path, text):
     path.write_text(text)
 
 
-class FFICacheTest(unittest.TestCase):
+class FFIRepoCase(unittest.TestCase):
+    """A landed repository, a step's checkout of it and a worker cache (no tests of its own)."""
+
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
@@ -97,6 +105,8 @@ class FFICacheTest(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         return self.run_helper("store", str(self.checkout), str(self.work / "inputs.json"), str(self.work / "tip.json"))
 
+
+class FFICacheTest(FFIRepoCase):
     def test_landed_build_is_stored_then_restored(self):
         key = self.key()
         self.assertEqual(len(key), 64)
@@ -479,6 +489,346 @@ NEWER = LOCK + '\n[[package]]\nname = "zstd"\nversion = "0.13.4"\n'
 
 def sh_quiet(cwd, *args):
     subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True)
+
+
+class FakeController:
+    """The controller's component index and artifact store as a step reads them (GET only)."""
+
+    def __init__(self):
+        self.entries = {}  # key -> {"manifest", "files": [{"name","sha256","size"}], "worker"}
+        self.blobs = {}    # "sha256:<hex>" -> bytes
+        self.gets = []
+        self.claims = {}   # key -> {"job", "worker"}: the controller's build claims (components_claim.go)
+        self.claim_calls = []  # (method, key, job or wait)
+        self.on_wait = None  # called at a waiting claim read of a claimed key (the holder publishes meanwhile)
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def answer(self, code, obj):
+                body = json.dumps(obj).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def claim_state(self, key):
+                if key in owner.entries:
+                    return {"state": "present"}
+                if key in owner.claims:
+                    return dict(owner.claims[key], state="claimed")
+                return {"state": "free"}
+
+            def do_POST(self):
+                key = self.path.split("/")[5]
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                owner.claim_calls.append(("POST", key, body["job"]))
+                assert hashlib.sha256(body["manifest"].encode()).hexdigest() == key, "the claim's manifest is its key"
+                state = self.claim_state(key)
+                if state["state"] == "free" or owner.claims.get(key, {}).get("job") == body["job"]:
+                    owner.claims[key] = {"job": body["job"], "worker": "this-worker"}
+                    return self.answer(200, dict(owner.claims[key], state="mine"))
+                return self.answer(409, state)
+
+            def do_DELETE(self):
+                key = self.path.split("/")[5]
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                owner.claim_calls.append(("DELETE", key, body["job"]))
+                if owner.claims.get(key, {}).get("job") == body["job"]:
+                    del owner.claims[key]
+                    return self.answer(200, {"state": "free"})
+                return self.answer(409, self.claim_state(key))
+
+            def do_GET(self):
+                owner.gets.append(self.path)
+                body, code = b"", 404
+                path, _, query = self.path.partition("?")
+                if path.startswith("/v1/components/dev/ios-ffi/") and path.endswith("/claim"):
+                    key = path.split("/")[5]
+                    wait = dict(q.split("=", 1) for q in query.split("&") if "=" in q).get("wait", "0")
+                    owner.claim_calls.append(("GET", key, wait))
+                    if wait != "0" and key in owner.claims and key not in owner.entries:
+                        if owner.on_wait:
+                            owner.on_wait(key)
+                        else:
+                            time.sleep(min(float(wait), 0.25))  # the controller holds a waiting read
+                    return self.answer(200, self.claim_state(key))
+                if self.path.startswith("/v1/components/dev/ios-ffi/"):
+                    key = self.path.rsplit("/", 1)[1]
+                    if key in owner.entries:
+                        body, code = json.dumps(owner.entries[key]).encode(), 200
+                elif self.path.startswith("/v1/artifacts/") and self.path.endswith("/url"):
+                    digest = self.path.split("/")[3]
+                    if digest in owner.blobs:
+                        url = "http://127.0.0.1:%d/blob/%s" % (owner.port, digest)
+                        body, code = json.dumps({"url": url}).encode(), 200
+                elif self.path.startswith("/blob/"):
+                    digest = self.path.split("/", 2)[2]
+                    if digest in owner.blobs:
+                        body, code = owner.blobs[digest], 200
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    @property
+    def url(self):
+        return "http://127.0.0.1:%d" % self.port
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def publish(self, out_dir, worker="aws-m4pro-2", tamper=None):
+        """What the worker does with a step's component-outputs/ios-ffi/<key>/ after the step."""
+        key = out_dir.name
+        files = []
+        for f in sorted(out_dir.iterdir()):
+            if f.name == "manifest.json":
+                continue
+            data = f.read_bytes()
+            digest = "sha256:" + hashlib.sha256(data).hexdigest()
+            files.append({"name": f.name, "sha256": digest, "size": len(data)})
+            self.blobs[digest] = data if tamper != f.name else data[:-1] + b"X"
+        self.entries[key] = {"manifest": (out_dir / "manifest.json").read_text(), "files": files, "worker": worker}
+
+
+class FleetTierTest(FFIRepoCase):
+    """2026-11-27: the cache was per worker. 44 simulator steps missed in 15 h (31,407 s of FFI builds) and 13 of
+    those misses were keys another worker had already built (a2b7b418 missed on 5 hosts). A step now reads the
+    fleet's component store on a local miss, and its fresh build goes to the store through the worker."""
+
+    def setUp(self):
+        super().setUp()
+        self.controller = FakeController()
+        self.addCleanup(self.controller.close)
+        self.job = self.tmp / "job"
+        self.job.mkdir()
+        self.env.update({"CMUX_CI_CONTROLLER": self.controller.url, "CI_JOB_DIR": str(self.job)})
+
+    def build_on_worker_a(self):
+        key = self.key()
+        self.build("worker-a")
+        p = self.probe_and_store()
+        self.assertIn("stored", p.stdout, p.stdout + p.stderr)
+        return key
+
+    def worker_b(self):
+        """Another worker: its own cache, its own fresh checkout of the same commit."""
+        env = dict(self.env, CMUX_CI_CACHE_DIR=str(self.tmp / "cache-b"), CI_JOB_DIR=str(self.tmp / "job-b"))
+        checkout = self.tmp / "checkout-b"
+        sh(self.tmp, "git", "clone", "-q", str(self.origin), str(checkout))
+        return env, checkout
+
+    def test_a_fresh_build_is_exported_for_the_fleet_store_under_its_content_key(self):
+        self.env["CARGO_REGISTRIES_PRIVATE_TOKEN"] = "s3cr3t-value"
+        key = self.build_on_worker_a()
+        out = self.job / "component-outputs" / "ios-ffi" / key
+        # Every step can read a fleet manifest: build settings are there as hashes, never as values.
+        self.assertNotIn(b"s3cr3t-value", (out / "manifest.json").read_bytes())
+        self.assertIn("CARGO_REGISTRIES_PRIVATE_TOKEN", json.loads((out / "manifest.json").read_text())["env"])
+        out = self.job / "component-outputs" / "ios-ffi" / key
+        self.assertTrue(out.is_dir(), list(self.job.rglob("*")))
+        manifest = (out / "manifest.json").read_bytes()
+        # The controller accepts an entry only when sha256(manifest) is its key and the manifest names its component.
+        self.assertEqual(hashlib.sha256(manifest).hexdigest(), key)
+        m = json.loads(manifest)
+        self.assertEqual(m["name"], "ios-ffi")
+        self.assertTrue(m["v"])
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         ["CmuxMobileLinkFFI.swift", "CmuxMobileLinkFFI.xcframework.tar", "manifest.json"])
+        with tarfile.open(out / "CmuxMobileLinkFFI.xcframework.tar") as tar:
+            names = sorted(tar.getnames())
+            self.assertIn("CmuxMobileLinkFFI.xcframework/Info.plist", names)
+            self.assertTrue(all(t.mtime == 0 and t.uid == 0 for t in tar.getmembers()), "deterministic archive")
+
+    def test_another_worker_restores_the_fleet_entry_verified(self):
+        key = self.build_on_worker_a()
+        self.controller.publish(self.job / "component-outputs" / "ios-ffi" / key)
+        env, checkout = self.worker_b()
+        p = self.run_helper("key", str(checkout), str(self.tmp / "inputs-b.json"), env=env)
+        self.assertEqual(p.stdout.strip(), key, p.stderr)
+        p = self.run_helper("restore", str(checkout), key, env=env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("hit", p.stdout)
+        self.assertIn("fleet", p.stdout)
+        self.assertEqual((checkout / XCF / "ios-arm64-simulator/F.framework/F").read_text(), "worker-a")
+        self.assertEqual((checkout / SWIFT).read_text(), "// generated worker-a\n")
+        # Installed into worker B's own cache: its next step hits locally, without the controller.
+        self.assertTrue((self.tmp / "cache-b" / "ios-ffi" / key / "manifest.json").is_file())
+        gets = len(self.controller.gets)
+        sh(checkout, "rm", "-rf", "cmux-next-ios/CmuxMobileKit/Frameworks")
+        self.assertEqual(self.run_helper("restore", str(checkout), key, env=env).returncode, 0)
+        self.assertEqual(len(self.controller.gets), gets)
+        # A restored entry is not exported again: only a build this step made goes to the store.
+        self.assertFalse((self.tmp / "job-b" / "component-outputs").exists())
+
+    def test_bytes_that_do_not_match_the_index_are_a_miss(self):
+        key = self.build_on_worker_a()
+        self.controller.publish(self.job / "component-outputs" / "ios-ffi" / key, tamper="CmuxMobileLinkFFI.xcframework.tar")
+        env, checkout = self.worker_b()
+        p = self.run_helper("restore", str(checkout), key, env=env)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("does not match", p.stdout + p.stderr)
+        self.assertFalse((checkout / XCF).exists())
+        self.assertFalse((self.tmp / "cache-b" / "ios-ffi" / key).exists())
+
+    def test_an_entry_whose_manifest_is_not_its_key_is_a_miss(self):
+        key = self.build_on_worker_a()
+        self.controller.publish(self.job / "component-outputs" / "ios-ffi" / key)
+        self.controller.entries[key]["manifest"] += " "
+        env, checkout = self.worker_b()
+        p = self.run_helper("restore", str(checkout), key, env=env)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertFalse((checkout / XCF).exists())
+
+    def test_an_archive_that_escapes_or_links_is_refused(self):
+        key = self.build_on_worker_a()
+        out = self.job / "component-outputs" / "ios-ffi" / key
+        for bad in ("../../escape", "CmuxMobileLinkFFI.xcframework/link"):
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as tar:
+                info = tarfile.TarInfo(bad)
+                if bad.endswith("link"):
+                    info.type, info.linkname = tarfile.SYMTYPE, "/etc/passwd"
+                    tar.addfile(info)
+                else:
+                    info.size = 1
+                    tar.addfile(info, io.BytesIO(b"x"))
+            (out / "CmuxMobileLinkFFI.xcframework.tar").write_bytes(buf.getvalue())
+            self.controller.publish(out)
+            env, checkout = self.worker_b()
+            p = self.run_helper("restore", str(checkout), key, env=env)
+            self.assertEqual(p.returncode, 1, bad + ": " + p.stdout + p.stderr)
+            self.assertFalse((self.tmp / "escape").exists())
+            self.assertFalse((self.tmp / "cache-b" / "ios-ffi" / key).exists())
+            shutil.rmtree(checkout)
+
+    def test_remote_off_neither_reads_nor_exports(self):
+        self.env["CMUX_CI_COMPONENT_REMOTE"] = "0"
+        key = self.build_on_worker_a()
+        self.assertFalse((self.job / "component-outputs").exists())
+        env, checkout = self.worker_b()
+        self.assertEqual(self.run_helper("restore", str(checkout), key, env=env).returncode, 1)
+        self.assertEqual(self.controller.gets, [])
+
+
+class ClaimTest(FFIRepoCase):
+    """2026-11-28: after the fleet tier went live, 5 of the 6 repeat FFI builds in 8.6 h were steps that missed one
+    key at the same time on different workers, and each built it. A step that misses claims the key at the
+    controller; a step that finds it claimed waits for the holder's entry (a bounded time) instead of building."""
+
+    worker_b = FleetTierTest.worker_b
+
+    def setUp(self):
+        super().setUp()
+        self.controller = FakeController()
+        self.addCleanup(self.controller.close)
+        self.job = self.tmp / "job"
+        self.job.mkdir()
+        self.env.update({"CMUX_CI_CONTROLLER": self.controller.url, "CI_JOB_DIR": str(self.job)})
+        # A worker that publishes a ready output while the step runs tells the step it may claim (components_ready.go).
+        self.env.update({"CMUX_CI_JOB_ID": "job-a", "CMUX_CI_COMPONENT_EARLY": "1"})
+
+    def restore(self, checkout, key, env, inputs):
+        return self.run_helper("restore", str(checkout), key, str(inputs), env=env)
+
+    def test_the_first_step_that_misses_claims_the_key_and_marks_its_export_ready(self):
+        key = self.key()
+        p = self.restore(self.checkout, key, self.env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("claimed", p.stdout)
+        self.assertEqual(self.controller.claims[key]["job"], "job-a")
+        self.build("worker-a")
+        self.assertIn("stored", self.probe_and_store().stdout)
+        out = self.job / "component-outputs" / "ios-ffi"
+        # The marker comes after the finished output: the worker spools only a marked one while the step runs.
+        self.assertTrue((out / key / "manifest.json").is_file())
+        self.assertTrue((out / (key + ".ready")).is_file(), sorted(p.name for p in out.iterdir()))
+
+    def test_a_step_that_finds_the_key_claimed_waits_for_the_entry_and_does_not_build(self):
+        key = self.key()
+        self.build("worker-a")
+        self.assertIn("stored", self.probe_and_store().stdout)
+        published = self.job / "component-outputs" / "ios-ffi" / key
+        self.controller.claims[key] = {"job": "job-x", "worker": "aws-m4pro-2"}
+        self.controller.on_wait = lambda k: (self.controller.publish(published), self.controller.claims.pop(k))
+        env, checkout = self.worker_b()
+        env["CMUX_CI_JOB_ID"] = "job-b"
+        p = self.run_helper("key", str(checkout), str(self.tmp / "inputs-b.json"), env=env)
+        p = self.restore(checkout, key, env, self.tmp / "inputs-b.json")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("waiting", p.stdout)
+        self.assertIn("hit %s (fleet store" % key[:12], p.stdout)
+        self.assertEqual((checkout / SWIFT).read_text(), "// generated worker-a\n")
+        self.assertNotIn(("POST", key, "job-b"), self.controller.claim_calls[1:], "it claimed while another held it")
+
+    def test_the_wait_is_bounded_and_then_the_step_builds_it_too(self):
+        key = self.key()
+        self.controller.claims[key] = {"job": "job-x", "worker": "aws-m4pro-2"}
+        env = dict(self.env, CMUX_IOS_FFI_CLAIM_WAIT="1")
+        p = self.restore(self.checkout, key, env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("building it too", p.stdout)
+        self.assertEqual(self.controller.claims[key]["job"], "job-x")
+
+    def test_when_the_holder_ends_without_an_entry_the_waiter_claims_and_builds(self):
+        key = self.key()
+        self.controller.claims[key] = {"job": "job-x", "worker": "aws-m4pro-2"}
+        self.controller.on_wait = lambda k: self.controller.claims.pop(k)  # its step failed
+        p = self.restore(self.checkout, key, self.env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(self.controller.claims[key]["job"], "job-a")
+
+    def test_a_step_on_an_older_worker_waits_but_never_claims(self):
+        key = self.key()
+        env = {k: v for k, v in self.env.items() if k not in ("CMUX_CI_JOB_ID", "CMUX_CI_COMPONENT_EARLY")}
+        p = self.restore(self.checkout, key, env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual([c[0] for c in self.controller.claim_calls], ["GET"])
+        self.assertEqual(self.controller.claims, {})
+
+    def test_a_holder_whose_build_is_not_stored_releases_its_claim(self):
+        key = self.key()
+        self.assertEqual(self.restore(self.checkout, key, self.env, self.work / "inputs.json").returncode, 1)
+        self.assertIn(key, self.controller.claims)
+        self.build("worker-a")
+        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn changed() {}\n")  # inputs changed mid-build
+        p = self.probe_and_store()
+        self.assertIn("not stored", p.stdout)
+        self.assertNotIn(key, self.controller.claims)
+        self.assertIn(("DELETE", key, "job-a"), self.controller.claim_calls)
+
+    def test_a_step_that_cannot_write_its_job_dir_still_records_and_releases_its_claim(self):
+        # 2026-11-28 probe: on lent workers the step runs as another user and $CI_JOB_DIR is the worker's
+        # ("claim of 4e0686530131 not recorded ([Errno 13] Permission denied: .../.ios-ffi-claim')"), so a holder
+        # whose build stored nothing never released its claim. component-outputs/ is the step's own (export writes it).
+        (self.job / "component-outputs" / "ios-ffi").mkdir(parents=True)
+        self.job.chmod(0o555)
+        self.addCleanup(self.job.chmod, 0o755)
+        key = self.key()
+        p = self.restore(self.checkout, key, self.env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertNotIn("not recorded", p.stdout)
+        self.build("worker-a")
+        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn changed() {}\n")  # nothing is stored
+        self.probe_and_store()
+        self.assertIn(("DELETE", key, "job-a"), self.controller.claim_calls)
+
+    def test_remote_off_never_claims(self):
+        key = self.key()
+        env = dict(self.env, CMUX_CI_COMPONENT_REMOTE="0")
+        self.assertEqual(self.restore(self.checkout, key, env, self.work / "inputs.json").returncode, 1)
+        self.assertEqual(self.controller.claim_calls, [])
+
+    def test_the_simulator_step_passes_its_inputs_to_restore(self):
+        self.assertIn('"${ffi_cache[@]}" restore "$root" "$ffi_key" "$work/ffi-inputs.json"', SCRIPT.read_text())
 
 
 class RestorePatchLock(unittest.TestCase):

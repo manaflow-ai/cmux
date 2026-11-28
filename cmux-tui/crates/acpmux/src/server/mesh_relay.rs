@@ -260,8 +260,40 @@ fn after_failure(backoff: &mut Backoff, e: &HubError) -> Duration {
     backoff.next_wait().max(e.retry_after.unwrap_or_default())
 }
 
-/// The least time between heartbeats: the hub takes fewer than 30 a minute.
+/// The least time between timed heartbeats: the hub takes fewer than 30 a minute.
 const HEARTBEAT_FLOOR: Duration = Duration::from_millis(2500);
+
+/// The heartbeats any minute may carry: what [`HEARTBEAT_FLOOR`] allowed (60 s / 2.5 s), as a
+/// budget instead of a gap. A requested beat (a chat moved or started here waits on it) goes at
+/// once while the last minute has room, rather than at the floor after the last beat: in a
+/// continuous move ring that floor put 0 to 2.5 s of waiting inside every move's freeze
+/// (super-highway probe 2026-11-28 12:25Z: answer p95 2066 ms of a 2084 ms freeze, pages 90 ms).
+const HEARTBEAT_BUDGET: usize = 24;
+const HEARTBEAT_WINDOW: Duration = Duration::from_secs(60);
+
+/// The heartbeats sent in the last [`HEARTBEAT_WINDOW`], so none goes past [`HEARTBEAT_BUDGET`].
+#[derive(Default)]
+struct BeatBudget(std::collections::VecDeque<tokio::time::Instant>);
+
+impl BeatBudget {
+    fn sent(&mut self, at: tokio::time::Instant) {
+        while self.0.front().is_some_and(|t| at.saturating_duration_since(*t) >= HEARTBEAT_WINDOW) {
+            self.0.pop_front();
+        }
+        self.0.push_back(at);
+        while self.0.len() > HEARTBEAT_BUDGET {
+            self.0.pop_front();
+        }
+    }
+
+    /// The soonest the next heartbeat keeps the last minute within the budget.
+    fn ready_at(&self, now: tokio::time::Instant) -> tokio::time::Instant {
+        match self.0.len().checked_sub(HEARTBEAT_BUDGET).and_then(|i| self.0.get(i)) {
+            Some(oldest) => (*oldest + HEARTBEAT_WINDOW).max(now),
+            None => now,
+        }
+    }
+}
 
 /// The wait after a heartbeat the hub took: a third of its TTL, at most `heartbeat_every`.
 fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
@@ -322,7 +354,7 @@ impl Beat {
         }
     }
 
-    /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
+    /// A heartbeat now (at once while the minute's [`HEARTBEAT_BUDGET`] has room), and its taking, waited
     /// for at most `within`.
     pub(crate) async fn now(&self, within: Duration) {
         let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
@@ -382,18 +414,46 @@ async fn heartbeats(
     let host = crate::pairing::mesh_host();
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
+    // The last health reading and the requests the last heartbeat covered: a requested beat (a
+    // chat started or moved in waits on it) sends the last reading instead of taking another,
+    // which waits up to 3 s on a loaded machine inside a move's freeze.
+    let mut last_health: Option<serde_json::Value> = None;
+    let mut last_covered = 0u64;
+    let mut budget = BeatBudget::default();
     loop {
         if hub_ended(&hub) {
             break;
         }
         let began = tokio::time::Instant::now();
+        budget.sent(began);
         let covered = beat.covers();
+        let requested = std::mem::replace(&mut last_covered, covered) < covered;
         let sessions = match hub.upgrade() {
             Some(_) if refusals.inbox.load(Ordering::SeqCst) => Vec::new(),
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
+        let health = match hub.upgrade() {
+            Some(_) if requested && last_health.is_some() => last_health.clone(),
+            Some(hub) => {
+                // timeout: a slow reading is left off this heartbeat; the beat itself never waits on it.
+                let reading = tokio::time::timeout(
+                    Duration::from_secs(3),
+                    super::peer_status::host_health(&hub, crate::conn_origin::Origin::Peer),
+                )
+                .await
+                .ok();
+                let health = reading
+                    .map(|r| crate::peer::health::wire(&r))
+                    .filter(|w| w.as_object().is_some_and(|o| !o.is_empty()));
+                if health.is_some() {
+                    last_health.clone_from(&health);
+                }
+                health
+            }
+            None => break,
+        };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false, health };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -442,13 +502,14 @@ async fn heartbeats(
         };
         let floor = HEARTBEAT_FLOOR.max(options.min_poll_gap);
         let wait = wait.max(floor);
-        // A start's request beats sooner, never under the floor nor during a backoff.
+        // A start's or a move's request beats sooner: at once while the last minute has room in
+        // the budget, never during a backoff.
         let nudged = async {
             if !taken {
                 return std::future::pending().await;
             }
             beat.nudge.notified().await;
-            tokio::time::sleep_until(began + floor).await;
+            tokio::time::sleep_until(budget.ready_at(tokio::time::Instant::now())).await;
         };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
@@ -468,13 +529,11 @@ async fn heartbeats(
             }
             std::future::pending::<()>().await
         };
+        // A request ends the pause at the floor without waiting on the receipts: they go with a
+        // later heartbeat, as ones past their budget do.
         tokio::select! {
-            () = async {
-                tokio::join!(
-                    async { tokio::select! { () = tokio::time::sleep(wait) => {}, () = nudged => {} } },
-                    read_receipts
-                );
-            } => {}
+            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts); } => {}
+            () = nudged => {}
             // The book read never holds back a heartbeat: dropped once the pause ends.
             () = book => {}
             () = ended(&mut stop, &hub) => break,
@@ -485,7 +544,7 @@ async fn heartbeats(
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true, health: None };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
@@ -836,6 +895,15 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // A mixed grant may allow the daemon without matching its user. Only the
+            // hub-stamped person can confer the owner's host execution profile.
+            let same_person = own_user
+                .as_deref()
+                .filter(|user| !user.is_empty())
+                .is_some_and(|user| message.from.user.as_deref() == Some(user))
+                && self.allowed.iter().any(|entry| {
+                    entry.same_user && entry.allows(&message.from, own_user.as_deref(), op)
+                });
             // The widest policy the owner granted this sender for `op` here (`maxPolicy`).
             let cap = crate::mesh_relay_config::control_cap(
                 &self.allowed,
@@ -891,7 +959,7 @@ impl ControlHook for MeshControlHook {
                             return;
                         }
                         let outcome = tokio::select! {
-                            ack = run_control(&hub, &message, cap) => ack,
+                            ack = run_control(&hub, &message, cap, same_person) => ack,
                             () = &mut shutdown => None,
                         };
                         if let Some(ack) = outcome {
@@ -946,6 +1014,7 @@ async fn run_control(
     hub: &Arc<Hub>,
     message: &InMessage,
     cap: crate::config::PermissionPolicy,
+    same_person: bool,
 ) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
@@ -1047,7 +1116,7 @@ async fn run_control(
         };
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
-    let session_id = params.get("sessionId").cloned();
+    super::lane_parent::mark_control_boundary(&mut params, same_person);
     let (tx, mut rx) = relay_connection_as(hub, control_auth(cap));
     let initialized = rpc_call(
         &tx,
@@ -1071,7 +1140,9 @@ async fn run_control(
         // `session resume` operation instead releases a held queue item, so use the same
         // queue-edit path here.
         "resume" => {
-            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params).await {
+            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params.clone())
+                .await
+            {
                 Ok(info) => info,
                 Err(error) => return error.ack(),
             };
@@ -1084,18 +1155,10 @@ async fn run_control(
                 .map(str::to_owned);
             match held {
                 Some(prompt_id) => {
-                    rpc_call(
-                        &tx,
-                        &mut rx,
-                        3,
-                        crate::rpc::method::MUX_QUEUE_EDIT,
-                        serde_json::json!({
-                            "sessionId": session_id,
-                            "promptId": prompt_id,
-                            "op": "resume"
-                        }),
-                    )
-                    .await
+                    // Keep the same server-derived provenance on the write after the read.
+                    params["promptId"] = serde_json::json!(prompt_id);
+                    params["op"] = serde_json::json!("resume");
+                    rpc_call(&tx, &mut rx, 3, crate::rpc::method::MUX_QUEUE_EDIT, params).await
                 }
                 None => Ok(serde_json::json!({"resumed": false})),
             }
@@ -1338,6 +1401,14 @@ pub async fn deliver(
     // receiver never starts a turn.
     let (class, text) =
         if team { (None, message.body.as_str()) } else { inline_class(&message.body) };
+    // A plain send no agent made (a shell's `acpmux send HOST/ID`, a probe's) runs as a prompt
+    // over a peer link, as it does on its own machine. Named here so its label is the machine
+    // the hub proved, it would file as an unclassed agent's FYI, which no longer wakes an idle
+    // chat on a first lease (#58035): the turn a hub-moved chat owed never ran. It asks as a
+    // question, which wakes the chat as the peer link's prompt does.
+    let class = class.or_else(|| {
+        (!team && names_no_sender(message)).then_some(crate::prompt_class::PromptClass::Question)
+    });
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
@@ -1386,33 +1457,106 @@ pub async fn deliver(
     }
     use super::outbox::Next;
     match super::outbox::attempt_once(hub, None, request, Origin::Peer).await {
-        Ok(_) => Some(Ack::delivered(prompt_id, None)),
+        Ok(accepted) => Some(Ack::delivered(prompt_id, Some(acceptance(&accepted)))),
         // A paused agent pair holds it in the session's queue: the person's resume runs it.
         Err((why, Next::Held)) => Some(Ack::delivered(prompt_id, Some(format!("held: {why}")))),
         Err((why, Next::Fail)) => {
             Some(Ack { prompt_id: Some(prompt_id.to_owned()), ..Ack::refused(why) })
         }
-        // No such session here is the lease's to bring back too, as before (`Next::NoSession`
-        // settles only an outbox delivery).
-        // A chat moved away or mid-move: the lease brings it back too. A relayed prompt runs
-        // as a peer's (`Origin::Peer`), so it is not handed to this daemon's own outbox, whose
-        // attempts go as the local socket's.
-        Err((
-            why,
-            Next::Retry
-            | Next::Unsent
-            | Next::NoSession
-            | Next::Stale
-            | Next::Moved(_)
-            | Next::MovedToSocket { .. }
-            | Next::Moving,
-        )) => {
+        // A chat mid-move: the lease brings it back, and it runs here if the move aborts or
+        // is refused below once it commits.
+        Err((why, Next::Moving)) => {
+            tracing::info!(
+                "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
+            );
+            None
+        }
+        // Nothing here will ever run it: a chat that moved away (the hub leases it to this
+        // daemon again, never where the chat went), or no such session any more. Refused at
+        // once with why, so the sender reads where the chat went instead of the hub's "leased
+        // 60 times and never acked" an hour on. A relayed prompt runs as a peer's
+        // (`Origin::Peer`), so it is not handed to this daemon's own outbox to follow.
+        Err((why, next @ (Next::NoSession | Next::Moved(_) | Next::MovedToSocket { .. }))) => {
+            Some(Ack {
+                prompt_id: Some(prompt_id.to_owned()),
+                ..Ack::refused(gone_reason(&why, &next))
+            })
+        }
+        // Tried again on its next lease, up to [`MAX_RETRY_LEASES`]: then refused with the
+        // last error, never left to the hub's hour of leases.
+        Err((why, Next::Retry | Next::Unsent | Next::Stale)) => {
+            if message.attempt >= MAX_RETRY_LEASES {
+                return Some(Ack {
+                    prompt_id: Some(prompt_id.to_owned()),
+                    ..Ack::refused(format!("not delivered after {} leases: {why}", message.attempt))
+                });
+            }
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );
             None
         }
     }
+}
+
+/// How the target took a relayed prompt, for the ack's detail: the sender's outbox record
+/// (`acpmux send --status`) then tells a turn that started, steered in or queued from a message
+/// an inbox or a hold keeps without one. Before, every acceptance acked with no detail, so a
+/// moved chat that never answered read as "delivered" with nothing saying where it went.
+pub(crate) fn acceptance(accepted: &serde_json::Value) -> String {
+    let flag = |k: &str| accepted.get(k) == Some(&serde_json::Value::Bool(true));
+    let state = accepted.get("state").and_then(serde_json::Value::as_str);
+    let mut kind = if flag(crate::cli::output::HELD_IN_INBOX) {
+        "inbox, held: the idle chat does not wake for it".to_owned()
+    } else if flag("inbox") {
+        "inbox".to_owned()
+    } else if let Some(hold) = ["surgeHeld", "sessionHeld", "held"].into_iter().find(|k| flag(k)) {
+        format!("held ({hold})")
+    } else {
+        match state {
+            Some(state) => state.to_owned(),
+            None if flag("queued") => "queued".to_owned(),
+            None => "accepted".to_owned(),
+        }
+    };
+    if let Some(turn) = accepted.get("turnId").and_then(serde_json::Value::as_str) {
+        kind.push_str(&format!("; turnId {turn}"));
+    }
+    if let Some(thread) = accepted.get("threadId").and_then(serde_json::Value::as_str) {
+        kind.push_str(&format!("; threadId {thread}"));
+    }
+    kind
+}
+
+/// How many leases a relayed prompt whose attempt failed for a reason that may pass (a timeout,
+/// a busy agent, a session made again) is tried on before the relay refuses it with that reason.
+/// The hub's lease is a minute and it expires a message after 60 (cmux-platform mesh `Core.ts`),
+/// so the sender heard only "leased 60 times and never acked", an hour on, and never why.
+pub const MAX_RETRY_LEASES: u32 = 10;
+
+/// The refusal of a relayed prompt nothing on this daemon will run: `why`, and where the chat
+/// went when it moved.
+fn gone_reason(why: &str, next: &super::outbox::Next) -> String {
+    use super::outbox::Next;
+    match next {
+        Next::Moved(to) => format!("the chat moved to {to}: {why}"),
+        Next::MovedToSocket { socket, session } => {
+            format!("the chat moved to daemon {socket} as {session}: {why}")
+        }
+        _ => why.to_owned(),
+    }
+}
+
+/// Whether `message` names no sender at all: no session, no name, no relay record, no team
+/// address. A plain `acpmux send` outside any agent and session, which a peer link carries as a
+/// plain prompt (`peer_forward::name_sender` names only a proven caller).
+fn names_no_sender(message: &InMessage) -> bool {
+    let blank = |v: Option<&str>| v.is_none_or(|v| v.trim().is_empty());
+    let from = &message.from;
+    blank(from.session_id.as_deref())
+        && blank(from.name.as_deref())
+        && blank(from.team_address.as_deref())
+        && from.relay.is_none()
 }
 
 /// Whether `message` is delivered by the team rules (information unless the hub allows work).
@@ -1457,6 +1601,157 @@ fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) 
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
+    use futures::future::BoxFuture;
+
+    /// Records each heartbeat and when it came; nothing else is called.
+    #[derive(Default)]
+    struct Beats(std::sync::Mutex<Vec<(tokio::time::Instant, Heartbeat)>>);
+
+    impl MeshHub for Beats {
+        fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+            Box::pin(std::future::pending())
+        }
+        fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn heartbeat<'a>(
+            &'a self,
+            beat: &'a Heartbeat,
+        ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+            self.0.lock().unwrap().push((tokio::time::Instant::now(), beat.clone()));
+            Box::pin(async {
+                Ok(crate::mesh::HeartbeatReply { daemon_id: "inst_a".into(), ttl_seconds: 90 })
+            })
+        }
+        fn send<'a>(
+            &'a self,
+            _: &'a crate::mesh::OutMessage,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+        fn receipt<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+    }
+
+    /// A requested heartbeat (a chat moved in waits on it inside the move's freeze) goes as soon
+    /// as the floor allows, carrying the last health reading instead of taking a new one, which
+    /// waits up to 3 s on a loaded machine (super-highway freeze p95 3015 ms against 500 ms).
+    #[tokio::test]
+    async fn a_requested_heartbeat_sends_the_last_health_reading_at_once() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let fake = Arc::new(Beats::default());
+        let beat = Arc::new(Beat::new());
+        let (stop_tx, stop) = watch::channel(false);
+        let options = Arc::new(RelayOptions {
+            heartbeat_every: Duration::from_secs(60),
+            ..Default::default()
+        });
+        let beats = tokio::spawn(heartbeats(
+            Arc::downgrade(&hub),
+            fake.clone(),
+            options,
+            watch::channel(None).0,
+            beat.clone(),
+            Default::default(),
+            stop,
+        ));
+        let first = async {
+            while fake.0.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), first).await.expect("a first heartbeat");
+        tokio::time::sleep(HEARTBEAT_FLOOR).await;
+        let asked = tokio::time::Instant::now();
+        beat.now(Duration::from_secs(5)).await;
+        let took = asked.elapsed();
+        let sent = fake.0.lock().unwrap().clone();
+        assert_eq!(sent.len(), 2, "one requested heartbeat after the first");
+        assert!(took < Duration::from_millis(500), "the requested heartbeat took {took:?}");
+        if sent[0].1.health.is_some() {
+            assert_eq!(sent[1].1.health, sent[0].1.health, "the last reading, not a new one");
+        }
+        stop_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), beats).await;
+    }
+
+    /// A requested heartbeat right after another (a move ring lands a chat here every few
+    /// seconds) goes at once, not at the 2.5 s floor after the last one: that floor was 0 to
+    /// 2.5 s of every hub move's freeze (super-highway answer p95 2066 ms, 2026-11-28).
+    #[tokio::test]
+    async fn a_requested_heartbeat_right_after_another_goes_at_once() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let fake = Arc::new(Beats::default());
+        let beat = Arc::new(Beat::new());
+        let (stop_tx, stop) = watch::channel(false);
+        let options = Arc::new(RelayOptions {
+            heartbeat_every: Duration::from_secs(60),
+            ..Default::default()
+        });
+        let beats = tokio::spawn(heartbeats(
+            Arc::downgrade(&hub),
+            fake.clone(),
+            options,
+            watch::channel(None).0,
+            beat.clone(),
+            Default::default(),
+            stop,
+        ));
+        let first = async {
+            while fake.0.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), first).await.expect("a first heartbeat");
+        let mut took = Vec::new();
+        for _ in 0..3 {
+            let asked = tokio::time::Instant::now();
+            beat.now(Duration::from_secs(5)).await;
+            took.push(asked.elapsed());
+        }
+        assert_eq!(fake.0.lock().unwrap().len(), 4, "three requested heartbeats after the first");
+        assert!(
+            took.iter().all(|t| *t < Duration::from_millis(500)),
+            "requested beats took {took:?}"
+        );
+        stop_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), beats).await;
+    }
+
+    /// The budget keeps any minute to what the old floor allowed: the 25th beat waits for the
+    /// first to leave the window.
+    #[test]
+    fn the_heartbeat_budget_holds_a_minute_to_the_floors_rate() {
+        let t0 = tokio::time::Instant::now();
+        let mut budget = BeatBudget::default();
+        for i in 0..HEARTBEAT_BUDGET {
+            assert_eq!(budget.ready_at(t0), t0, "beat {i} has room");
+            budget.sent(t0 + Duration::from_millis(i as u64));
+        }
+        assert_eq!(budget.ready_at(t0), t0 + HEARTBEAT_WINDOW, "the 25th waits for the first");
+        let later = t0 + HEARTBEAT_WINDOW + Duration::from_millis(1);
+        budget.sent(later);
+        assert_eq!(
+            budget.ready_at(later),
+            t0 + Duration::from_millis(1) + HEARTBEAT_WINDOW,
+            "then the second"
+        );
+        assert!(
+            HEARTBEAT_WINDOW.as_millis() / HEARTBEAT_FLOOR.as_millis() >= HEARTBEAT_BUDGET as u128
+        );
+    }
 
     /// A block or question sent over the mesh files as that class on the receiver, so an idle
     /// receiver wakes (`hub/inbox.rs`): the sender's inline line (`mesh_send.rs`) parses back.
@@ -1469,6 +1764,44 @@ mod tests {
             assert_eq!(inline_class(&body), (Some(class), "You stopped on a 529."), "{class}");
         }
         assert_eq!(inline_class("[blocker]\nfix it"), (Some(PromptClass::Block), "fix it"));
+    }
+
+    /// Only a send that names no one at all asks as a question (`deliver`): a session's, a named
+    /// program's, a relay's or a team address's message keeps its class.
+    #[test]
+    fn only_a_send_naming_no_one_names_no_sender() {
+        let mut bare = from("h", "n");
+        bare.from.name = None;
+        assert!(names_no_sender(&bare));
+        bare.from.name = Some("  ".into());
+        assert!(names_no_sender(&bare));
+        assert!(!names_no_sender(&from("h", "n")));
+        let mut session = bare.clone();
+        session.from.session_id = Some("s-1".into());
+        assert!(!names_no_sender(&session));
+        let mut relayed = bare.clone();
+        relayed.from.relay = Some(json!({"by": "lane-gh", "machine": "h"}));
+        assert!(!names_no_sender(&relayed));
+        let mut team = bare;
+        team.from.team_address = Some("@member/coordinator".into());
+        assert!(!names_no_sender(&team));
+    }
+
+    /// A refusal for a chat that moved away names where it went.
+    #[test]
+    fn a_moved_chats_refusal_names_where_it_went() {
+        use super::super::outbox::Next;
+        let why = "transfer.moved: this chat moved";
+        assert_eq!(
+            gone_reason(why, &Next::Moved("host-b/s-2".into())),
+            format!("the chat moved to host-b/s-2: {why}")
+        );
+        let socket = Next::MovedToSocket { socket: "/run/a.sock".into(), session: "s-3".into() };
+        assert_eq!(
+            gone_reason(why, &socket),
+            format!("the chat moved to daemon /run/a.sock as s-3: {why}")
+        );
+        assert_eq!(gone_reason("no session matches", &Next::NoSession), "no session matches");
     }
 
     #[test]
@@ -1634,6 +1967,23 @@ mod tests {
         message.to.team_address = None;
         message.start_work = None;
         assert!(!team_delivery(&message, None), "an unmarked direct prompt, as before");
+    }
+
+    #[test]
+    fn an_acceptance_names_how_the_chat_took_it() {
+        let inbox = json!({"promptId": "p", "queued": true, "inbox": true, "threadId": "t1"});
+        assert_eq!(acceptance(&inbox), "inbox; threadId t1");
+        let mut held = inbox.clone();
+        held[crate::cli::output::HELD_IN_INBOX] = json!(true);
+        assert!(acceptance(&held).starts_with("inbox, held"), "{}", acceptance(&held));
+        let started = json!({"promptId": "p", "turnId": "u1", "queued": false, "state": "started"});
+        assert_eq!(acceptance(&started), "started; turnId u1");
+        let queued = json!({"promptId": "p", "turnId": "u2", "queued": true, "state": "queued"});
+        assert_eq!(acceptance(&queued), "queued; turnId u2");
+        let steered = json!({"turnId": "u3", "queued": false, "state": "steered", "steer": true});
+        assert_eq!(acceptance(&steered), "steered; turnId u3");
+        assert_eq!(acceptance(&json!({"sessionHeld": true})), "held (sessionHeld)");
+        assert_eq!(acceptance(&json!({})), "accepted");
     }
 
     #[test]

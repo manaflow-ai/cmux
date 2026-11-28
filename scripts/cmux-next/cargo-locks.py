@@ -16,7 +16,8 @@ check   For each tracked Cargo.lock, `cargo update --workspace --locked` in its 
         answer then resolve with the network one at a time (touched workspaces first), since cargo holds its
         package cache lock for a whole resolve and parallel resolves only queue on it. Prints `stale: DIR/Cargo.lock:
         ...` for each lock cargo would have to rewrite and exits 1 when there is one. A workspace cargo could not
-        judge (no cargo, a network error, a timeout) prints `unchecked: DIR (...)` and does not fail, unless --strict.
+        judge (no cargo, a network error, a timeout, no `cargo metadata` resolve to compare the lock with) prints
+        `unchecked: DIR (...)` and does not fail, unless --strict.
         Under --strict a timed-out workspace is retried once with a longer limit; if it still times out it fails
         only when the change touches it (--base: a Cargo.toml or Cargo.lock in it or in a package it reaches by
         path; with no --base every workspace counts as touched), and otherwise prints a `warning:` line. A busy
@@ -71,6 +72,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path, PurePosixPath
 
@@ -251,8 +253,10 @@ def remaining(end: float | None, wanted: float) -> float:
 
 
 def judge(repo: Path, root: str, env: dict[str, str], passes: tuple[list[str], ...] = (["--offline"], []),
-          timeout: float = TIMEOUT, end: float | None = None) -> tuple[str, str]:
+          timeout: float = TIMEOUT, end: float | None = None,
+          manifests: ManifestIndex | None = None) -> tuple[str, str]:
     """('ok' | 'stale' | 'unchecked' | 'timeout', detail) for the workspace at ROOT; no pass starts past END."""
+    manifests = manifests if manifests is not None else ManifestIndex(repo, end)
     verdict, last = "unchecked", ""
     for network in passes:
         limit = remaining(end, timeout)
@@ -260,7 +264,13 @@ def judge(repo: Path, root: str, env: dict[str, str], passes: tuple[list[str], .
             return "timeout", "not started: the deadline was spent"
         code, err = cargo(["update", "--workspace", "--locked", *network], repo / root, env, timeout=limit)
         if code == 0:
-            extra = orphans(repo, root, env, remaining(end, timeout))
+            extra, why = orphans(repo, root, env, remaining(end, timeout), network, manifests=manifests)
+            if extra is None:
+                # No resolve to compare the lock with: not judged, never ok (the next pass may fetch what the
+                # offline one lacked).
+                verdict, last = ("timeout" if why.startswith("timed out") or why.startswith("not started")
+                                 else "unchecked"), why
+                continue
             return ("stale", ORPHANED + ", ".join(extra)) if extra else ("ok", "")
         if DRIFT in err or STALE.search(err):
             return "stale", ""
@@ -326,11 +336,11 @@ def sourceless(text: str) -> set[tuple[str, str]]:
     return found
 
 
-def manifest_names(repo: Path) -> set[str] | None:
+def manifest_names(repo: Path, timeout: float = 30) -> set[str] | None:
     """The [package] name of every Cargo.toml in REPO's index; None when git cannot say."""
     try:
         done = subprocess.run(["git", "-C", str(repo), "grep", "--cached", "-h", "-A12", "-e", r"^\[package\]",
-                               "--", "*Cargo.toml"], capture_output=True, text=True, timeout=30)
+                               "--", "*Cargo.toml"], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode not in (0, 1):
@@ -350,6 +360,24 @@ def manifest_names(repo: Path) -> set[str] | None:
     return names
 
 
+class ManifestIndex:
+    """One lazy index scan per invocation, shared by workers and fix's re-checks (including scan failures)."""
+
+    def __init__(self, repo: Path, end: float | None = None):
+        self.repo, self.end = repo, end
+        self.lock = threading.Lock()
+        self.loaded = False
+        self.value: set[str] | None = None
+
+    def names(self) -> set[str] | None:
+        with self.lock:
+            if not self.loaded:
+                limit = remaining(self.end, 30)
+                self.value = manifest_names(self.repo, timeout=limit) if limit > 1 else None
+                self.loaded = True
+            return self.value
+
+
 def unreached(text: str, roots: set[tuple[str, str]],
               gone: set[tuple[str, str]] = frozenset()) -> set[tuple[str, str]]:
     """The lock's packages its dependency lists do not reach from ROOTS, never walking through GONE."""
@@ -364,34 +392,45 @@ def unreached(text: str, roots: set[tuple[str, str]],
     return set(graph) - seen
 
 
-def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
-    """`name version` of each package ROOT's lock lists that its dependency lists do not reach from the packages
-    its resolve (`cargo metadata --all-features --locked --offline`) holds: a lock entry for a crate no manifest
-    names. Empty when cargo gives no resolve (a fake, a
-    failure, no time left): this only adds to cargo's own verdict."""
+def orphans(repo: Path, root: str, env: dict[str, str], timeout: float,
+            network: tuple[str, ...] | list[str] = ("--offline",),
+            manifests: ManifestIndex | None = None) -> tuple[list[str] | None, str]:
+    """(`name version` of each package ROOT's lock lists that its dependency lists do not reach from the packages
+    its resolve (`cargo metadata --all-features --locked`) holds: a lock entry for a crate no manifest names, '');
+    NETWORK is the pass's flags (`--offline` or none). (None, why) when cargo gives no resolve (a failure, an empty
+    or unreadable answer, no time left): the caller reports the workspace unchecked, never ok. It used to return []
+    there, and a host without the crates cached passed the check without checking anything (cmux#60140,
+    2026-11-27: `--all-features --offline` needs every optional crate's source)."""
+    command = ["metadata", "--format-version", "1", "--all-features", "--locked", *network]
+    called = "cargo " + " ".join(command)
     if timeout <= 1:
-        return []
+        return None, f"not started: the deadline was spent before {called}"
     out: list[str] = []
-    code, _ = cargo(["metadata", "--format-version", "1", "--all-features", "--locked", "--offline"], repo / root, env,
-                    timeout=timeout, out=out)
-    if code != 0 or not out or not out[0].strip():
-        return []
+    code, err = cargo(command, repo / root, env, timeout=timeout, out=out)
+    if code != 0:
+        detail = err.strip().splitlines()[-1] if err.strip() else f"exit {code}"
+        return None, (f"timed out: {called} ({detail})" if code == 124 else f"{called} failed: {detail}")
     try:
         import json
         resolved = {(p["name"], p["version"]) for p in json.loads(out[0]).get("packages", [])}
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return []
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+        return None, f"{called} gave no readable resolve"
     lock = repo / root / "Cargo.lock"
     try:
         text = lock.read_text(encoding="utf-8")
-    except OSError:
-        return []
+    except OSError as error:
+        return None, f"cannot read {label(root)}/Cargo.lock: {error}"
     if not resolved:
-        return []
+        if lock_packages(text):
+            return None, f"{called} resolved no packages"
+        return [], ""
     # cargo's resolve is the roots, not the whole answer: an optional dependency is reached through the lock.
-    names = manifest_names(repo)
+    manifests = manifests if manifests is not None else ManifestIndex(repo)
+    names = manifests.names()
+    if remaining(manifests.end, 30) <= 1:
+        return None, "timed out: the deadline was spent during the manifest index scan"
     gone = set() if names is None else {key for key in sourceless(text) - resolved if key[0] not in names}
-    return sorted(f"{name} {version}" for name, version in unreached(text, resolved & lock_packages(text), gone))
+    return sorted(f"{name} {version}" for name, version in unreached(text, resolved & lock_packages(text), gone)), ""
 
 
 def label(root: str) -> str:
@@ -399,7 +438,8 @@ def label(root: str) -> str:
 
 
 def check(repo: Path, jobs: int, strict: bool = False, touched: set[str] | None = None,
-          deadline: float | None = None, end: float | None = None) -> dict[str, tuple[str, str]]:
+          deadline: float | None = None, end: float | None = None,
+          manifests: ManifestIndex | None = None) -> dict[str, tuple[str, str]]:
     """Every workspace's verdict. TOUCHED: the workspaces the change touches (None: all of them). DEADLINE: seconds
     the whole check may take (default NO_BASE_DEADLINE when TOUCHED is None, else none); past it nothing starts,
     and a running resolve is cut at it. END: the `clock()` time the deadline runs out, when the caller has one for
@@ -411,6 +451,7 @@ def check(repo: Path, jobs: int, strict: bool = False, touched: set[str] | None 
         deadline = NO_BASE_DEADLINE
     if end is None and deadline is not None:
         end = started + deadline
+    manifests = manifests if manifests is not None else ManifestIndex(repo, end)
     env = cargo_env(repo)
     roots = tracked_roots(repo)
     is_touched = (lambda root: True) if touched is None else (lambda root: root in touched)
@@ -428,9 +469,12 @@ def check(repo: Path, jobs: int, strict: bool = False, touched: set[str] | None 
         return "timeout", ("not started: the deadline was spent" if deadline is None
                            else f"not started: the check's {deadline:g}s deadline was spent")
 
+    # Prioritize touched roots without excluding any lock: path dependencies span workspaces.
+    roots.sort(key=lambda root: (not is_touched(root), root))
     # Offline, in parallel: from the cached index alone, each resolve holds cargo's lock only briefly.
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        verdicts = list(pool.map(lambda root: judge(repo, root, env, passes=(["--offline"],), timeout=limit(TIMEOUT))
+        verdicts = list(pool.map(lambda root: judge(repo, root, env, passes=(["--offline"],), timeout=limit(TIMEOUT),
+                                                  end=end, manifests=manifests)
                                  if left() > 1 else spent(), roots))
     results = dict(zip(roots, verdicts))
     # With the network, one at a time: cargo holds the package cache lock for a whole resolve, so parallel resolves
@@ -444,13 +488,14 @@ def check(repo: Path, jobs: int, strict: bool = False, touched: set[str] | None 
         if left() <= 1:
             results[root] = spent()
             continue
-        results[root] = judge(repo, root, env, passes=([],), timeout=limit(TIMEOUT))
+        results[root] = judge(repo, root, env, passes=([],), timeout=limit(TIMEOUT), end=end, manifests=manifests)
     if strict:
         for root in pending:
             verdict, first = results[root]
             if verdict != "timeout" or over_budget(root) or first.startswith("not started") or left() <= 1:
                 continue
-            verdict, detail = judge(repo, root, env, passes=([],), timeout=limit(RETRY_TIMEOUT))
+            verdict, detail = judge(repo, root, env, passes=([],), timeout=limit(RETRY_TIMEOUT),
+                                    end=end, manifests=manifests)
             results[root] = (verdict, f"{first}; then {detail}" if verdict == "timeout" else detail)
     return results
 
@@ -618,8 +663,10 @@ def changed(repo: Path) -> set[str]:
     return {entry[3:] for entry in out.split("\0") if len(entry) > 3}
 
 
-def fix(repo: Path, results: dict[str, tuple[str, str]], end: float | None = None) -> list[str]:
+def fix(repo: Path, results: dict[str, tuple[str, str]], end: float | None = None,
+        manifests: ManifestIndex | None = None) -> list[str]:
     """Rewrite each stale lock; no rewrite or re-check starts past END, and a running one is cut at it."""
+    manifests = manifests if manifests is not None else ManifestIndex(repo, end)
     lines = []
     stale = [root for root, (verdict, _) in results.items() if verdict == "stale"]
     if not stale:
@@ -635,7 +682,7 @@ def fix(repo: Path, results: dict[str, tuple[str, str]], end: float | None = Non
                 spent = True
                 break
             code, _ = cargo(["update", "--workspace", *network], repo / root, env, timeout=limit)
-            if code == 0 and judge(repo, root, env, end=end)[0] == "ok":
+            if code == 0 and judge(repo, root, env, end=end, manifests=manifests)[0] == "ok":
                 done = True
                 break
         if done:
@@ -678,8 +725,9 @@ def main(argv: list[str] | None = None) -> int:
     # One absolute deadline for the whole run: check, then fix's rewrites and their re-checks.
     deadline = NO_BASE_DEADLINE if args.deadline is None and touched is None else args.deadline
     end = None if deadline is None else clock() + deadline
+    manifests = ManifestIndex(repo, end)
     results = check(repo, args.jobs, strict=args.strict and args.mode == "check", touched=touched,
-                    deadline=deadline, end=end)
+                    deadline=deadline, end=end, manifests=manifests)
     stale = [root for root, (verdict, _) in results.items() if verdict == "stale"]
     unchecked = {root: (verdict, detail) for root, (verdict, detail) in results.items()
                  if verdict in ("unchecked", "timeout")}
@@ -693,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{prefix}cargo-locks: {label(root)} timed out on this runner and is not checked; this change touches "
               "no manifest or lock it reads, so it does not fail the check")
     if args.mode == "fix":
-        for line in fix(repo, results, end=end):
+        for line in fix(repo, results, end=end, manifests=manifests):
             print(line)
         return 0
     for root in stale:

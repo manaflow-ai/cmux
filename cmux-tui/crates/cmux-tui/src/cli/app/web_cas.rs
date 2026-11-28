@@ -6,8 +6,9 @@
 //! Every decision is `cmux_cas::fetch`'s: this file is its [`Source`] over HTTPS. One client,
 //! no redirects (the objects are served where they are published), a size cap on every whole
 //! read, and a Range read is taken only as a 206 of exactly the bytes asked for. Nothing read is
-//! trusted before the crate checks its id. Nothing in the app calls this yet: the web updater
-//! takes it up behind a default-off setting, and until then it is the replay of a real fetch.
+//! trusted before the crate checks its id. The app's web updater runs it behind the
+//! default-off `updates.webCas` (CmuxNextWebUpdates `WebUpdates+Cas.swift`), as its child: it
+//! ends when that app does (`Http::gone`).
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -71,9 +72,20 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     })))
 }
 
+/// How often a fetch checks that the app that started it is still its parent.
+const PARENT_CHECK: Duration = Duration::from_millis(200);
+/// The exit status of a fetch whose app went away.
+const PARENT_GONE: i32 = 4;
+
 pub(super) fn run(_global: &GlobalArgs, command: &Command) -> i32 {
     let Command::Fetch(fetch) = command;
-    let done = Http::new(&fetch.base).and_then(|mut source| {
+    let made = made_by_fetch(&fetch.out, &fetch.store);
+    // SAFETY: getppid has no preconditions and cannot fail.
+    let parent = unsafe { libc::getppid() };
+    // SAFETY: as above.
+    let gone = move || unsafe { libc::getppid() } != parent;
+    let done = Http::new(&fetch.base).and_then(|source| {
+        let mut source = source.ending_when(gone, PARENT_CHECK);
         let store = Store::new(&fetch.store);
         cmux_cas::fetch::fetch(
             &mut source,
@@ -84,6 +96,11 @@ pub(super) fn run(_global: &GlobalArgs, command: &Command) -> i32 {
             &fetch.out,
         )
     });
+    if gone() {
+        remove_made(&made);
+        eprintln!("cmux app web-cas: the app that started this fetch went away");
+        return PARENT_GONE;
+    }
     match done {
         Ok(report) => {
             let mut line = serde_json::to_value(&report).unwrap_or_else(|_| json!({}));
@@ -102,11 +119,38 @@ pub(super) fn run(_global: &GlobalArgs, command: &Command) -> i32 {
     }
 }
 
+/// The folders of `out` and `store` that do not exist yet, which this fetch will make.
+fn made_by_fetch(out: &std::path::Path, store: &std::path::Path) -> Vec<PathBuf> {
+    [out, store].into_iter().filter(|d| !d.exists()).map(std::path::Path::to_path_buf).collect()
+}
+
+/// Removes the folders this fetch created (`--out` must not exist before it; `--store` the app
+/// names fresh), never one that was there before it started.
+fn remove_made(made: &[PathBuf]) {
+    for dir in made {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// Resolves once `gone` says so, checking every `every`.
+async fn until(gone: &(dyn Fn() -> bool + Send + Sync), every: Duration) {
+    while !gone() {
+        tokio::time::sleep(every).await;
+    }
+}
+
 /// `cas/1` objects under one https base.
 pub(super) struct Http {
     base: String,
     runtime: tokio::runtime::Runtime,
     client: reqwest::Client,
+    /// Ties the fetch to the app that started it (RFD 0166 step 2, review F2 of cmux#60451): the
+    /// app removes `staging-*` at launch, so a fetch that outlived a force-quit would write its
+    /// staging tree and chunk store again under the next launch. Every read races this check and
+    /// fails once it says the parent changed (the process was reparented); [`run`] then removes
+    /// what the fetch made. A cost of one `getppid` per [`PARENT_CHECK`], whatever the size.
+    gone: Box<dyn Fn() -> bool + Send + Sync>,
+    every: Duration,
 }
 
 impl Http {
@@ -118,7 +162,22 @@ impl Http {
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-web-cas/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Http { base: base.to_owned(), runtime, client })
+        Ok(Http {
+            base: base.to_owned(),
+            runtime,
+            client,
+            gone: Box::new(|| false),
+            every: PARENT_CHECK,
+        })
+    }
+
+    /// Reads fail once `gone` says so, checked every `every`.
+    pub(super) fn ending_when(
+        self,
+        gone: impl Fn() -> bool + Send + Sync + 'static,
+        every: Duration,
+    ) -> Self {
+        Http { gone: Box::new(gone), every, ..self }
     }
 
     /// The body of `path` with `range` (`None`: the whole object), read only while it stays
@@ -131,7 +190,7 @@ impl Http {
         max: usize,
     ) -> cmux_cas::Result<Vec<u8>> {
         let url = format!("{}{path}", self.base);
-        self.runtime.block_on(async {
+        let read = async {
             let mut request = self.client.get(&url);
             if let Some((start, end)) = range {
                 request =
@@ -160,6 +219,14 @@ impl Http {
                 body.extend_from_slice(&chunk);
             }
             Ok(body)
+        };
+        self.runtime.block_on(async {
+            tokio::select! {
+                read = read => read,
+                () = until(&*self.gone, self.every) => {
+                    Err(format!("{url}: the app that started this fetch went away").into())
+                }
+            }
         })
     }
 }

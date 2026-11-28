@@ -14,7 +14,7 @@
 /*
  Bumped on any change to a type, a function or an op.
  */
-#define CMUX_UPDATER_ABI_VERSION 1
+#define CMUX_UPDATER_ABI_VERSION 4
 
 /*
  The op ran; `*out` holds its reply.

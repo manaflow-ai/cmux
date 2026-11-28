@@ -1,18 +1,20 @@
 //! Durable chat attachments and synced Mac catalog, in the daemon's existing
 //! versioned projection store. CAS avoids dropping a concurrent chat's repo.
 use super::{Failure, Repo};
+use crate::retry::{Attempt, Patience};
 use crate::{Actor, Mux, WorkspaceMutation};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::{Component, Path};
+use std::time::Duration;
 const FRONTEND: &str = "cloud-repos";
 const SUBJECT: &str = "catalog";
 
 fn failure() -> Failure {
     Failure::new(
         "seed.clone_failed",
-        "The repository record could not be saved. Retry Add repository to record the completed clone.",
+        "This Cloud machine's cmux store could not read or save its repository records; a completed clone stays on disk.",
     )
 }
 fn load(mux: &Mux) -> Result<(Value, u64), Failure> {
@@ -36,30 +38,36 @@ fn load(mux: &Mux) -> Result<(Value, u64), Failure> {
     }
 }
 fn change(mux: &Mux, apply: impl Fn(&mut Value)) -> Result<(), Failure> {
-    for _ in 0..8 {
-        let (mut value, revision) = load(mux)?;
-        apply(&mut value);
-        let mutation = WorkspaceMutation::new(
-            format!("cloud-repo-{}", crate::workspace_registry::new_uuid_v4()),
-            "cloud.repo",
-            Actor::local_user(),
-        )
-        .map_err(|_| failure())?;
-        match mux.put_frontend_projection(
-            &mutation,
-            FRONTEND,
-            "session",
-            SUBJECT,
-            1,
-            Some(revision),
-            &value,
-        ) {
-            Ok(_) => return Ok(()),
-            Err(e) if e.to_string().contains("projection revision conflict") => continue,
-            Err(_) => return Err(failure()),
-        }
-    }
-    Err(failure())
+    // A concurrent writer (another chat's add) moved the revision: read it again and reapply,
+    // spaced so a burst of adds settles instead of colliding again.
+    Patience::new("the repository record", Duration::from_secs(5))
+        .quiet()
+        .spaced(Duration::from_millis(5), Duration::from_millis(200))
+        .run(|| {
+            let (mut value, revision) = load(mux).map_err(Attempt::Fail)?;
+            apply(&mut value);
+            let mutation = WorkspaceMutation::new(
+                format!("cloud-repo-{}", crate::workspace_registry::new_uuid_v4()),
+                "cloud.repo",
+                Actor::local_user(),
+            )
+            .map_err(|_| Attempt::Fail(failure()))?;
+            match mux.put_frontend_projection(
+                &mutation,
+                FRONTEND,
+                "session",
+                SUBJECT,
+                1,
+                Some(revision),
+                &value,
+            ) {
+                Ok(_) => Ok(()),
+                Err(e) if e.to_string().contains("projection revision conflict") => {
+                    Err(Attempt::Retry(failure()))
+                }
+                Err(_) => Err(Attempt::Fail(failure())),
+            }
+        })
 }
 pub(super) fn sources(mux: &Mux) -> Result<Vec<Repo>, Failure> {
     let (doc, _) = load(mux)?;
@@ -111,17 +119,17 @@ pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     if args.get("complete").is_some_and(|v| v != true) {
         return Err(Failure::new(
             "seed.bad_request",
-            "Wait for the Mac's project scan to finish, then retry repository discovery.",
+            "Send the Mac's repository list once its project scan has finished (complete: true).",
         ));
     }
     let mut repos: Vec<Repo> =
         serde_json::from_value(args.get("repos").cloned().unwrap_or_default()).map_err(|_| {
-            Failure::new("seed.bad_request", "Refresh the Mac's repository list and retry.")
+            Failure::new("seed.bad_request", "The Mac sent an invalid repository list.")
         })?;
     if repos.len() > 10_000 || repos.iter().any(|r| !super::engine::valid_repo(&r.full_name)) {
         return Err(Failure::new(
             "seed.bad_request",
-            "Refresh the Mac's valid GitHub repositories and retry.",
+            "The Mac sent more than 10,000 repositories or one that is not a GitHub repository.",
         ));
     }
     for repo in &mut repos {
@@ -129,14 +137,14 @@ pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     }
     let mut recent: Vec<Repo> = match args.get("recent") {
         Some(value) => serde_json::from_value(value.clone()).map_err(|_| {
-            Failure::new("seed.bad_request", "Refresh the Mac's recent repositories and retry.")
+            Failure::new("seed.bad_request", "The Mac sent an invalid recent repository list.")
         })?,
         None => Vec::new(),
     };
     if recent.len() > 10_000 || recent.iter().any(|r| !super::engine::valid_repo(&r.full_name)) {
         return Err(Failure::new(
             "seed.bad_request",
-            "Refresh the Mac's valid recent GitHub repositories and retry.",
+            "The Mac sent more than 10,000 recent repositories or one that is not a GitHub repository.",
         ));
     }
     for repo in &mut recent {
@@ -149,7 +157,7 @@ pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     if args.get("install_url").is_some() && install_url.is_none() {
         return Err(Failure::new(
             "seed.bad_request",
-            "Refresh the GitHub installation link on the Mac and retry.",
+            "The Mac sent a GitHub installation link that is not a github.com install page.",
         ));
     }
     change(mux, |doc| {
@@ -168,7 +176,7 @@ pub(super) fn remember(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     let invalid = || {
         Failure::new(
             "seed.bad_request",
-            "Refresh this Cloud chat's attached repositories, then retry remembering the repository.",
+            "The Mac sent an invalid repository attachment to remember for this Cloud chat.",
         )
     };
     let session = args

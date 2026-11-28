@@ -39,6 +39,8 @@ export interface UpstreamCall {
   readonly search: URLSearchParams;
   readonly json: unknown;
   readonly bytes: Uint8Array | null;
+  /** The request's x-freestyle-background-after-secs, or null. */
+  readonly backgroundAfter?: string | null;
 }
 
 export type UpstreamOperation =
@@ -119,12 +121,23 @@ export function makeFakeUpstream(apiKey: string) {
     splitCreateNetworks: boolean;
     /** The create answer's `debug` object (the provider's own phase timings), when set. */
     createDebug: unknown;
-  } = { lostCreateResponses: 0, lostSnapshotResponses: 0, hideCreateNetworks: false, splitCreateNetworks: false, createDebug: undefined };
+    /**
+     * The next creates the provider is slow to make (a burst, staging 2026-11-27): held open without
+     * x-freestyle-background-after-secs, the edge cuts the call (524) before the VM exists; with it, the create answers
+     * 202 and its stored answer (the VM) follows `slowCreatePolls` pending polls.
+     */
+    slowCreates: number;
+    slowCreatePolls: number;
+  } = { slowCreates: 0, slowCreatePolls: 2, lostCreateResponses: 0, lostSnapshotResponses: 0, hideCreateNetworks: false, splitCreateNetworks: false, createDebug: undefined };
   /**
    * Private networks belong to mesh-fakes.ts, which sets this: a create that names a network joins it here. Answers the
    * VM's attachments, or null when the account has no such network (the create is then refused, as the provider's).
    */
-  const hooks: { attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null } = { attachOnCreate: null };
+  const hooks: {
+    attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null;
+    /** Runs before each create is handled (a provider that is slow, or hangs under load); an answer replaces the create's. */
+    beforeCreate: (() => Promise<Response | null>) | null;
+  } = { attachOnCreate: null, beforeCreate: null };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
@@ -192,6 +205,8 @@ export function makeFakeUpstream(apiKey: string) {
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
       case "create": {
+        const gated = hooks.beforeCreate === null ? null : await hooks.beforeCreate();
+        if (gated !== null) return gated;
         const body: unknown = await request.clone().json();
         const record = typeof body === "object" && body !== null ? body : {};
         const read = (key: string): unknown => (key in record ? Reflect.get(record, key) : undefined);
@@ -487,7 +502,7 @@ export function makeFakeUpstream(apiKey: string) {
     const raw = request.body === null ? null : new Uint8Array(await request.clone().arrayBuffer());
     let json: unknown = null;
     if (raw !== null && contentType.includes("application/json")) json = JSON.parse(new TextDecoder().decode(raw));
-    calls.push({ method: request.method, path: url.pathname, search: url.searchParams, json, bytes: raw });
+    calls.push({ method: request.method, path: url.pathname, search: url.searchParams, json, bytes: raw, backgroundAfter: request.headers.get("x-freestyle-background-after-secs") });
     if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
       return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
     }
@@ -500,6 +515,16 @@ export function makeFakeUpstream(apiKey: string) {
     }
     const route = operationOf(request.method, url);
     if (route === null) return Response.json({ code: "NOT_FOUND", message: "no route" }, { status: 404 });
+    if (route.operation === "create" && faults.slowCreates > 0) {
+      faults.slowCreates--;
+      if (request.headers.get("x-freestyle-background-after-secs") === null) return new Response("error code: 524", { status: 524 });
+      const made = await handle(route.operation, request, url, route.vmId);
+      const stored = await made.text(), status = made.status;
+      const id = `bg-${crypto.randomUUID()}`;
+      const accepted = () => Response.json({ requestId: id, status: "pending" }, { status: 202 });
+      backgroundRequests.set(id, [...Array.from({ length: faults.slowCreatePolls }, () => accepted), () => new Response(stored, { status, headers: { "content-type": "application/json" } })]);
+      return Response.json({ requestId: id }, { status: 202, headers: { "x-freestyle-background-request-id": id } });
+    }
     return handle(route.operation, request, url, route.vmId);
   };
 

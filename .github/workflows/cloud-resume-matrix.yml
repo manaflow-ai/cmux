@@ -134,6 +134,9 @@ jobs:
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
+          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
           mkdir -p "$RUNNER_TEMP/cmux-tui-bin"
           cp "$target_dir/debug/cmux-tui" "$RUNNER_TEMP/cmux-tui-bin/cmux-tui"
@@ -146,7 +149,7 @@ jobs:
 
   machine:
     needs: [plan, build]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: LINUX_RUNNER/RUNNER_POOLS.linux_8 (#54437)
     environment:
       name: cmux-next-vm-image-dev
       deployment: false

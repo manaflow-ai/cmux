@@ -1,9 +1,9 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { DetachedExecLost, detachedExec, type DetachedExecVm } from "../scripts/cmux-vm-image/detached-exec";
+import { runChild } from "./helpers/run-child";
 
 /** A guest that is this machine: each exec is one `sh -c`, like the provider's. */
 function localVm(hooks: { beforeCall?: (command: string, n: number) => void } = {}): DetachedExecVm & { calls: string[] } {
@@ -13,7 +13,7 @@ function localVm(hooks: { beforeCall?: (command: string, n: number) => void } = 
     async exec({ command, env, timeoutMs }) {
       calls.push(command);
       hooks.beforeCall?.(command, calls.length);
-      const r = spawnSync("sh", ["-c", command], { env: { ...process.env, ...env }, timeout: timeoutMs, encoding: "utf8" });
+      const r = await runChild("sh", ["-c", command], { env: { ...process.env, ...env }, timeout: timeoutMs });
       return { statusCode: r.status, stdout: r.stdout, stderr: r.stderr };
     },
   };
@@ -94,7 +94,7 @@ describe("detachedExec", () => {
     };
     const r = await detachedExec(vm, `echo run >> ${dir}.count; echo ok`, { dir, budgetMs: 10_000, ...fast });
     expect(r).toMatchObject({ code: 0, stdout: "ok" });
-    expect(spawnSync("wc", ["-l", `${dir}.count`], { encoding: "utf8" }).stdout.trim().split(" ")[0]).toBe("1");
+    expect(readFileSync(`${dir}.count`, "utf8").trim().split("\n")).toEqual(["run"]);
   });
 
   test("polls that fail past the deadline throw with the provider's error named", async () => {
@@ -106,8 +106,43 @@ describe("detachedExec", () => {
         return inner.exec(args);
       },
     };
-    const error = await detachedExec(vm, "sleep 5", { dir: guestDir(), budgetMs: 100, ...fast, graceMs: 200 }).catch((e: unknown) => e);
+    const error = await detachedExec(vm, "sleep 5", { dir: guestDir(), budgetMs: 100, ...fast, graceMs: 200, outageMs: 300 }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(DetachedExecLost);
+    expect(String((error as Error).message)).toContain("no poll answered for");
     expect(String((error as Error).message)).toContain("last poll failed: TimeoutError");
+  });
+
+  test("a provider outage that outlasts the budget (run 45960390204) still reads the guest's status", async () => {
+    let failing = true;
+    const inner = localVm();
+    let n = 0;
+    const vm: DetachedExecVm = {
+      async exec(args) {
+        if (++n > 1 && failing) throw Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+        return inner.exec(args);
+      },
+    };
+    setTimeout(() => { failing = false; }, 1_500);
+    const t0 = Date.now();
+    const r = await detachedExec(vm, "sleep 0.2; echo baked", { dir: guestDir(), budgetMs: 300, ...fast, graceMs: 200, outageMs: 5_000 });
+    expect(r).toMatchObject({ code: 0, stdout: "baked" });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1_500);
+  });
+
+  test("a guest that answers with no status past the budget fails at once, outage window or not", async () => {
+    const vm = localVm();
+    const dir = guestDir();
+    // The guest "loses" the command: the start runs, but nothing ever writes status.
+    const lossy: DetachedExecVm = {
+      async exec(args) {
+        if (args.command.includes("nohup")) return vm.exec({ ...args, command: `mkdir -p ${dir} && touch ${dir}/started && echo started` });
+        return vm.exec(args);
+      },
+    };
+    const t0 = Date.now();
+    const error = await detachedExec(lossy, "echo never", { dir, budgetMs: 100, ...fast, graceMs: 200, outageMs: 60_000 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DetachedExecLost);
+    expect(String((error as Error).message)).toContain("the guest lost the command");
+    expect(Date.now() - t0).toBeLessThan(5_000);
   });
 });

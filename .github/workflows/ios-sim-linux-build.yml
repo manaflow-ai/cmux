@@ -9,6 +9,9 @@ run-name: >-
 # platform's XCTest frameworks and agents the runner needs), both together as
 # `ios-sim-products` (CMUX_IOS_PRODUCTS=<run id>/ios-sim-products;
 # scripts/ci/ios-sim-linux-test.sh), and `ios-sim-app` (the bare .app).
+# With the `screens` input, or on a lane/ios-sim-linux-screen-parity* push, the shots-fleet job also takes the
+# screen-parity goldens on a fleet simulator Mac (cmux-next-ios/verify/screen-parity/shots.sh fleet) and uploads
+# them as `ios-sim-mac-shots`; a failure there never fails the build.
 # The gateway runner only hands the build to the controller (cmux-ci ios-build
 # --what sim-products) and uploads what comes back; no Mac is involved. A red
 # build, or no answer from the fleet, fails the job.
@@ -22,6 +25,11 @@ on:
         description: App source to build (a full commit SHA, or a branch or tag); empty is this ref
         required: false
         default: ""
+      screens:
+        description: Also take the golden fixture screenshots (ios-sim-mac-shots)
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -35,7 +43,7 @@ jobs:
     name: Build the iPhone app and UI tests for the simulator
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
     # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     timeout-minutes: 45  # the client waits up to 600 s queued plus 1800 s running
     steps:
       - name: Resolve the commit
@@ -59,7 +67,10 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          [[ -x "$client" ]] || { echo "::error title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME"; exit 1; }
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME"
+            exit 1
+          fi
           out="$RUNNER_TEMP/out"
           status=0
           "$client" ios-build --what sim-products --ref "$SHA" --out "$out" --timeout 1800 --queue-timeout 600 || status=$?
@@ -105,3 +116,205 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+  # The goldens are filed by content hash (cmux-shotdiff key, family ios-screen-parity in .github/golden-inputs.json:
+  # the app's sources, the screen list and rig, and this workflow). A key already filed in the goldens cache means a
+  # Mac rendered these exact inputs before: this Linux job hands out that render as ios-sim-mac-shots and the fleet
+  # Mac is not asked again. A miss, or any failure here, leaves the Mac render to shots-fleet as before.
+  parity-key:
+    name: Look up the screen-parity goldens by input key
+    if: >-
+      github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' &&
+      (inputs.screens || startsWith(github.ref_name, 'lane/ios-sim-linux-screen-parity'))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    continue-on-error: true
+    timeout-minutes: 20
+    outputs:
+      hit: ${{ steps.lookup.outputs.hit }}
+      key: ${{ steps.lookup.outputs.key }}
+      name: ${{ steps.lookup.outputs.name }}
+      sha: ${{ steps.ref.outputs.sha }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CI_CACHE_R2_NAMESPACE: goldens
+    steps:
+      - name: Resolve the commit
+        id: ref
+        env:
+          REF: ${{ inputs.ref || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then sha="$REF"
+          else sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REF" --jq .sha)"; fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve $REF to a commit"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.ref.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          # Full tree: the cmux-tui workspace reaches path crates outside cmux-tui/ (workers/, rust/, vendor/).
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build cmux-shotdiff
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          timeout 900 cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff
+          echo "CMUX_SHOTDIFF=$PWD/target/release/cmux-shotdiff" >> "$GITHUB_ENV"
+      - name: Look up the key
+        id: lookup
+        env:
+          SHA: ${{ steps.ref.outputs.sha }}
+        run: |
+          set -euo pipefail
+          keyjson="$("$CMUX_SHOTDIFF" key --inputs .github/golden-inputs.json --family ios-screen-parity \
+            --variant iphone-17-pro --rev "$SHA")"
+          key="$(jq -r .key <<<"$keyjson")"
+          name="golden-ios-screen-parity-iphone-17-pro-$key"
+          { echo "key=$key"; echo "name=$name"; } >> "$GITHUB_OUTPUT"
+          store="$RUNNER_TEMP/store"
+          mkdir -p "$store"
+          hit=false
+          if scripts/ci/r2-cache.sh restore "$store" "$name" >/dev/null 2>&1 \
+              && [[ -f "$store/goldens.json" && -f "$store/meta.json" ]]; then
+            out="$RUNNER_TEMP/shots"
+            mkdir -p "$out/tools" "$out/mac"
+            cp cmux-next-ios/verify/screen-parity/* "$out/tools/"
+            cp "$store/meta.json" "$out/mac/meta.json"
+            # Every screen the list names must come back, or the Mac renders again.
+            hit=true
+            while IFS=$'\t' read -r screen _; do
+              [[ -z "$screen" || "$screen" == \#* ]] && continue
+              "$CMUX_SHOTDIFF" get --store "$store" --name "$screen" "$out/mac/$screen.png" >/dev/null || { hit=false; break; }
+            done < cmux-next-ios/verify/screen-parity/screens.tsv
+            [[ "$hit" == true ]] && echo "OUT=$out" >> "$GITHUB_ENV"
+          fi
+          echo "hit=$hit" >> "$GITHUB_OUTPUT"
+          echo "### Screen-parity goldens: key \`${key:0:12}\` ($(jq -r .files <<<"$keyjson") files): $([[ "$hit" == true ]] && echo "filed, no Mac render" || echo "not filed, the fleet Mac renders")" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload ios-sim-mac-shots
+        if: ${{ steps.lookup.outputs.hit == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-sim-mac-shots
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 14
+
+  # Golden screenshots for the screen-parity check (cmux-next-ios/verify/screen-parity): the fixture screens on an
+  # iPhone 17 Pro fleet simulator, taken by the fleet's own shots step (it builds the app at the same commit), and
+  # uploaded with the scripts that listed them so the Linux runner takes the same launches. The gateway runner only
+  # hands the step to the controller; no Mac job runs here.
+  shots-fleet:
+    name: Take the golden fixture screenshots on a fleet simulator
+    needs: [parity-key]
+    if: >-
+      !cancelled() && needs.parity-key.outputs.hit != 'true' &&
+      github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' &&
+      (inputs.screens || startsWith(github.ref_name, 'lane/ios-sim-linux-screen-parity'))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    continue-on-error: true
+    outputs:
+      rendered: ${{ steps.shots.outputs.rendered }}
+    timeout-minutes: 135  # a queue wait of at most 3600 s (FLEET_QUEUE_S), then a 3600 s run, then the artifact
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            cmux-next-ios/verify/screen-parity
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Take the shots on the fleet
+        id: shots
+        env:
+          REF: ${{ inputs.ref || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          FLEET_QUEUE_S: '3600'
+          # On feat-cmux-next this render is filed as the golden for its key (file-goldens): rendered once, then every
+          # later run of the same inputs skips the Mac, so it ranks as pr. A lane's render stays a plain agent step.
+          FLEET_PRIORITY: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'pr' || 'agent' }}
+          # A seed render keys its step by the golden's name: a later dispatch of the same inputs re-attaches to it.
+          FLEET_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && format('screen-parity-{0}', needs.parity-key.outputs.name) || '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then sha="$REF"
+          else sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REF" --jq .sha)"; fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve $REF to a commit"; exit 1; }
+          out="$RUNNER_TEMP/shots"
+          mkdir -p "$out/tools"
+          cp cmux-next-ios/verify/screen-parity/* "$out/tools/"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          EFFECTS=full MODEL="iPhone 17 Pro" bash cmux-next-ios/verify/screen-parity/shots.sh fleet "$out/mac" "$sha"
+          ls -la "$out/mac"
+          echo "rendered=true" >> "$GITHUB_OUTPUT"
+      - name: Upload ios-sim-mac-shots
+        if: ${{ !cancelled() && env.OUT != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-sim-mac-shots
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 14
+
+  # A Mac render of a key not yet filed goes into the goldens cache, so the next run of the same inputs skips the Mac.
+  # Writing needs next-cache-writer, whose deployment branches are feat-cmux-next only: a lane's render is used
+  # by that run and not filed.
+  # shots-fleet is continue-on-error, so its result reads success even when it failed: gate on its rendered output.
+  file-goldens:
+    name: File the screen-parity goldens under their input key
+    needs: [parity-key, shots-fleet]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && needs.shots-fleet.outputs.rendered == 'true' &&
+      needs.parity-key.outputs.key != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    continue-on-error: true
+    timeout-minutes: 20
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CI_CACHE_R2_NAMESPACE: goldens
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.parity-key.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          # Full tree: the cmux-tui workspace reaches path crates outside cmux-tui/ (workers/, rust/, vendor/).
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-sim-mac-shots
+          path: ${{ runner.temp }}/shots
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build cmux-shotdiff
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          timeout 900 cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff
+          echo "CMUX_SHOTDIFF=$PWD/target/release/cmux-shotdiff" >> "$GITHUB_ENV"
+      - name: Bless and save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          NAME: ${{ needs.parity-key.outputs.name }}
+          SHA: ${{ needs.parity-key.outputs.sha }}
+          SHOTS: ${{ runner.temp }}/shots/mac
+        run: |
+          set -euo pipefail
+          store="$RUNNER_TEMP/store"
+          mkdir -p "$store"
+          heads="$RUNNER_TEMP/heads"
+          mkdir -p "$heads"
+          cp "$SHOTS"/*.png "$heads/"
+          "$CMUX_SHOTDIFF" bless --store "$store" --dir "$heads" >/dev/null
+          cp "$SHOTS/meta.json" "$store/meta.json"
+          jq -n --arg sha "$SHA" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{sha: $sha, run: $run}' > "$store/source.json"
+          scripts/ci/r2-cache.sh save "$store" "$NAME"
+          echo "### Filed $(jq '.goldens | length' "$store/goldens.json") screen-parity goldens as \`$NAME\`" >> "$GITHUB_STEP_SUMMARY"

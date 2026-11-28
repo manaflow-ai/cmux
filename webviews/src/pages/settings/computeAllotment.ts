@@ -7,7 +7,7 @@
 // worded with the Cloud page's spend-cap formatter (pages/cloud/spendCap.ts).
 import { day, usd } from "../cloud/spendCap";
 import { intl } from "../../ui/intl";
-import type { AllotmentPosition, AllotmentReason, AllotmentView, ChiefTier, MemberUse } from "./ops";
+import type { AllotmentPosition, AllotmentReason, AllotmentView, ChiefTier, MemberUse, PersonHoldSeconds } from "./ops";
 
 /** The Labs switch that mounts the card in Settings > Cloud (schemas/settings/source/labs.json);
  * off, the card draws nothing and reads nothing. */
@@ -21,6 +21,31 @@ export const STEP_PRICE_MICROS = 20_000_000;
 const DAYS = 14;
 
 export const POSITIONS: readonly AllotmentPosition[] = ["down", "hold", "up"];
+
+/** The holds a team can choose for its people's machines; null is none. */
+export const HOLD_CHOICES: readonly (PersonHoldSeconds | null)[] = [null, 300, 900, 1800];
+/** What the one-switch control turns on. */
+export const HOLD_SWITCH_SECONDS: PersonHoldSeconds = 1800;
+
+export type HoldOption = { seconds: PersonHoldSeconds | null; label: string; selected: boolean };
+
+/** The team's hold as the card draws it: the choice, each option and one plain line saying what it does. */
+export function holdModel(view: AllotmentView): ComputeModel["hold"] {
+  const set = view.allotment?.person_hold_seconds;
+  const seconds = HOLD_CHOICES.find((choice) => choice !== null && choice === set) ?? null;
+  return {
+    seconds,
+    options: HOLD_CHOICES.map((choice) => ({
+      seconds: choice,
+      label: choice === null ? "Off" : `${choice / 60} min`,
+      selected: choice === seconds,
+    })),
+    line:
+      seconds === null
+        ? "Machines pause when idle and wake on the next message."
+        : `A machine someone is chatting on stays ready for ${seconds / 60} minutes after each reply. Agents' machines still pause when idle.`,
+  };
+}
 
 /** "$40", or "$12.50" when there are cents; the spend cap's currency formatting. */
 export function money(micros: number, language: string): string {
@@ -95,6 +120,8 @@ export type ComputeModel = {
   /** "Holding at $300, Auto off" */
   holdLine: string;
   hardCap: string;
+  /** The team's hold for its people's machines (drawn only where a layout asks for the control). */
+  hold: { seconds: PersonHoldSeconds | null; options: HoldOption[]; line: string };
   reasons: ReasonCard[];
   meter: {
     segments: MeterSegment[];
@@ -253,6 +280,7 @@ export function computeModel(view: AllotmentView, language: string): ComputeMode
       cap === null
         ? "No hard cap. Set one under Spending cap on the Cloud page."
         : `Hard cap: ${money(cap, language)} a month. Change it under Spending cap on the Cloud page.`,
+    hold: holdModel(view),
     reasons: decision.reasons.map((reason, index): ReasonCard => {
       const accept = acceptOf(reason);
       const change = accept ? changeText(monthlyChange(view, commitFor(view, accept)), language, false, accept) : "";

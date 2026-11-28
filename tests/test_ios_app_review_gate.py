@@ -1002,6 +1002,31 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(severities["asc.version.state.editable"], "blocker")
         self.assertEqual(severities["asc.subscriptions.images.recommended"], "warning")
 
+    def test_a_ready_to_submit_subscription_waits_for_the_next_version(self) -> None:
+        # Readiness runs 46112655921 .. 46118358980 (2026-11-27/28) on 1.0.0
+        # WAITING_FOR_REVIEW: the only blockers were 4 subscriptions
+        # READY_TO_SUBMIT, which submit only with an app version and so cannot
+        # move while one is in review. MISSING_METADATA can be fixed today.
+        def body(state: str) -> dict:
+            return {"checks": [
+                {"id": "version.state.editable", "severity": "error",
+                 "message": f'version is in non-editable state "{state}"'},
+                {"id": "subscriptions.review_readiness.needs_attention", "severity": "warning",
+                 "resourceId": "6838160761", "message": 'Subscription "cmux Max monthly" is READY_TO_SUBMIT'},
+                {"id": "subscriptions.review_readiness.needs_attention", "severity": "warning",
+                 "resourceId": "6838160813", "message": 'Subscription "cmux Plus monthly" is MISSING_METADATA'},
+            ]}
+
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(body("WAITING_FOR_REVIEW")))
+        findings = gate.asc_findings(asc)
+        self.assertEqual([(f["where"], f["severity"]) for f in findings[1:]],
+                         [("6838160761", "warning"), ("6838160813", "blocker")])
+        self.assertIn("submits with the next version", findings[1]["message"])
+        # An editable version can take the subscription with it: it blocks.
+        asc.write_text(json.dumps(body("PREPARE_FOR_SUBMISSION")))
+        self.assertEqual([f["severity"] for f in gate.asc_findings(asc)[1:]], ["blocker", "blocker"])
+
     def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',
@@ -1356,6 +1381,7 @@ class GateWorkflowTests(unittest.TestCase):
 
         doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
         on = doc.get("on", doc.get(True))
+        self.assertEqual(on["push"]["paths"], on["pull_request"]["paths"])
         for event in ("push", "pull_request"):
             patterns = on[event]["paths"]
             with self.subTest(event=event):
@@ -1396,16 +1422,19 @@ class GateWorkflowTests(unittest.TestCase):
 
         doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
         on = doc.get("on", doc.get(True))
-        # A push runs the workflow; a feat-cmux-next pull request runs its tests as the ios-kit table step.
+        # A feat-cmux-next pull request and the post-merge batch (suite pr-pipeline-ios, `ci/run route` over the
+        # window's paths) both run the kit's tests as the ios-kit table step; the workflow's push names only itself.
+        self.assertEqual(on["push"]["paths"], [".github/workflows/cmux-next-ios-kit.yml"])
         kit = ci_steps.load().steps["ios-kit"]
-        matchers = {"push": lambda path: github_paths_match(on["push"]["paths"], path),
-                    "pull_request": lambda path: ci_steps.routed(kit, [path])}
+        matchers = {"table step": lambda path: ci_steps.routed(kit, [path])}
         for event, matches in matchers.items():
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
                              "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift",
-                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md",
+                             "Packages/Shared/CmuxTerminalStream/Sources/Resources/fixture.json",
+                             "Packages/iOS/CmuxMobileShellModel/Sources/Resources/help.md"):
                     self.assertFalse(matches(path), path)
                 for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
                              "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
@@ -1413,7 +1442,6 @@ class GateWorkflowTests(unittest.TestCase):
                              "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
                              "Packages/iOS/CmuxConversation/Sources/X.swift"):
                     self.assertTrue(matches(path), path)
-        self.assertTrue(matchers["push"](".github/workflows/cmux-next-ios-kit.yml"))
 
 
 def github_paths_match(patterns: list[str], path: str) -> bool:
@@ -1697,7 +1725,12 @@ class InternalSubmissionTests(unittest.TestCase):
         asc_keys = {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"}
         self.assertEqual(gate_job["secrets"], {k: f"${{{{ secrets.{k} }}}}" for k in asc_keys})
         declared = self.triggers(self.workflow("ios-review-gate.yml"))["workflow_call"]["secrets"]
-        self.assertEqual(set(declared), asc_keys)
+        # The caller passes only the ASC key; the rest are declared for the gate's own
+        # push/PR runs (routing token, R2 cache save) and stay empty when called.
+        unpassed = {"GLAEDA_ROUTE_APP_KEY", "CI_CACHE_R2_ACCESS_KEY_ID",
+                    "CI_CACHE_R2_SECRET_ACCESS_KEY", "CI_CACHE_R2_ACCOUNT_ID"}
+        self.assertEqual(set(declared), asc_keys | unpassed)
+        self.assertFalse(set(gate_job["secrets"]) & unpassed)
         receipt_if = jobs["submission-receipt"]["if"]
         for need in ("needs.review-gate.result == 'success'", "needs.review-gate.outputs.blocking == '0'",
                      "needs.review-gate.outputs.sha == inputs.sha"):

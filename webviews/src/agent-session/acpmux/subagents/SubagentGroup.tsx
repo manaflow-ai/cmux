@@ -28,11 +28,11 @@ import {
   SubagentStopContext,
   running,
   STATE_LABEL,
-  elapsed,
   ticking,
   groupElapsed,
   useNow,
   STACK,
+  subagentTime,
 } from "./subagentGroupModel";
 import { Clock } from "../../../ui/Typography";
 import { intl } from "../../../ui/intl";
@@ -136,6 +136,7 @@ export const SubagentListRow = memo(function SubagentListRow({ row }: { row: Acp
   ]
     .filter(Boolean)
     .join(" · ");
+  const time = subagentTime(agent, now);
   const content = (
     <>
       <Avatar agent={agent} />
@@ -143,7 +144,7 @@ export const SubagentListRow = memo(function SubagentListRow({ row }: { row: Acp
         <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <Clock className="cv-subagent__time" text={formatDuration(elapsed(agent, now))} />
+      {time && <Clock className="cv-subagent__time" text={time} />}
     </>
   );
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;

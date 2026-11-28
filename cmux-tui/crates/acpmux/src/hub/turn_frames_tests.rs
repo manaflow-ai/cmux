@@ -107,10 +107,51 @@ fn a_frame_index_round_trips() {
         moved: 0.5,
         hash: u64::MAX,
         url: None,
+        shape: Some(7),
+        change: Some("+1 -1 +h1 Saved -h1 Save".into()),
     };
     let bytes = serde_json::to_vec(&vec![frame.clone()]).unwrap();
     let back: Vec<Frame> = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(back, vec![frame]);
+}
+
+/// The same picture is dropped unless the page's outline changed under it; with no outline on
+/// either side it is pixel-only, as before.
+#[test]
+fn the_same_picture_is_kept_only_when_its_outline_changed() {
+    let session = "ses_turn_frames_outline";
+    let dir = tempfile::tempdir().unwrap();
+    let picture = split(64, 32, 16);
+    let outline = |lines: &[&str]| shape::of_lines(lines.iter().map(|l| (*l).to_owned()).collect());
+    let first = Frame {
+        index: 0,
+        seq: 1,
+        trigger: "turn-start".into(),
+        at: 1,
+        width: 64,
+        height: 32,
+        distance: 0.0,
+        moved: 0.0,
+        hash: dhash(&picture),
+        url: None,
+        shape: None,
+        change: None,
+    };
+    let turn = Turn { id: "t1".into(), live: true, frames: vec![first], ..Default::default() };
+    turns().insert(session.to_owned(), turn);
+    shape::kept(session, "t1", Some(outline(&["h1 Draft", "button Save"])));
+    let same = Some(outline(&["h1 Draft", "button Save"]));
+    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", None, same), None);
+    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", None, None), None);
+    let saved = Some(outline(&["h1 Draft", "button Saved"]));
+    let frame = keep(session, "t1", dir.path(), &picture, "edit", None, saved.clone()).unwrap();
+    assert_eq!(frame.index, 1);
+    assert_eq!(frame.change.as_deref(), Some("+1 -1 +button Saved -button Save"));
+    assert_eq!(frame.shape, saved.as_ref().map(|s| s.hash));
+    assert_eq!(read_index(dir.path())[1].change, frame.change);
+    // The kept frame is the new last: the same outline again is dropped.
+    assert_eq!(keep(session, "t1", dir.path(), &picture, "turn-end", None, saved), None);
+    remove_session(session);
 }
 
 #[test]
@@ -129,6 +170,59 @@ fn customizing_the_app_is_told_from_paths_and_commands() {
     assert!(customizes_app(&run));
     let other = json!({"rawInput": {"command": "cargo test"}, "locations": [{"path": "/w/a.rs"}]});
     assert!(!customizes_app(&other));
+}
+
+fn live_turn(id: &str) -> Turn {
+    Turn {
+        id: id.to_owned(),
+        workspace: "w".to_owned(),
+        frames: Vec::new(),
+        live: true,
+        capturing: false,
+        again: None,
+        debounce: 0,
+        kinds: HashMap::new(),
+        chrome: false,
+        simulator: false,
+        mac_app: None,
+    }
+}
+
+#[test]
+fn a_live_build_asks_for_a_build_frame_of_the_running_turn() {
+    let session = "rfd0152-built-running";
+    turns().insert(session.to_owned(), live_turn("t1"));
+    let reply = built(session, "rust");
+    assert_eq!(reply["asked"], true, "{reply}");
+    assert_eq!(reply["turnId"], "t1");
+    let all = turns();
+    let turn = &all[session];
+    // A live build changes the app itself: its window is the fallback page.
+    assert!(turn.chrome);
+    // A pending edit frame of the same burst is this one.
+    assert_eq!(turn.debounce, 1);
+}
+
+#[test]
+fn a_live_build_with_no_running_turn_takes_nothing() {
+    assert_eq!(built("rfd0152-built-none", "swift")["asked"], false);
+    let session = "rfd0152-built-ended";
+    let mut ended = live_turn("t2");
+    ended.live = false;
+    turns().insert(session.to_owned(), ended);
+    let reply = built(session, "chromium");
+    assert_eq!(reply["asked"], false);
+    assert!(!turns()[session].chrome, "an ended turn is left as it was");
+}
+
+#[test]
+fn a_live_build_from_an_unknown_source_is_refused() {
+    let session = "rfd0152-built-unknown";
+    turns().insert(session.to_owned(), live_turn("t3"));
+    let reply = built(session, "gradle");
+    assert_eq!(reply["asked"], false);
+    assert!(reply["reason"].as_str().unwrap().contains("rust"), "{reply}");
+    assert!(!turns()[session].chrome);
 }
 
 #[test]

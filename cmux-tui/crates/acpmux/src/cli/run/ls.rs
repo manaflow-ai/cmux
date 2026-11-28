@@ -181,12 +181,15 @@ async fn bounded_total<T>(
 /// budget, never a daemon that is gone (it answered the connect).
 fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
     let next = if budget.route == LOCAL_ROUTE {
-        format!("the daemon is busy; retry, or `{} daemon status`", crate::cli::entry::program())
+        format!(
+            "the daemon is not answering (`{} daemon status` shows why)",
+            crate::cli::entry::program()
+        )
     } else {
-        "retry after the machine reconnects".to_owned()
+        "the machine is not answering (`acpmux machine ls` shows its link)".to_owned()
     };
     errors::AppError::timeout(format!(
-        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?} (ls budget {:.0?}); {next}",
+        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?} (ls budget {:.0?}): {next}",
         budget.machine, budget.route, step, waited, LS_TOTAL_DEADLINE
     ))
     .retryable()

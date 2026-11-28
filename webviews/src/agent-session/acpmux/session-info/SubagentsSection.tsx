@@ -12,7 +12,6 @@
 import { useState, memo, useCallback, useMemo } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 
@@ -99,6 +98,11 @@ type Line = {
   key: string;
   identity: string;
   agent?: Subagent;
+  /// A started chat's line: its chat, whose state words its row reads (`useLineState`).
+  session?: StartedSession;
+  /// A subagent waiting on the person, and the status clock its words read (`useLineState`).
+  waits?: boolean;
+  now?: number;
   /// A stopped sub-session's row, for its Resume (resumeState.ts ``subsessionResumeRow``).
   resumeRow?: Subagent;
   name: string;
@@ -144,6 +148,10 @@ const LINE_LOOK: { [K in keyof Line]-?: Same<Line[K]> | null } = {
   progress: Object.is,
   status: Object.is,
   state: Object.is,
+  // A row's own words read these (`useLineState`).
+  session: Object.is,
+  waits: Object.is,
+  now: Object.is,
   working: Object.is,
   // Its time's range; SubagentTime ticks the time itself, so a second draws no line.
   since: Object.is,
@@ -196,8 +204,6 @@ export function SubagentsSection({
   harness?: string;
 }) {
   const t = useT();
-  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
-  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   // Not the second's clock: the lines' order and groups move only when a subagent turns idle, and
   // each line's time ticks in its own leaf (SubagentTime), so a tick sorts and draws nothing here.
@@ -225,7 +231,10 @@ export function SubagentsSection({
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, connectionQuiet, now),
+      // Its words wait out a retry's shared bound, a clock each row keeps (`useLineState`).
+      state: "",
+      waits: waiting.has(agent.id),
+      now,
       working: Boolean(retrying(agent)),
       // How long it has run (subagentGroupModel.ts `elapsed`): one waiting on work of its own still counts.
       since: agent.startedAt,
@@ -243,7 +252,8 @@ export function SubagentsSection({
       identity: child.sessionId,
       name: child.title,
       status,
-      ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
+      session: child,
+      state: "",
       icon: "agent.chat",
       mark: child.harness,
       depth: 0,
@@ -254,7 +264,7 @@ export function SubagentsSection({
       entry.agent ? agentLine(entry.agent, entry.depth, entry.status) : sessionLine(entry.session, entry.status);
     const split = splitSubagentLines(agents, waiting, sessions, now);
     return { runningLines: split.running.map(toLine), endedLines: split.ended.map(toLine) };
-  }, [agents, waiting, sessions, now, t, language, harness, senderBadge, connectionQuiet]);
+  }, [agents, waiting, sessions, now, t, language, harness, senderBadge]);
   const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
   // Each line is its own memo boundary (SubagentLineRow): a tick, a change to another subagent or a
   // scroll draws only the lines whose words changed.
@@ -316,6 +326,7 @@ type LineRowProps = {
 /// Its open is the section's, which takes the line's id.
 const SubagentLineRow = memo(
   function SubagentLineRow({ item, onOpen, onOpenSession, resume }: LineRowProps) {
+    const state = useLineState(item);
     const handler = item.agent ? onOpen : onOpenSession;
     const { identity } = item;
     const open = useCallback(() => handler?.(identity), [handler, identity]);
@@ -327,7 +338,7 @@ const SubagentLineRow = memo(
           lean
           name={item.name}
           status={item.status}
-          state={item.state}
+          state={state}
           time={
             item.since !== undefined ? (
               <SubagentTime since={item.since} until={item.until} ticks={item.ticks} />
@@ -338,7 +349,7 @@ const SubagentLineRow = memo(
           tone={agentTone(item.identity)}
           depth={item.depth}
           onOpen={handler ? open : undefined}
-          card={<AgentCard item={item} />}
+          card={<AgentCard item={item} state={state} />}
           after={resume && resumable && <ResumeControl agent={resumable} actions={resume} />}
         />
       </li>
@@ -358,7 +369,21 @@ function SubagentTime({ since, until, ticks = false }: { since: number; until?: 
 const lineTime = (since: number, until: number | undefined, now: number) =>
   formatDuration(Math.max(0, (until ?? now) - since));
 
-function AgentCard({ item }: { item: Line }) {
+const NO_WAITING: ReadonlySet<string> = new Set();
+
+/// A line's state words. A retry waits out the shared bound before its words say so (retryState.ts
+/// ``retryWords``), on a clock each row keeps (useConnectionQuietKeys hands back a new function each
+/// render), so the list's lines are worked out without it and a row's words wait on their own.
+function useLineState(item: Line): string {
+  const t = useT();
+  const connectionQuiet = useConnectionQuietKeys();
+  if (item.session) return sessionStateText(t, item.session, connectionQuiet).text;
+  if (!item.agent) return item.state;
+  const waiting = item.waits ? new Set([item.agent.id]) : NO_WAITING;
+  return subagentStateText(t, item.agent, waiting, connectionQuiet, item.now);
+}
+
+function AgentCard({ item, state }: { item: Line; state: string }) {
   const progress = useAgentProgress(item.agent) ?? item.progress;
   // The card shows only while hovered: its time keeps its own clock while it does.
   const now = useNow(Boolean(item.ticks) && item.until === undefined);
@@ -369,7 +394,7 @@ function AgentCard({ item }: { item: Line }) {
       name={item.name}
       status={item.status}
       state={[
-        item.state,
+        state,
         time,
         item.kind,
         progress,

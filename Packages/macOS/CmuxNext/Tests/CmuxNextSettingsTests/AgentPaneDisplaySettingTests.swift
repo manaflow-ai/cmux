@@ -1,4 +1,4 @@
-import CmuxNextSettings
+@testable import CmuxNextSettings
 import Testing
 
 /// The agent chat's look (Settings > Appearance > Agent Chat, the chat's ··· menu Text & Width
@@ -28,6 +28,9 @@ struct AgentPaneDisplaySettingTests {
         // What the model chip opens (webviews ModelPicker.tsx): the harness columns unless a look picks the compact menu.
         Row(key: "agentPane.display.modelPickerStyle", fallback: .string("list"), accepted: [.string("menu")],
             refused: [.string("columns"), .bool(true)]),
+        // The model menus' update footer: every outdated agent CLI unless a look keeps it to the chat's own.
+        Row(key: "agentPane.display.ownHarnessUpdatesOnly", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("own")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.
@@ -133,6 +136,21 @@ struct AgentPaneDisplaySettingTests {
         #expect(!TranscriptTokensSetting.accepts(.object(["fill": .bool(true)])))
         let bad: JSONValue = ["agentPane": ["display": ["transcriptLook": .string("retro")]]]
         #expect(AgentPaneDisplaySetting(fileRoot: bad).values[look] == nil)
+    }
+
+    /// The reply streaming style (`agentPane.display.streaming`, webviews streamingStyle.ts): a theme
+    /// or profile file's value reaches the page, and a value outside words, lines and instant does not.
+    @Test func theStreamingStyleComesFromTheEffectiveRootAndTakesItsThreeValues() {
+        let key = "agentPane.display.streaming"
+        let themed: JSONValue = ["agentPane": ["display": ["streaming": .string("instant")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: ["agentPane": ["display": ["width": .number(900)]]], lookRoot: themed).values[key] == .string("instant"))
+        // A theme file may set it: Rust answers which keys are looks (`theme.is_look`, cmux-config LOOK_KEYS; #57013).
+        #expect(SettingsSchema.descriptor(for: ["agentPane", "display", "streaming"]).map(ThemeFileOverlay.isLook) == true)
+        let lines: JSONValue = ["agentPane": ["display": ["streaming": .string("lines")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: lines).values[key] == .string("lines"))
+        let bad: JSONValue = ["agentPane": ["display": ["streaming": .string("typewriter")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: bad).values[key] == nil)
+        #expect(SettingsSchema.descriptor(for: ["agentPane", "display", "streaming"])?.defaultValue == .string("words"))
     }
 
     @Test(arguments: rows)

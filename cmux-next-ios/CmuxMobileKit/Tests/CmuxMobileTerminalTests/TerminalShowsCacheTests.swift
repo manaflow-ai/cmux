@@ -42,6 +42,48 @@ import UIKit
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)
     }
 
+    /// The link's own line (a network that blocks it) is the stalled panel's reason, over the
+    /// generic words; "Offline" alone adds nothing to the title.
+    @Test func theStalledPanelPrefersTheLinksOwnLine() {
+        #expect(TerminalLoadStalledPanel.notice(.offline(mac: "Mac Studio"), linkStatus: "This network blocks the connection")?.detail
+            == "This network blocks the connection")
+        #expect(TerminalLoadStalledPanel.notice(.offline(mac: "Mac Studio"), linkStatus: "Offline")?.detail
+            == "The terminal opens when it is back.")
+        #expect(TerminalLoadStalledPanel.notice(.failed(message: "x"), linkStatus: "Blocked")?.detail == "Blocked")
+        #expect(TerminalLoadStalledPanel.notice(.reattaching(mac: "Mac Studio"), linkStatus: "Blocked") == nil)
+    }
+
+    /// The offline subtitle says how old the saved copy is, and only when the page shows one.
+    @Test func theOfflineLineSaysHowOldTheSavedCopyIs() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let model = makeModel()
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-20), now: now) == "updated just now")
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-185), now: now) == "updated 3 min ago")
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-7300), now: now) == "updated 2 h ago")
+        #expect(model.offlineSubtitle(nil) == nil)
+        // Nothing of the Mac's on the page: no age to tell.
+        model.restoreSavedAt(now.addingTimeInterval(-185))
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline")
+        model.restoreLastFrame(Self.frame())
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline · updated 3 min ago")
+        // An older date never replaces a newer one.
+        model.restoreSavedAt(now.addingTimeInterval(-9000))
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline · updated 3 min ago")
+    }
+
+    /// A page with nothing of its own takes a saved copy that arrives late; one that is attached
+    /// or already shows rows never does.
+    @Test func onlyABlankDetachedPageTakesALateSeed() {
+        let model = makeModel()
+        #expect(model.takesLateSeed)
+        model.cardScreenText = "$ ls\nREADME.md"
+        #expect(model.takeSeed() != nil)
+        #expect(!model.takesLateSeed)
+        let attached = makeModel()
+        attached.ingest(.connection(.attached))
+        #expect(!attached.takesLateSeed)
+    }
+
     /// A cover with no kept frame ends at the composer's top, never under the composer bar
     /// (iOS regression row 20, Aziz 2026-11-26: "the loading terminal placeholder shouldnt leak
     /// under the composer bar").
@@ -69,11 +111,12 @@ import UIKit
         quiet.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(quiet.connectionLine == nil, "nothing for the first 10 s")
 
-        let model = makeModel(delay: .milliseconds(60))
+        // A gate already past its bound shows at once, on this actor: no timer to race a loaded
+        // main actor (CI ran a 60 ms gate past a 5 s wait while other suites drew frames).
+        let model = makeModel(delay: .zero)
         model.ingest(.connection(.attached))
         model.ingest(.connection(.reattaching(mac: "Mac Studio")))
-        #expect(model.connectionLine == nil)
-        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.quietStatus.isShown)
         #expect(model.connectionLine == nil, "a reattach says nothing, however long (Leo 2026-11-22)")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))

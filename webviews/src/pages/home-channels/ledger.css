@@ -1606,6 +1606,11 @@
   height: 100%;
   object-fit: cover;
 }
+/* A message's only image is its whole picture in its own shape (AttachmentViews.tsx singleImageStyle):
+   a box reserved from a size that turns out wrong letterboxes it, never crops or stretches it. */
+.hc-att-image.single img {
+  object-fit: contain;
+}
 .hc-att-image.loading {
   background: var(--lg-fill-strong);
 }

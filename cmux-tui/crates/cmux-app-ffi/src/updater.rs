@@ -7,6 +7,20 @@
 //! - `update_flow.card` `{flow, downloadsAutomatically}` → the notice card's
 //!   kind, or null.
 //! - `update_flow.footer_pill` `{flow, silent}` → the footer pill's kind, or null.
+//! - `staged_prewarm.scan` `{installations, bundleIdentifier, build}` → the
+//!   newest staged bundle of that build and its runs (`{bundle, runs}`), or
+//!   null (src/updater/staged_prewarm.rs). Blocking: reads folders.
+//! - `staged_prewarm.read_pages` `{root}` → `{files, pages}`: every page under
+//!   `root` read once. Blocking.
+//! - `staged_prewarm.describe_exit` `{executable, status}` → the update log's
+//!   word for a run's exit.
+//! - `staged_prewarm.write_marker` / `staged_prewarm.consume_marker`
+//!   `{build, marker}` → whether it was written / named `build` and was taken.
+//! - `rollback.decide`, `rollback.previous`: which kept build going back picks,
+//!   or why it refuses (src/updater/rollback.rs).
+//! - `web_updates.read_pointer`, `web_updates.tree_digest`,
+//!   `web_updates.archive_digest`: a web update's pointer, tree and archive
+//!   checks (src/updater/web_updates.rs).
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -14,10 +28,16 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// cbindgen:ignore
+pub mod rollback;
+/// cbindgen:ignore
+pub mod staged_prewarm;
+/// cbindgen:ignore
 pub mod update_flow;
+/// cbindgen:ignore
+pub mod web_updates;
 
 /// Bumped on any change to a type, a function or an op.
-pub const CMUX_UPDATER_ABI_VERSION: u32 = 1;
+pub const CMUX_UPDATER_ABI_VERSION: u32 = 4;
 /// The op ran; `*out` holds its reply.
 pub const CMUX_UPDATER_OK: i32 = 0;
 /// A null pointer where one is required.
@@ -70,7 +90,38 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         flow: Flow,
         silent: bool,
     }
+    #[derive(Deserialize)]
+    struct Root {
+        root: std::path::PathBuf,
+    }
+    #[derive(Deserialize)]
+    struct Exit {
+        executable: std::path::PathBuf,
+        status: i32,
+    }
+    #[derive(Deserialize)]
+    struct Marker {
+        build: String,
+        marker: std::path::PathBuf,
+    }
     match op {
+        "staged_prewarm.scan" => Ok(json!(staged_prewarm::scan(&de(request)?))),
+        "staged_prewarm.read_pages" => {
+            let Root { root } = de(request)?;
+            Ok(json!(staged_prewarm::read_pages(&root)))
+        }
+        "staged_prewarm.describe_exit" => {
+            let Exit { executable, status } = de(request)?;
+            Ok(json!(staged_prewarm::describe_exit(&executable, status)))
+        }
+        "staged_prewarm.write_marker" => {
+            let Marker { build, marker } = de(request)?;
+            Ok(json!(staged_prewarm::write_marker(&build, &marker)))
+        }
+        "staged_prewarm.consume_marker" => {
+            let Marker { build, marker } = de(request)?;
+            Ok(json!(staged_prewarm::consume_marker(&build, &marker)))
+        }
         "update_flow.handle" => {
             let Handle { mut flow, event, preferences } = de(request)?;
             let effects = flow.handle(event, preferences);
@@ -84,6 +135,8 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
             let Pill { flow, silent } = de(request)?;
             Ok(json!(flow.footer_pill(silent)))
         }
+        op if op.starts_with("rollback.") => rollback::call(op, request),
+        op if op.starts_with("web_updates.") => web_updates::call(op, request),
         _ => Err(OpError::Unknown),
     }
 }
@@ -213,6 +266,28 @@ mod tests {
         let (_, pill) =
             ffi("update_flow.footer_pill", r#"{"flow": {"phase": "ready"}, "silent": false}"#);
         assert_eq!(pill, Some(json!("ready")));
+    }
+
+    #[test]
+    fn staged_prewarm_ops_answer_over_the_abi() {
+        let (status, none) = ffi(
+            "staged_prewarm.scan",
+            r#"{"installations": ["/nonexistent-cmux-prewarm"], "bundleIdentifier": "x", "build": "1"}"#,
+        );
+        assert_eq!(status, CMUX_UPDATER_OK);
+        assert_eq!(none, Some(Value::Null));
+        let (_, word) = ffi(
+            "staged_prewarm.describe_exit",
+            r#"{"executable": "/A.app/Contents/Frameworks/A Helper.app/Contents/MacOS/A Helper", "status": 255}"#,
+        );
+        assert_eq!(word, Some(json!("exit 255 (framework loaded)")));
+        let (_, pages) =
+            ffi("staged_prewarm.read_pages", r#"{"root": "/nonexistent-cmux-prewarm"}"#);
+        assert_eq!(pages, Some(json!({"files": 0, "pages": 0})));
+        assert_eq!(
+            ffi("staged_prewarm.consume_marker", r#"{"build": "1"}"#).0,
+            CMUX_UPDATER_ERR_INVALID
+        );
     }
 
     #[test]

@@ -226,7 +226,9 @@ const CommandRow = memo(function CommandRow({
         {typeof time === "number" ? (
           <CommandTime since={time} />
         ) : (
-          time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
+          time !== undefined && (
+            <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
+          )
         )}
         {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
       </button>
@@ -241,8 +243,8 @@ const CommandRow = memo(function CommandRow({
 /// the second's clock draws. `now` pins it (a gallery, a test).
 export function CommandTime({ since, now: fixed }: { since: number; now?: number }) {
   const own = useNow(fixed === undefined);
-  const text = runningTime(Math.max(0, (fixed ?? own) - since));
-  return <Clock className="acpmux-session-info-task__time" text={text} size={runningClockSize(text)} />;
+  const time = runningTime(Math.max(0, (fixed ?? own) - since));
+  return <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />;
 }
 
 /// A wakeup's or cron job's row, its own memo boundary with the words it draws.

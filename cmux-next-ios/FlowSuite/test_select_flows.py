@@ -21,8 +21,12 @@ class ManifestTests(unittest.TestCase):
 
     def test_every_regression_row_has_a_flow(self):
         rows = {s for f in MANIFEST["flows"] for s in f["source"]}
-        for n in range(1, 13):
+        for n in list(range(1, 13)) + [21]:
             self.assertIn(f"regression:{n}", rows)
+
+    def test_composer_layout_change_runs_its_tests(self):
+        r = fs.select(MANIFEST, ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalComposer.swift"])
+        self.assertIn("composer-grow-and-controls", [f["id"] if isinstance(f, dict) else f for f in r["flows"]])
 
 
 class SelectTests(unittest.TestCase):
@@ -83,6 +87,14 @@ class SelectTests(unittest.TestCase):
             self.assertEqual(r["pair_e2e"], ["reconnect-drops=10,60"])
             self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e reconnect-drops=10,60")
         self.assertNotIn("reconnect-after-drop", self.sel("cmux-tui/crates/cmux-tui/src/main.rs")["flows"])
+
+    def test_pair_e2e_true_selects_the_paired_run_without_words(self):
+        # flows.json marks some flows `"pair_e2e": true` (README); the selector crashed iterating the bool.
+        r = self.sel("Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobileHost.swift")
+        self.assertIn("pairing-mac-identity", r["flows"])
+        self.assertTrue(r["pair"])
+        self.assertTrue(all(isinstance(w, str) for w in r["pair_e2e"]))
+        self.assertTrue(any(line.startswith("pair-e2e") for line in fs.sim_args(r, 1)))
 
     def test_shared_swift_package_the_app_links_is_ios_affecting(self):
         r = self.sel("Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/AuthCoordinator.swift")

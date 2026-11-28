@@ -27,6 +27,9 @@ pub(crate) struct MeshBook {
     left: BTreeMap<String, Bare>,
     /// Each machine listed, with its newest heartbeat (ms since the epoch).
     hosts: BTreeMap<String, u64>,
+    /// The health each machine's daemon pushed on its heartbeat (RFD 0181 T1), with when the hub
+    /// took it (ms): placement weighs a hub-only machine from it with no ask.
+    pushed: BTreeMap<String, (u64, Value)>,
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
     reads: u64,
     /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
@@ -84,6 +87,7 @@ struct Fields<'a> {
     name: &'a str,
     harness: &'a str,
     state: &'a str,
+    stuck_reason: Option<&'a str>,
     cwd: Option<&'a str>,
     title: Option<&'a str>,
     title_source: Option<&'a str>,
@@ -92,6 +96,8 @@ struct Fields<'a> {
     agent_session_id: Option<&'a str>,
     host_build: Option<&'a str>,
     handle: Option<&'a str>,
+    /// Its tags as its heartbeat lists them (`SessionRow::tags`).
+    tags: Option<&'a std::collections::BTreeMap<String, String>>,
     /// When the session last changed on its machine, as its heartbeat says (`updatedAt`).
     updated_at: Option<u64>,
 }
@@ -102,6 +108,7 @@ impl<'a> Fields<'a> {
             name: &s.name,
             harness: &s.harness,
             state: &s.state,
+            stuck_reason: s.stuck_reason.as_deref(),
             cwd: s.cwd.as_deref().filter(|c| !c.is_empty()),
             title: s.title.as_deref().filter(|t| !t.is_empty()),
             title_source: s.title_source.as_deref().filter(|t| !t.is_empty()),
@@ -112,6 +119,7 @@ impl<'a> Fields<'a> {
             // Only a given handle: a derived one is every reader's to derive, and an invalid one
             // is no handle at all (`session_handle::valid`).
             handle: s.handle.as_deref().filter(|h| crate::session_handle::valid(h)),
+            tags: s.tags.as_ref().filter(|t| !t.is_empty()),
             updated_at: s.updated_at.filter(|&at| at > 0),
         }
     }
@@ -125,6 +133,7 @@ struct Bare {
     name: String,
     harness: String,
     state: String,
+    stuck_reason: Option<String>,
     cwd: Option<String>,
     title: Option<String>,
     title_source: Option<String>,
@@ -133,6 +142,7 @@ struct Bare {
     agent_session_id: Option<String>,
     host_build: Option<String>,
     handle: Option<String>,
+    tags: Option<std::collections::BTreeMap<String, String>>,
     updated_at: Option<u64>,
     read: u64,
     /// The `updatedAt` its row lists.
@@ -146,6 +156,7 @@ impl Bare {
             name: fields.name.into(),
             harness: fields.harness.into(),
             state: fields.state.into(),
+            stuck_reason: own(fields.stuck_reason),
             cwd: own(fields.cwd),
             title: own(fields.title),
             title_source: own(fields.title_source),
@@ -154,6 +165,7 @@ impl Bare {
             agent_session_id: own(fields.agent_session_id),
             host_build: own(fields.host_build),
             handle: own(fields.handle),
+            tags: fields.tags.cloned(),
             updated_at: fields.updated_at,
             read,
             stamped,
@@ -165,6 +177,7 @@ impl Bare {
             name: &self.name,
             harness: &self.harness,
             state: &self.state,
+            stuck_reason: self.stuck_reason.as_deref(),
             cwd: self.cwd.as_deref(),
             title: self.title.as_deref(),
             title_source: self.title_source.as_deref(),
@@ -173,6 +186,7 @@ impl Bare {
             agent_session_id: self.agent_session_id.as_deref(),
             host_build: self.host_build.as_deref(),
             handle: self.handle.as_deref(),
+            tags: self.tags.as_ref(),
             updated_at: self.updated_at,
         }
     }
@@ -212,11 +226,35 @@ pub(crate) fn mine(
     (hosts, sessions)
 }
 
+/// How old a pushed reading may be and still stand in for a pull: a few heartbeats.
+pub(crate) const PUSHED_FRESH_MS: u64 = 2 * 60_000;
+
+/// The newest reading each of this person's machines pushed (`BookDaemon::health`), by host.
+/// Taken from the same daemons `mine` lists.
+pub(crate) fn pushed_health(
+    book: &AddressBook,
+    own_user: &str,
+    own_daemon: Option<&str>,
+    skip: &dyn Fn(&str) -> bool,
+) -> BTreeMap<String, (u64, Value)> {
+    let mut out: BTreeMap<String, (u64, Value)> = BTreeMap::new();
+    for d in &book.daemons {
+        let (Some(health), Some(at)) = (&d.health, d.health_at) else { continue };
+        if !health.is_object() || !is_mine(d, own_user, own_daemon, skip) {
+            continue;
+        }
+        if out.get(&d.host).is_none_or(|(was, _)| at > *was) {
+            out.insert(d.host.clone(), (at, health.clone()));
+        }
+    }
+    out
+}
+
 /// The keys every session row lists, from this machine or another: a hub row lists each one,
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
 #[cfg(test)]
-pub(crate) const ROW_KEYS: [&str; 11] = [
+pub(crate) const ROW_KEYS: [&str; 12] = [
     "name",
     "nameGiven",
     "title",
@@ -227,6 +265,7 @@ pub(crate) const ROW_KEYS: [&str; 11] = [
     "agentSessionId",
     "hostBuild",
     "handle",
+    "tags",
     "status",
 ];
 
@@ -238,6 +277,7 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         name,
         harness,
         state,
+        stuck_reason,
         cwd,
         title,
         title_source,
@@ -246,10 +286,12 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         agent_session_id,
         host_build,
         handle,
+        tags,
         // `set_mesh_book` sets `updatedAt` itself, from this or its own reading.
         updated_at: _,
     } = *fields;
-    json!({
+    let failed = state == "failed";
+    let mut row = json!({
         "sessionId": session_id,
         "name": name,
         // Unknown unless the hub says: the name came from its machine, given or derived there.
@@ -266,12 +308,28 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         // from the id (`session_handle::display`, `session_handle::matches`).
         "handle": handle,
         "displayName": handle,
-        "status": state,
+        // Its tags, as a local row lists them (`session::live_tags`): null when the hub says none.
+        "tags": tags,
+        // Keep the daemon's lifecycle status usable by existing summary views. The synthetic
+        // failed heartbeat state is carried by the last turn they already know how to render.
+        "status": if failed { "idle" } else { state },
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
         "pendingPermissions": u64::from(state == "waiting"),
         "via": "hub",
         "stale": false,
-    })
+    });
+    if failed {
+        // Existing summary views derive their failed indicator from the last turn. Keep that
+        // projection even when an older peer omitted the optional reason.
+        row["lastTurn"] = json!({"status": "failed"});
+    }
+    if let Some(reason) = stuck_reason {
+        row["stuckReason"] = json!(reason);
+        if failed {
+            row["lastTurn"]["errorText"] = json!(reason);
+        }
+    }
+    row
 }
 
 impl Hub {
@@ -297,8 +355,9 @@ impl Hub {
             book.machines_read = true;
             book.machines_changed.notify_waiters();
         }
+        let pushed = pushed_health(&book, own_user, own_daemon, &skip);
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
-        self.set_mesh_book(hosts, sessions);
+        self.set_mesh_book_with_health(hosts, sessions, pushed);
     }
 
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
@@ -369,6 +428,15 @@ impl Hub {
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and
     /// the shared list is rebuilt once (`list_guard.rs`). Empty when the relay stops.
     pub(crate) fn set_mesh_book(&self, hosts: BTreeMap<String, u64>, sessions: Vec<BookSession>) {
+        self.set_mesh_book_with_health(hosts, sessions, BTreeMap::new());
+    }
+
+    fn set_mesh_book_with_health(
+        &self,
+        hosts: BTreeMap<String, u64>,
+        sessions: Vec<BookSession>,
+        pushed: BTreeMap<String, (u64, Value)>,
+    ) {
         let now = now_ms();
         let (gone, changed, moved, came, left) = {
             let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
@@ -449,6 +517,7 @@ impl Hub {
                 Default::default()
             };
             book.hosts = hosts;
+            book.pushed = pushed;
             (gone, changed, moved, came, left)
         };
         if !gone.is_empty() || !changed.is_empty() || moved {
@@ -530,6 +599,7 @@ impl Hub {
     /// With each one's last health reading through the hub and when it came (`hub_health.rs`),
     /// as a direct peer's row carries its link's (`health`, `healthAt`), so placement weighs it.
     pub(super) fn mesh_book_hosts(&self) -> Vec<Value> {
+        let now = now_ms();
         let mut rows: Vec<Value> = {
             let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
             // One walk of the rows for every host, not one per host.
@@ -541,14 +611,27 @@ impl Hub {
                 .iter()
                 .map(|(host, seen)| {
                     let count = counts.get(host.as_str()).copied().unwrap_or(0);
-                    json!({
+                    let mut row = json!({
                         "name": host,
                         "connected": true,
                         "state": "connected",
                         "via": "hub",
                         "lastSeen": seen,
                         "sessions": count,
-                    })
+                    });
+                    // What the machine's own heartbeat carried; a pulled reading newer than it
+                    // replaces it below.
+                    if let Some((at, reading)) = book.pushed.get(host)
+                        && let Some(fields) = row.as_object_mut()
+                    {
+                        // Keep the time after the metrics expire: placement distinguishes a
+                        // machine that has gone stale from one it has never heard from.
+                        fields.insert("healthAt".into(), json!(at));
+                        if now.saturating_sub(*at) <= PUSHED_FRESH_MS {
+                            fields.insert("health".into(), reading.clone());
+                        }
+                    }
+                    row
                 })
                 .collect()
         };
@@ -556,14 +639,40 @@ impl Hub {
         let health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut rows {
             let Some(name) = row.get("name").and_then(Value::as_str) else { continue };
+            let failed_at = health.failed_at(name);
+            let pushed_at = row.get("healthAt").and_then(Value::as_u64);
             if let Some((at, reading)) = health.reading(name)
+                && pushed_at.is_none_or(|pushed| at > pushed)
                 && let Some(fields) = row.as_object_mut()
             {
                 fields.insert("health".into(), reading);
                 fields.insert("healthAt".into(), json!(at));
             }
+            // Its newest read failed: placement passes it over (`placement/reach.rs`).
+            if let Some(failed) = failed_at
+                && let Some(fields) = row.as_object_mut()
+            {
+                fields.insert("healthFailedAt".into(), json!(failed));
+            }
         }
         rows
+    }
+
+    /// Members and machines due for a pull, taken from the same book revision.
+    pub(crate) fn mesh_health_hosts(&self, now: u64) -> super::hub_health::HealthHosts {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let listed = book.hosts.keys().cloned().collect();
+        let pull = book
+            .hosts
+            .keys()
+            .filter(|host| {
+                book.pushed
+                    .get(*host)
+                    .is_none_or(|(at, _)| now.saturating_sub(*at) > PUSHED_FRESH_MS)
+            })
+            .cloned()
+            .collect();
+        super::hub_health::HealthHosts { listed, pull }
     }
 
     /// A session the hub lists on machine `host`, the one a machine read goes through: the hub

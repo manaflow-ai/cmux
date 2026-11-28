@@ -29,7 +29,9 @@ export function ChildSessionRows({
   return (
     <WindowedRows
       items={orderedSessions(sessions)}
-      render={(child) => <ChildSessionRow key={child.sessionId} child={child} onOpen={onOpen} />}
+      render={(child) => (
+<ChildSessionRow key={child.sessionId} child={child} onOpen={onOpen} />
+      )}
     />
   );
 }
@@ -44,7 +46,8 @@ const ChildSessionRow = memo(function ChildSessionRow({
   onOpen?: (sessionId: string) => void;
 }) {
   const t = useT();
-  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
+  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``), on the
+  // row's own clock: the hook hands back a new function each render, so no prop of the memo carries it.
   const connectionQuiet = useConnectionQuietKeys();
   const status = sessionStatus(child);
   const label = sessionStateText(t, child, connectionQuiet);

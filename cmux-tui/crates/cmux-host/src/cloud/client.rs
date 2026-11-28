@@ -3,10 +3,12 @@
 
 use crate::json::JsonField;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use cmux_server::cloud_http::RequestDeadline;
 
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
+use cmux_tui_util::retry::Patience;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -571,7 +573,7 @@ impl<H: Http> CloudClient<H> {
     /// A bearer token, cached until one minute before it expires.
     /// `now_wall_ms` is wall-clock time (the server's `expires_at` is).
     pub fn token(&mut self, now_wall_ms: u64) -> Result<String, String> {
-        if self.bound.api_origin != self.bound.env.api_origin() {
+        if !self.bound.env.allows_api_origin(&self.bound.api_origin) {
             self.cached = None;
             return Err("Cloud origin differs from the original environment".into());
         }
@@ -679,14 +681,16 @@ impl<H: Http> CloudClient<H> {
         Ok((status, serde_json::from_value(value).map_err(|_| malformed())?))
     }
 
-    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to the
-    /// bound environment's own API origin, and at most 1 MiB.
+    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to an
+    /// API origin the bound environment allows, and at most 1 MiB.
     pub(super) fn request_with_headers(
         &self,
         path: &str,
         deadline: &RequestDeadline,
     ) -> Result<cmux_server::cloud_http::Response, String> {
-        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
+        if !self.bound.env.allows_api_origin(&self.bound.api_origin)
+            || deadline.remaining().is_none()
+        {
             return Err("bounded Cloud request unavailable".into());
         }
         let response = self
@@ -789,9 +793,12 @@ impl<H: Http> CloudClient<H> {
 
     /// One page of the repositories this machine's team linked to GitHub
     /// (`GET /v1/integrations/github/repos` on the API as its `vm` install).
+    /// A read: a transient outage is retried ([`patiently`]).
     pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
         let team = self.bound.team.clone();
-        super::github_repos::answer(ask, &team, |path| self.get_as_install(path, now_wall_ms))
+        super::github_repos::answer(ask, &team, |path| {
+            patiently("GitHub's repository list", || self.get_as_install(path, now_wall_ms))
+        })
     }
 
     /// The person's connected GitHub account (`GET /v1/me/github` as this
@@ -800,7 +807,9 @@ impl<H: Http> CloudClient<H> {
     /// (`carrier_ticket.rs`): the machine names itself; the caller nothing.
     pub fn carrier_ticket(&mut self, now_wall_ms: u64) -> Value {
         let path = super::carrier_ticket::path(&self.bound.machine);
-        let answer = self.post_empty_with_token(&path, now_wall_ms);
+        // A second mint after a lost reply only leaves an unused ticket to expire.
+        let answer =
+            patiently("a carrier ticket", || self.post_empty_with_token(&path, now_wall_ms));
         super::carrier_ticket::reply_for(&answer)
     }
 
@@ -814,13 +823,27 @@ impl<H: Http> CloudClient<H> {
             let token = client.token(now_wall_ms).ok()?;
             client.http.send(&call.method, &url, call.body.as_ref(), Some(&token), &headers).ok()
         };
-        let answer = match send(self) {
+        let mut once = || match send(self) {
             None => Answer::Transport,
             Some((401, _)) => {
                 self.cached = None;
                 send(self).map_or(Answer::Transport, |(status, body)| Answer::Http { status, body })
             }
             Some((status, body)) => Answer::Http { status, body },
+        };
+        // Only a call that cannot apply twice is repeated, and only when nothing came back: any
+        // status, a 5xx included, is the caller's answer.
+        let repeatable = key.is_some() || matches!(call.method.as_str(), "GET" | "HEAD");
+        let answer = if repeatable {
+            let mut patience = Patience::new("the apps request", PATIENCE).quiet();
+            loop {
+                let answer = once();
+                if answer != Answer::Transport || !patience.sleep(None) {
+                    break answer;
+                }
+            }
+        } else {
+            once()
         };
         super::apps_call::reply_for(&answer, &self.bound.machine)
     }
@@ -858,7 +881,9 @@ impl<H: Http> CloudClient<H> {
     }
 
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
-        let answer = self.platform_get(super::github_status::STATUS_PATH, now_wall_ms);
+        let answer = patiently("the GitHub status", || {
+            self.platform_get(super::github_status::STATUS_PATH, now_wall_ms)
+        });
         super::github_status::reply_for(&answer)
     }
 
@@ -975,5 +1000,32 @@ impl<H: Http> CloudClient<H> {
     pub fn op(&mut self, request: &OpRequest, now_wall_ms: u64) -> Answer {
         let body = json!({ "op": request.op, "params": request.params });
         self.post_with_token("/v1/ops", &body, now_wall_ms)
+    }
+}
+
+/// How long a socket ask's Cloud read waits out a transient outage: short, since the agent's
+/// one GitHub worker answers asks in turn (`github_minter.rs`), and the caller retries too.
+#[cfg(not(test))]
+pub(super) const PATIENCE: Duration = Duration::from_secs(6);
+#[cfg(test)]
+pub(super) const PATIENCE: Duration = Duration::from_secs(1);
+
+/// Whether a later send of the same request can pass: nothing came back or the platform failed
+/// (5xx). A 429 is returned to the caller once so its reset metadata remains authoritative. This
+/// transport does not expose response headers, so retrying would risk ignoring a longer
+/// `Retry-After` than the JSON body contains.
+fn transient(answer: &Answer) -> bool {
+    matches!(answer, Answer::Transport | Answer::Http { status: 500 | 502 | 503 | 504, .. })
+}
+
+/// `send`, repeated through a transient failure ([`transient`]) for at most [`PATIENCE`];
+/// the last answer when the time is spent or the failure is not transient.
+pub(super) fn patiently(what: &str, mut send: impl FnMut() -> Answer) -> Answer {
+    let mut patience = Patience::new(what, PATIENCE).quiet();
+    loop {
+        let answer = send();
+        if !transient(&answer) || !patience.sleep(None) {
+            return answer;
+        }
     }
 }

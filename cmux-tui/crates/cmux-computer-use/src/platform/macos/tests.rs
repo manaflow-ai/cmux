@@ -94,7 +94,7 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
+/// Review 3 (8, 9): the scope runs only on the verified minors (26.5+,
 /// 27.0+; earlier versions and other majors run with it off), and any off
 /// switch that says 0 turns it off, whichever source says it.
 #[test]
@@ -104,7 +104,9 @@ fn the_key_in_app_scope_is_gated() {
     assert!(gate("26.7", &[]));
     assert!(gate("27.2", &[]));
     assert!(gate("27.3.1", &[]));
-    assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
+    assert!(gate("26.5.2", &[]), "26.5.2: the eval guest's image");
+    assert!(gate("26.5", &[]));
+    assert!(!gate("26.4.1", &[]), "before the verified 26 minor");
     // 27.0 and 27.0.1 verified live: on for every 27.
     assert!(gate("27.0", &[]), "27.0 verified live (TextEdit, a fleet Mac)");
     assert!(gate("27.0.1", &[]));
@@ -2629,7 +2631,7 @@ fn the_scope_default_is_one_constant_and_the_switch_overrides_it() {
     assert!(!activation::gate_with(false, "27.0.1", &[]));
     assert!(activation::gate_with(false, "27.0.1", &["1"]));
     assert!(!activation::gate_with(false, "27.0.1", &["1", "0"]));
-    assert!(!activation::gate_with(false, "26.5", &["1"]), "unverified macOS stays off");
+    assert!(!activation::gate_with(false, "26.4", &["1"]), "unverified macOS stays off");
 }
 
 /// A button's digit: its title (or description) is exactly one digit.
@@ -2956,6 +2958,52 @@ fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
     }
     let proxy = roles::WebField { width: 12.0, height: 6.0, ..plain.clone() };
     assert!(roles::web_value_gate(Some(&proxy), setting).is_err(), "a padded 1x1 helper");
+}
+
+/// A web slider (`<input type="range">`) takes set_value, which writes its
+/// number straight to it with no page-focus wait: its increment action
+/// moves it by 5% (WebKit), so 42 of 0-100 was out of reach in the
+/// background (cu suite form-slider, 0 of 3 on 2026-11-26: "the slider can
+/// only be set to multiples of 5 in the background"). Typing into one stays
+/// refused, and every other rule of the gate still holds.
+#[test]
+#[allow(clippy::redundant_clone)]
+fn a_web_slider_takes_set_value_without_waiting_for_page_focus() {
+    assert_eq!(roles::web_kind("AXSlider", 0), roles::WebKind::Range);
+    assert_eq!(roles::web_kind("AXSlider", 1), roles::WebKind::Range, "WebKit's thumb child");
+    let slider = roles::WebField {
+        kind: roles::WebKind::Range,
+        secure: false,
+        width: 129.0,
+        height: 21.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    let setting = roles::SecureField::Allow;
+    assert!(roles::web_value_gate(Some(&slider), setting).is_ok());
+    assert!(
+        roles::web_value_gate(Some(&slider), roles::SecureField::Refuse).is_err(),
+        "nothing types into a slider"
+    );
+    assert!(
+        roles::web_value_gate(Some(&roles::WebField { hidden: true, ..slider.clone() }), setting)
+            .is_err(),
+        "hidden"
+    );
+    assert!(
+        roles::web_value_gate(
+            Some(&roles::WebField { on_screen: false, ..slider.clone() }),
+            setting
+        )
+        .is_err(),
+        "off screen"
+    );
+    assert!(!roles::web_write_needs_page_focus(Some(roles::WebKind::Range)));
+    for kind in [None, Some(roles::WebKind::Plain), Some(roles::WebKind::Other)] {
+        assert!(roles::web_write_needs_page_focus(kind), "text inputs keep the focus rule");
+    }
 }
 
 /// Live in Safari (macOS 27.0.1): an <input> has no children; a native
@@ -3437,4 +3485,114 @@ fn safaris_autocorrection_bubble_is_watched_dismissed_or_reported() {
     assert_eq!(autocorrection(false, false), Autocorrection::NoneOffered);
     assert_eq!(autocorrection(true, false), Autocorrection::Dismissed);
     assert_eq!(autocorrection(true, true), Autocorrection::StillOffered);
+}
+
+/// The takeover watch reads the newest deliberate input: the smallest
+/// seconds-since among the types, ignoring what the window server could not
+/// answer (NaN, negative).
+#[test]
+fn hid_idle_is_the_newest_deliberate_input() {
+    assert_eq!(idle::newest_ms([3.0, 0.25, 9.0]), Some(250));
+    assert_eq!(idle::newest_ms([f64::NAN, -1.0, 2.0]), Some(2000));
+    assert_eq!(idle::newest_ms([f64::NAN]), None);
+    // Pointer movement (CGEventType 5) is not a takeover.
+    assert!(!idle::DELIBERATE.contains(&5));
+}
+
+/// Our own post is marked for the takeover watch, so input right after it is
+/// not taken for the person's. (No HID read here: on a fleet guest with no
+/// window-server session the HID counters do not answer.)
+#[test]
+fn our_posts_are_marked_for_the_takeover_watch() {
+    use crate::takeover::IdleClock;
+    idle::mark_injection();
+    let clock = idle::HidIdle;
+    let marked = clock.last_injection_ms();
+    assert!(marked > 0 && marked <= clock.now_ms());
+}
+
+/// The panel sits so the arrow's tip is on the event's point: global (100, 50)
+/// on a 900-point-high primary screen is AppKit (99, 900 - 50 - 23).
+#[test]
+fn the_cursor_panel_puts_the_tip_on_the_point() {
+    assert_eq!(overlay::tip_origin_for_tests(Point { x: 100.0, y: 50.0 }, 900.0), (99.0, 827.0));
+}
+
+/// Off AppKit's main thread (a test thread) the worker runs without a
+/// cursor rather than touching AppKit off the main thread.
+#[test]
+fn no_app_no_cursor_and_the_work_still_runs() {
+    assert_eq!(run_with_app(|| 7), 7);
+    // No app was started by this test thread, so nothing draws.
+    let sink = crate::platform::cursor_overlay();
+    sink.show(crate::cursor::CursorEvent::Hide { session: "s".into() });
+}
+
+/// TextEdit's Format item reads "Make Rich Text" before validation and "Make
+/// Plain Text" once the window is key (the cu-suite textedit-plain-text
+/// trials): a retitle to a title that names no app is pressed, on the chord
+/// path and the click path, with the default deny list; a retitle onto a
+/// denied app's name, or an unreadable title, stays refused.
+#[test]
+fn a_menu_item_retitled_to_a_plain_title_is_pressed_a_denied_one_is_not() {
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    assert!(guard.denies_any());
+    // Format menu, depth 1: not a launch list.
+    let check = |title: &str| {
+        let ctx = roles::MenuItemContext {
+            title,
+            top_index: Some(4),
+            depth: 1,
+            siblings: &[],
+            launch: None,
+        };
+        roles::menu_item_check(&guard, &ctx, &resolve)
+    };
+    let m0 = roles::ShortcutMatch {
+        title: "Make Rich Text".into(),
+        enabled: false,
+        blocked: false,
+        checked: true,
+        unknown: false,
+        unplaced: false,
+    };
+    // Chord path.
+    let m = roles::retitled_match(&m0, Some("Make Plain Text"), check);
+    assert!(!m.blocked && m.title == "Make Plain Text" && !m.unplaced && !m.unknown);
+    let same = roles::retitled_match(&m0, Some("Make Rich Text"), |_| unreachable!());
+    assert_eq!(same, m0);
+    let denied = roles::retitled_match(&m0, Some("Keychain Access"), check);
+    assert!(denied.blocked && !denied.unplaced && denied.title == "Keychain Access");
+    let unreadable = roles::retitled_match(&m0, None, |_| unreachable!());
+    assert!(unreadable.blocked && unreadable.unplaced);
+    // A retitle never unblocks.
+    let was_blocked = roles::ShortcutMatch { blocked: true, ..m0.clone() };
+    assert!(roles::retitled_match(&was_blocked, Some("Make Plain Text"), check).blocked);
+    // Names still loading keep their own refusal.
+    let loading = roles::retitled_match(&m0, Some("Ghost"), |_| roles::ItemCheck::Unknown);
+    assert!(loading.blocked && loading.unknown);
+    // The chord rule presses the retitled, enabled item.
+    let enabled = roles::ShortcutMatch { enabled: true, ..m };
+    assert!(!roles::needs_menu_validation(&[enabled]));
+
+    // Click path.
+    assert_eq!(
+        roles::same_or_allowed(Some("Make Rich Text"), Some("Make Plain Text"), check),
+        Ok(())
+    );
+    assert_eq!(roles::same_or_allowed(Some("Save"), Some("Save"), |_| unreachable!()), Ok(()));
+    assert_eq!(
+        roles::same_or_allowed(Some("Make Rich Text"), Some("Keychain Access"), check),
+        Err(roles::REFUSE_RETITLED_BLOCKED)
+    );
+    assert_eq!(
+        roles::same_or_allowed(Some("A"), Some("B"), |_| roles::ItemCheck::Unplaced),
+        Err(crate::menus::UNREADABLE_ITEM_REFUSAL)
+    );
+    assert_eq!(
+        roles::same_or_allowed(Some("A"), Some("B"), |_| roles::ItemCheck::Unknown),
+        Err(crate::menus::APP_NAMES_LOADING)
+    );
+    assert!(roles::same_or_allowed(Some("Save"), None, |_| unreachable!()).is_err());
+    assert!(roles::same_or_allowed(None, Some("Save"), |_| unreachable!()).is_err());
 }
