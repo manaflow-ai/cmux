@@ -48,6 +48,7 @@ webviews/src/protocol/codegen/*
 scripts/ci/cmux_next_fast_gates.py
 scripts/ci/fast_gate_webviews_checks.py
 scripts/web_lint_prepush.py
+scripts/measure/tests/empty-array-bash32.test.py
 scripts/ci/crash_ratchet_compare.py
 scripts/ci/egress_new_sites.py
 scripts/cmux-next/crash_ratchet.py
