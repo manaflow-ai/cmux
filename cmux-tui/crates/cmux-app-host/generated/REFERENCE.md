@@ -583,6 +583,7 @@ Ops no app may call:
 - `client.metadata.update`
 - `client.sizing.release`
 - `client.sizing.set`
+- `cloud.artifacts.read`
 - `cloud.billing.checkout`
 - `cloud.environment.boot`
 - `cloud.environment.build`
