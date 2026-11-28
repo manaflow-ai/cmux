@@ -36,6 +36,7 @@ mod agent_open;
 mod batch;
 mod call;
 mod chat_page;
+mod chat_memory;
 mod chat_perf;
 mod classic;
 mod events;
@@ -220,6 +221,10 @@ pub(super) enum AppCommand {
     },
     /// `app chat page`: `agent.chat.page.*`, a chat page's elements, styles or masked picture (app/chat_page.rs).
     ChatPage(chat_page::Request),
+    /// `app chat memory`: `agent.chat.memory` pids, read here (app/chat_memory.rs).
+    ChatMemory {
+        empty: Value,
+    },
     /// `app chat perf --page-source`: `agent.chat.perf {"page_source": true}`, how the chat pages
     /// made since launch got their page; no tab, no capture (app/chat_perf.rs).
     ChatPageSource {
@@ -387,6 +392,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "page") => {
             chat_page::parse(rest)?
+        }
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "memory") => {
+            chat_memory::parse(rest)?
         }
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
@@ -1138,6 +1146,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
         AppCommand::ChatPage(request) => return Ran::Done(chat_page::run(global, stream, request)),
+        AppCommand::ChatMemory { empty } => {
+            return Ran::Done(chat_memory::run(global, stream, &empty));
+        }
         AppCommand::ChatPageSource { params } => {
             return Ran::Done(chat_perf::run_page_source(global, stream, params));
         }

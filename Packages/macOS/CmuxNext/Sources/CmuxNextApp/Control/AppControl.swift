@@ -147,7 +147,8 @@ final class AppControl {
             // `apps.views`: each open extension view and the words it shows now (read-only).
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
-            GhosttyDiagnosticsControl().method, ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
+            GhosttyDiagnosticsControl().method,
+            AgentChatMemoryControl(chats: { [weak services] in services?.madeAgentTabs.map { store in store.views.entries.map { ($0.key.machine, $0.key.key, $0.value, store.views.marked.contains($0.key)) } } ?? [] }, daemonPid: { [weak services] in services?.machines.local.identity?.pid }).controlMethod, ClickTraceControl.method(), // `cmux app chat memory` (pids only; Rust reads the footprints) and `cmux app clicks` (where the last presses went, every build)
         ])
         // `cmux app chat perf|page`: a chat page's frames, elements and masked picture, read-only; finds the page, never shows it.
         service.router.register(AgentChatPerfControl { [weak services] id in
