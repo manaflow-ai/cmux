@@ -17,6 +17,14 @@ struct ChangingBytesTests {
         var size: CGSize = .zero
         var fps: Double
         var qp: Double
+        /// Frames a second the host captured (its own log), 0 if unknown.
+        var captured: Double = 0
+    }
+
+    /// The capture rate in a host `video:` line ("capture 17.5 fps").
+    static func capturedFps(_ line: String) -> Double {
+        guard let range = line.range(of: #"capture ([0-9.]+) fps"#, options: .regularExpression) else { return 0 }
+        return Double(line[range].split(separator: " ")[1]) ?? 0
     }
 
     /// One stream through the phases; returns each measured phase.
@@ -57,13 +65,20 @@ struct ChangingBytesTests {
             let size = counter.snapshot.1
             var measured = result
             measured.size = size
+            let hostLine = lines.last("video:")
+            measured.captured = hostLine.map(Self.capturedFps) ?? 0
             results[phase.rawValue] = measured
             print("CHANGING-BYTES config=\(label) phase=\(phase.rawValue) source=\(width)x\(height) \(phase.describe) " +
                 "kbit/s=\(String(format: "%.0f", result.kbps)) fps=\(String(format: "%.1f", result.fps)) " +
                 "qp=\(String(format: "%.1f", result.qp)) size=\(Int(size.width))x\(Int(size.height))")
-            if let line = lines.last("video:") { print("CHANGING-BYTES config=\(label) phase=\(phase.rawValue) host \(line)") }
+            if let line = hostLine { print("CHANGING-BYTES config=\(label) phase=\(phase.rawValue) host \(line)") }
         }
         return results
+    }
+
+    @Test func readsTheHostCaptureRate() {
+        #expect(Self.capturedFps("video: codec video/H264 fps 16 sent 356 capture 17.5 fps target 60 fps") == 17.5)
+        #expect(Self.capturedFps("video: codec video/H264 fps 16") == 0)
     }
 
     /// The shipped encoding keeps text at full size and spends little on a
@@ -72,7 +87,10 @@ struct ChangingBytesTests {
     /// balanced or maintain-framerate degradation, a ceiling following the
     /// changed area) spent less beyond run-to-run noise; a camera
     /// (non-screencast) source dropped to 320x200 and spent 4x more on a
-    /// scroll. The bounds leave about 2x headroom over those numbers.
+    /// scroll. The bounds leave about 2x headroom over those numbers. The
+    /// frame rate is checked against what the host captured, not a fixed 60:
+    /// a loaded Mac renders the synthetic screen at 17 fps (#58093), and the
+    /// encoder's job is to send what it is given.
     @Test(.timeLimit(.minutes(2)))
     func smallChangesStaySharpAndCheap() async throws {
         let results = try await Self.measure(label: "shipped")
@@ -81,7 +99,8 @@ struct ChangingBytesTests {
         #expect(pane.kbps < 400, "a scrolling pane costs \(pane.kbps) kbit/s")
         #expect(full.kbps < 700, "a full-screen scroll costs \(full.kbps) kbit/s")
         #expect(typing.kbps < full.kbps, "a typed line costs no less than a full scroll")
-        #expect(full.fps > 50, "a full scroll runs at \(full.fps) fps")
+        #expect(full.captured > 0, "the host reported no capture rate")
+        #expect(full.fps > full.captured * 0.8, "a full scroll sends \(full.fps) of \(full.captured) captured fps")
         for (phase, result) in results {
             #expect(result.size == CGSize(width: 1280, height: 800), "\(phase) arrived at \(result.size): text is no longer sharp")
         }
