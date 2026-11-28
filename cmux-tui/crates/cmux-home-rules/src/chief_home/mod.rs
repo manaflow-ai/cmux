@@ -90,6 +90,8 @@ pub const OPS: &[&str] = &[
     "migration_cursor",
     "migration_pick_chief",
     "migration_copy_skips",
+    // ChiefConversationOwner+Brains.swift
+    "owner_brains_value",
 ];
 
 #[derive(Deserialize)]
