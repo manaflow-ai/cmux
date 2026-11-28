@@ -32,6 +32,10 @@ use cmux_json::JsonSet as _;
 /// How long a move may go without its client before the source ends it.
 pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from_secs(300);
 
+/// How long a move whose client hung up waits before it ends ([`Hub::watch_move_client`]): a
+/// client that lost only its connection opens another and reads on within it.
+pub(super) const CLIENT_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// How long the source waits for the target's answer to `transfer_forget`.
 const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -387,6 +391,58 @@ impl Hub {
                 () = tokio::time::sleep(lease) => {}
                 () = changed => {}
             }
+        }
+    }
+
+    /// The connection that began move `transfer_id` (`transfer_begin`) ends with `ended`. Once
+    /// it does, the move ends at once rather than after a whole lease the chat spends frozen
+    /// (a mover killed at its timeout froze the chat for minutes, 2026-11-28): after
+    /// [`CLIENT_GONE_GRACE`], a move no client read from since, and whose bundle was not read
+    /// to its end, aborts (`client_gone`) and the chat runs here again. A bundle read to its end
+    /// may have landed on its target, so that move is left to its lease watch, which asks the
+    /// target; a client that came back on a new connection (its reads stamp `alive`) keeps it.
+    pub(crate) fn watch_move_client(
+        self: &Arc<Self>,
+        session_id: &str,
+        transfer_id: &str,
+        mut ended: tokio::sync::watch::Receiver<bool>,
+    ) {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let Ok(session) = self.resolve(session_id) else { return };
+        let (hub, transfer_id) = (self.clone(), transfer_id.to_owned());
+        self.scope.spawn_until_cancelled("move-client-gone", async move {
+            // An error is a connection already dropped: it ended too.
+            let _ = ended.wait_for(|ended| *ended).await;
+            let gone_at = std::time::SystemTime::now();
+            tokio::time::sleep(CLIENT_GONE_GRACE).await;
+            hub.end_move_of_gone_client(&session, &transfer_id, gone_at);
+        });
+    }
+
+    fn end_move_of_gone_client(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        transfer_id: &str,
+        gone_at: std::time::SystemTime,
+    ) {
+        if session.moving().as_deref() != Some(transfer_id) || session.meta().moved_to.is_some() {
+            return;
+        }
+        let dir = transfers_dir().join(transfer_id);
+        // Under `PAGES`: a read of a client that came back either stamped `alive` before this
+        // looks, or finds the move ended.
+        let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
+        if last_activity(&dir).is_some_and(|at| at > gone_at) || fully_read(&dir) != Some(false) {
+            return;
+        }
+        let Some(epoch) = Self::stalled_move_epoch(session, transfer_id, &dir) else { return };
+        tracing::info!(session = %session.id, transfer_id, "the client of a move hung up before the bundle was read; the move ends and the chat runs here again");
+        if let Err(e) =
+            self.transfer_abort_with_epoch(session, transfer_id, Some("client_gone"), Some(epoch))
+        {
+            tracing::warn!(session = %session.id, transfer_id, "ending a move whose client hung up: {}", e.message);
         }
     }
 
