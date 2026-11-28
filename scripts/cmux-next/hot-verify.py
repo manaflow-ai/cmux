@@ -137,6 +137,7 @@ STATE_FILE = "hot-verify.json"
 # hot-apply.py _plan's `left` keys this engine reads, and the build reasons it names for the others.
 LEFT_WEB = "web (not published for a branch)"
 LEFT_HELPERS = "bundled helpers (cmux-mobile-host, ...)"
+HELPERS_REASON = "Rust only bundled helpers use"
 REASONS = {"swift-live": "Swift", "rebuild": "Swift, resources or manifests", "unrelated": "unrelated history"}
 # The files the rules read from a checkout (cmux_next_route.py's FFI and scheme inputs, the tree key script),
 # when this engine is an export of scripts/cmux-next or the clone has no working tree: a sparse worktree of
@@ -157,6 +158,11 @@ LAUNCH_SECONDS = 120
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
+# A fleet app build of the head (build_swift_app): a cold one outlasts APPLY_SECONDS (cmux#47278, 2026-11-28: the
+# wait gave up at 900 s with the build still running, so the look failed and posted a failing proof record). The
+# fleet's look step runs up to 3450 s (cmuxterm-hq pr_capture/hot_verify_run.py RUN_SECONDS): this leaves the
+# plan, copy and shots room inside it.
+APP_BUILD_SECONDS = 2400
 # The most a look waits for the copy's window to repaint (the release socket says nothing about paint, so the
 # window's own pixels are read: Repaint): after launch, a theme change, and an overlay reload.
 REPAINT_LAUNCH = 20.0
@@ -555,7 +561,7 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     if helpers:
         # hot-apply leaves these for a new app (`left`): the bundled helpers (the diff sidecar, transport, ...) keep
         # the app's build, so a look that swaps only the daemon would show the change without them.
-        out["build"]["Rust only bundled helpers use"] = list(helpers)
+        out["build"][HELPERS_REASON] = list(helpers)
     out["needs_build"] = bool(out["build"])
     return out
 
@@ -2325,18 +2331,22 @@ def can_build_swift_app(planned: dict) -> bool:
 
     A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
     that are live-swappable when they accompany a Swift change, and the data files it bundles from
-    Resources/ (bundled_resource). Other build reasons (FFI, manifests, Info.plist, bundled helpers)
-    remain an explicit build-required result.
+    Resources/ (bundled_resource). The bundled helpers ride in it too: the project's build phases compile
+    them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json). Other build reasons (FFI,
+    manifests, Info.plist) remain an explicit build-required result.
     """
     build = planned.get("build")
     if not (planned.get("needs_build") and isinstance(build, dict) and build
-            and set(build) <= {"Swift", "Swift, resources or manifests", "strings"}):
+            and set(build) <= {"Swift", "Swift, resources or manifests", "strings", HELPERS_REASON}):
         return False
     # A strings catalog rides in the complete app too (cmux#62345: a Swift change with its Localizable.xcstrings
     # copy planned `strings` beside `Swift` and was refused a build, so it could get no look).
     swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
-    return all(paths and all(copy(path) if reason == "strings" else (swift(path) or bundled_resource(path))
+    # A Swift change that also adds or edits a crate a bundled helper uses (cmux#38466: a new cmux-conductor-import
+    # crate, so Cargo.lock) planned that reason beside Swift and was refused a build, so it could get no look.
+    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings"
+                             else (swift(path) or bundled_resource(path))
                              for path in paths)
                for reason, paths in build.items())
 
@@ -2383,7 +2393,7 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300) or 'no output'}") from error
     log(f"fleet app build {job} for {planned['head'][:12]}")
-    _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree, timeout=APPLY_SECONDS + 30)
+    _ci_run([ci, "wait", "--timeout", str(APP_BUILD_SECONDS), job], cwd=tree, timeout=APP_BUILD_SECONDS + 30)
     bundle = out / "fleet-bundle"
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,

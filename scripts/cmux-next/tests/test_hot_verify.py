@@ -686,7 +686,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(calls[0][0], [ci, "build", "cmux", "--builder", "linux", "--backend-mode", "local",
                                       "--tag", f"app-try-{head[:12]}", "--ref", head, "--workspace", f"app-try:{head}"])
         self.assertEqual(calls[0][1]["cwd"], self.fx.repo)
-        self.assertEqual(calls[1][0], [ci, "wait", "--timeout", str(hv.APPLY_SECONDS), "job-1"])
+        self.assertEqual(calls[1][0], [ci, "wait", "--timeout", str(hv.APP_BUILD_SECONDS), "job-1"])
 
     def test_swift_app_fallback_uses_the_exact_dirty_working_tree(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 5 }\n"})

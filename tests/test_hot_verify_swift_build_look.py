@@ -47,11 +47,40 @@ class CanBuild(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(hv.can_build_swift_app(plan({"Swift, resources or manifests": [path]})))
 
+    def test_bundled_helper_rust_beside_swift_builds(self):
+        # cmux#38466: Swift plus a new crate a bundled helper uses (Cargo.lock) got no look at all.
+        self.assertTrue(hv.can_build_swift_app(plan({"Swift": ["Sources/A.swift"],
+                                                     hv.HELPERS_REASON: ["cmux-tui/Cargo.lock"]})))
+        self.assertFalse(hv.can_build_swift_app(plan({"Swift": ["Sources/A.swift"], hv.HELPERS_REASON: []})))
+
     def test_a_manifest_or_other_reason_does_not(self):
         self.assertFalse(hv.can_build_swift_app(plan({"Swift": ["Package.swift"]})))
         self.assertFalse(hv.can_build_swift_app(plan({"strings": ["Sources/A.swift"]})))
         self.assertFalse(hv.can_build_swift_app(plan({"Swift": ["A.swift"], "Rust FFI": ["x.h"]})))
         self.assertFalse(hv.can_build_swift_app({"needs_build": False, "build": {"Swift": ["A.swift"]}}))
+
+
+class BuildWait(unittest.TestCase):
+    def test_the_fleet_build_wait_outlasts_a_cold_build(self):
+        # cmux#47278: the wait gave up at APPLY_SECONDS (900 s) with the app build still running.
+        self.assertGreater(hv.APP_BUILD_SECONDS, hv.APPLY_SECONDS)
+        calls = []
+
+        def ci_run(argv, cwd=None, timeout=hv.APPLY_SECONDS):
+            calls.append((argv, timeout))
+            return SimpleNamespace(stdout=json.dumps({"id": "job1"}), returncode=0)
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(hv, "_ci_client", return_value="cmux-ci"), \
+                mock.patch.object(hv, "_ci_run", side_effect=ci_run), \
+                mock.patch.object(hv.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")), \
+                mock.patch.object(hv, "_artifact_app", return_value=Path(d) / "cmux.app"):
+            hv.build_swift_app(Path(d), {"head": HEAD}, f"sha:{HEAD}", Path(d))
+        waits = [(argv, timeout) for argv, timeout in calls if argv[1] == "wait"]
+        self.assertEqual(len(waits), 1)
+        argv, timeout = waits[0]
+        self.assertEqual(argv[argv.index("--timeout") + 1], str(hv.APP_BUILD_SECONDS))
+        self.assertGreater(timeout, hv.APP_BUILD_SECONDS)
 
 
 class RecordsABuiltLook(unittest.TestCase):
