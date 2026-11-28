@@ -498,6 +498,17 @@ impl Hub {
         true
     }
 
+    /// A mesh heartbeat soon, not waited for: a chat this daemon no longer runs (moved out)
+    /// leaves the hub's address book within the heartbeat floor, not at the next timed beat.
+    pub(crate) fn unlist_on_mesh_soon(&self) {
+        let beat = self.mesh_beat.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
+        if let Some(beat) = beat
+            && let Ok(runtime) = tokio::runtime::Handle::try_current()
+        {
+            runtime.spawn(async move { beat.now(MOVED_LISTED_WAIT).await });
+        }
+    }
+
     /// Every file `manifest` lists, read page by page from the source's `transfer_id` and
     /// written into the receive `receive_id` here; the pages and their base64 bytes.
     pub(super) async fn pull_files(
