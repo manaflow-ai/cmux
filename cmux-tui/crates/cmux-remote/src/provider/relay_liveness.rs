@@ -50,6 +50,18 @@ use std::time::{Duration, SystemTime};
 
 use tokio::time::Instant;
 
+/// The longest `Retry-After` a registration honours; a relay that names more is waited out for
+/// this long and asked again.
+pub(super) const RETRY_AFTER_MAX: Duration = Duration::from_secs(60);
+
+/// A relay's `Retry-After` in whole seconds (the HTTP-date form is not used by our relays), at
+/// most [`RETRY_AFTER_MAX`]; None when absent or not a number.
+pub(super) fn retry_after_of(headers: &http::HeaderMap) -> Option<Duration> {
+    let seconds: u64 =
+        headers.get(http::header::RETRY_AFTER)?.to_str().ok()?.trim().parse().ok()?;
+    Some(Duration::from_secs(seconds).min(RETRY_AFTER_MAX))
+}
+
 /// How often the loop checks the clocks and an outstanding ping.
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_secs(1);
 /// How long a ping may go unanswered.
@@ -297,7 +309,7 @@ impl Retry {
                 self.busy.next(unit);
                 let own = ceiling / 2 + ceiling.mul_f64(unit.clamp(0.0, 1.0) / 2.0);
                 let told = retry_after.map_or(Duration::ZERO, |after| {
-                    after.min(super::RETRY_AFTER_MAX).mul_f64(1.0 + unit.clamp(0.0, 1.0) / 2.0)
+                    after.min(RETRY_AFTER_MAX).mul_f64(1.0 + unit.clamp(0.0, 1.0) / 2.0)
                 });
                 own.max(told)
             }

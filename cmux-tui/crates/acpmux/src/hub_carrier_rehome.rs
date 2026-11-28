@@ -30,6 +30,25 @@ pub(crate) fn candidates(answer: &CarrierAnswer) -> Vec<String> {
     out
 }
 
+/// Relays that answered busy, and until when none asks them again: with every relay full, one
+/// ask per relay per its wait, never a ring of asks.
+#[derive(Default)]
+pub(crate) struct Full(std::collections::HashMap<String, tokio::time::Instant>);
+
+impl Full {
+    pub(crate) fn mark(&mut self, relay: &str, retry_after: Option<Duration>) {
+        let until =
+            tokio::time::Instant::now() + busy_wait(retry_after, crate::peer_link::jitter());
+        self.0.insert(relay.to_owned(), until);
+    }
+
+    pub(crate) async fn wait_for(&self, relay: &str) {
+        if let Some(until) = self.0.get(relay).copied() {
+            tokio::time::sleep_until(until).await;
+        }
+    }
+}
+
 /// How long a relay that answered busy is left alone: its `Retry-After` (at most a minute) plus
 /// up to half again of jitter, else 1 to 1.5 s. `jitter` is in `0.0..1.0`.
 pub(crate) fn busy_wait(

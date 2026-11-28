@@ -43,6 +43,7 @@ mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
 use credential_read::*;
+use liveness::retry_after_of;
 
 /// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
 /// wrote to stderr, read while it runs so a full pipe never stalls it. The
@@ -2122,8 +2123,7 @@ async fn connect_provider_control(
 
 enum RelaySocketConnectError {
     Authentication,
-    /// The relay's upgrade answer was 503 or 429 (full, or rate limiting): a wait, with the
-    /// relay's own `Retry-After` when it sent one.
+    /// 503 or 429 on the upgrade: a wait, by its `Retry-After`.
     Busy {
         status: u16,
         retry_after: Option<Duration>,
@@ -2141,18 +2141,6 @@ impl RelaySocketConnectError {
             Self::Provider(error) => error,
         }
     }
-}
-
-/// The longest `Retry-After` a registration honours; a relay that names more is waited out for
-/// this long and asked again.
-pub(crate) const RETRY_AFTER_MAX: Duration = Duration::from_secs(60);
-
-/// A relay's `Retry-After` in whole seconds (the HTTP-date form is not used by our relays), at
-/// most [`RETRY_AFTER_MAX`]; None when absent or not a number.
-pub(crate) fn retry_after_of(headers: &http::HeaderMap) -> Option<Duration> {
-    let seconds: u64 =
-        headers.get(http::header::RETRY_AFTER)?.to_str().ok()?.trim().parse().ok()?;
-    Some(Duration::from_secs(seconds).min(RETRY_AFTER_MAX))
 }
 
 async fn connect_relay_socket(
