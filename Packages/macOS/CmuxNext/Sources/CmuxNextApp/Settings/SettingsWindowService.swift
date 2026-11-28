@@ -37,8 +37,8 @@ final class SettingsWindowService: InternalPageProvider {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
-    /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
+    private var transientPages: [String: PageWebView] = [:]
     /// Customize Menu… opens so far (``showMenus(_:)``).
     private var menusOpens = 0
     /// The route the next page view opens on.
@@ -65,18 +65,19 @@ final class SettingsWindowService: InternalPageProvider {
         Task { [devices = services.devices] in await devices.refresh() }
         // task-owner: one read of this Mac's join status per opening (its consent switches)
         Task { [join = services.joinConsent] in await join.refresh() }
+        let modelRoute = setting.flatMap { DeepLink.modelSettingsRoute(focus: $0) }
         let place = setting.flatMap(SettingsPageAnchor.init(key:))
-        let anchor = place == nil ? setting.flatMap(SettingsAnchor.init(key:)) : nil
-        if let setting, place == nil, anchor == nil { throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting)) }
+        let anchor = modelRoute == nil && place == nil ? setting.flatMap(SettingsAnchor.init(key:)) : nil
+        if let setting, modelRoute == nil, place == nil, anchor == nil { throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting)) }
         let target = anchor?.section ?? section
-        if target == .keyboard {
+        if modelRoute == nil, target == .keyboard {
             let invocation = ActionInvocation(origin: focus ? .user : .cli)
             guard services.registry.perform("keybindings.open", invocation: invocation) else {
                 throw ActionFailure(message: RefusalStrings.noWindowOpen)
             }
             return
         }
-        let route = place?.route ?? pageRoute ?? SettingsDeepLink.route(section: target, setting: setting)
+        let route = place?.route ?? pageRoute ?? modelRoute ?? SettingsDeepLink.route(section: target, setting: setting)
         // The window's one Settings tab comes back when another workspace of the window holds it
         // (nxdog77: Cmd-, in a second workspace opened a second Settings tab).
         if focus, let window = services.windows.active { revealSettingsTab(of: window) }
@@ -160,12 +161,12 @@ final class SettingsWindowService: InternalPageProvider {
             return webPage
         }
         guard let page = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
-        if webPage == nil { webPage = page }
+        if webPage == nil { webPage = page } else { transientPages.updateValue(page, forKey: key)?.close() }
         return page
     }
 
     func tabClosed(_ key: String) {
-        // A live preview left by a closed page (mid-drag) must not stay applied.
+        transientPages.removeValue(forKey: key)?.close()
         services.settings?.endPreview()
     }
 
