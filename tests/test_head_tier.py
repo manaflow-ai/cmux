@@ -14,9 +14,9 @@ from unittest import mock
 import unittest.mock
 from pathlib import Path
 
-# CI_HEAVY_AT_LAND is on by default; tests of the other rules read decide() with it off, and the heavy-at-land
-# tests set it themselves.
-_HEAVY_AT_LAND = unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"})
+# CI_HEAVY_AT_LAND and CI_SAME_HEAD_LAND_CARRY are on by default; tests of the other rules read decide() with them
+# off (the same-head rule would read the API on every ready-to-land label), and their own tests set them.
+_HEAVY_AT_LAND = unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0", "CI_SAME_HEAD_LAND_CARRY": "0"})
 
 
 def setUpModule() -> None:
@@ -1711,3 +1711,85 @@ class FullCiBaseMergeCarryTests(unittest.TestCase):
         after = {"files": [{"filename": "a.rs", "status": "modified", "sha": "2", "patch": "@@ -5 +5 @@\n-x\n+y"}]}
         self.assertEqual(head_tier.patch_key(before), head_tier.patch_key(after))
         self.assertNotEqual(head_tier.patch_key(before, blobs=True), head_tier.patch_key(after, blobs=True))
+
+
+class SameHeadLandCarryTests(unittest.TestCase):
+    """ready-to-land added again to a head whose land tier and every check already passed there runs nothing and keeps
+    cmux/land-tier success (goal ci-min-per-pr-30); anything red, running, unread, full-ci or the switch off runs the
+    land tier as before."""
+
+    SHA = "a" * 40
+    CUTOFF = "2026-11-27T12:00:00Z"
+    STATUSES = [{"context": "cmux/land-tier", "state": "success"}, {"context": "cmux/ios-fast", "state": "success"}]
+
+    @staticmethod
+    def check(name: str, conclusion: str | None, started: str = "2026-11-27T11:00:00Z", id_: int = 1,
+              status: str = "completed") -> dict:
+        return {"id": id_, "name": name, "status": status, "conclusion": conclusion, "started_at": started}
+
+    def ev(self, labels: tuple[str, ...] = ("ready-to-land",), added: str = "ready-to-land") -> dict:
+        ev = land_event(labels=labels, action="labeled", added=added)
+        ev["pull_request"]["head"]["sha"] = self.SHA
+        ev["pull_request"]["updated_at"] = self.CUTOFF
+        return ev
+
+    def decide(self, ev: dict, checks: list | None, statuses: list | None = None, switch: str = "1") -> tuple:
+        real = head_tier.checks_at, head_tier.statuses_at
+        try:
+            head_tier.checks_at = lambda *a: checks
+            head_tier.statuses_at = lambda *a: self.STATUSES if statuses is None else statuses
+            with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                                       "CI_LAND_TIER": "1", "CI_HEAVY_AT_LAND": "1",
+                                                       "CI_SAME_HEAD_LAND_CARRY": switch}):
+                decided, _ = head_tier.decide_with_facts("pull_request", ev)
+                return decided, pr_router.land_status(ev, decided)
+        finally:
+            head_tier.checks_at, head_tier.statuses_at = real
+
+    GREEN = [check.__func__("web bundle build", "success"), check.__func__("ios fast verdict", "success", id_=2),
+             check.__func__("nightly", "skipped", id_=3)]
+
+    def test_a_re_add_onto_an_all_green_head_runs_nothing_and_stays_landed(self) -> None:
+        ev = self.ev()
+        decided, status = self.decide(ev, self.GREEN)
+        self.assertEqual(decided[0], "none", decided)
+        self.assertTrue(head_tier.same_head_carried(decided))
+        self.assertEqual(status, "success")
+        start, _ = pr_router.route(ev, pr_router.load_manifest(), ["README.md"], decided=decided)
+        self.assertEqual(start, [])
+
+    def test_a_red_running_or_cancelled_check_runs_the_land_tier(self) -> None:
+        for bad in (self.check("linux", "failure", id_=9), self.check("linux", "cancelled", id_=9),
+                    self.check("linux", None, id_=9, status="in_progress"), self.check("linux", "timed_out", id_=9)):
+            decided, _ = self.decide(self.ev(), self.GREEN + [bad])
+            self.assertFalse(head_tier.same_head_carried(decided), (bad, decided))
+
+    def test_a_newer_green_rerun_of_a_red_check_counts(self) -> None:
+        checks = self.GREEN + [self.check("linux", "failure", "2026-11-27T10:00:00Z", 9),
+                               self.check("linux", "success", "2026-11-27T11:30:00Z", 10)]
+        self.assertTrue(head_tier.same_head_carried(self.decide(self.ev(), checks)[0]))
+
+    def test_checks_this_event_started_are_not_its_proof(self) -> None:
+        later = [self.check("web bundle build", "success", "2026-11-27T12:00:05Z")]
+        self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(), later)[0]))
+        running = self.GREEN + [self.check("linux", None, "2026-11-27T12:00:05Z", 9, "queued")]
+        self.assertTrue(head_tier.same_head_carried(self.decide(self.ev(), running)[0]))
+
+    def test_a_status_not_success_or_no_land_status_runs_the_land_tier(self) -> None:
+        for statuses in ([{"context": "cmux/land-tier", "state": "pending"}],
+                         [{"context": "cmux/land-tier", "state": "success"}, {"context": "cmux/ios-fast", "state": "failure"}],
+                         [{"context": "cmux/ios-fast", "state": "success"}]):
+            self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(), self.GREEN, statuses)[0]), statuses)
+
+    def test_unread_full_ci_first_add_or_switch_off_runs_the_land_tier(self) -> None:
+        self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(), None)[0]))
+        self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(), [])[0]))
+        self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(), self.GREEN, switch="0")[0]))
+        self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(labels=("ready-to-land", "full-ci")), self.GREEN)[0]))
+        self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(labels=("full-ci",), added="full-ci"), self.GREEN)[0]))
+        self.assertFalse(head_tier.same_head_carried(self.decide(self.ev(labels=()), self.GREEN, statuses=[])[0]))
+
+    def test_the_switch_is_in_both_workflows(self) -> None:
+        for name in ("pr-router.yml", "ci.yml"):
+            text = (ROOT / ".github" / "workflows" / name).read_text()
+            self.assertIn("CI_SAME_HEAD_LAND_CARRY: ${{ vars.CI_SAME_HEAD_LAND_CARRY || '1' }}", text)
