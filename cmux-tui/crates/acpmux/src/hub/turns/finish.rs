@@ -50,6 +50,12 @@ impl Hub {
         let ending = EndUnderWay { hub: self, session, turn_id };
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
         let carried_next = next.filter(|_| !detached);
+        // A question steered into this turn that its agent reads only in the turn taking its
+        // place is answered there: its reply goes at that turn's end (`question_replies.rs`).
+        // Moved now, before anything here waits, so the carried turn cannot end first.
+        if let Some(n) = carried_next {
+            self.question_replies_carried(session, turn_id, &n.carried.prompt_ids, &n.next.turn_id);
+        }
         // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`,
         // unless its agent runs on in the turn that takes its place (`carried_turn.rs`).
         let was_stopping = take_if_turn(&session.stopping, turn_id);

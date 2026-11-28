@@ -345,6 +345,65 @@ fn a_turn_with_no_reply_never_reads_the_turn_befores_through_the_transcript_filt
     assert_eq!(read(5), None);
 }
 
+/// Transcript events: a turn's start, then `parts` in order: `("text", t)` a chunk of its
+/// reply, `("steer", t)` a steer written into it, `("tool", id)` a tool call.
+fn turn_events(parts: &[(&str, &str)]) -> Vec<Value> {
+    let update = |u: Value| {
+        json!({"jsonrpc": "2.0", "method": "session/update",
+        "params": {"sessionId": "a", "update": u}})
+    };
+    let mut out = vec![json!({"seq": 1, "dir": "mux", "kind": "turn_started", "msg": {}})];
+    for (i, (kind, t)) in parts.iter().enumerate() {
+        let seq = i as u64 + 2;
+        out.push(match *kind {
+            "text" => json!({"seq": seq, "dir": "in", "kind": "agent_message_chunk",
+                "msg": update(json!({"sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": t}}))}),
+            "steer" => json!({"seq": seq, "dir": "mux", "kind": "user_message",
+                "msg": {"text": t, "steer": true, "promptId": format!("lane-report-{seq}")}}),
+            "tool" => json!({"seq": seq, "dir": "in", "kind": "tool_call",
+                "msg": update(json!({"sessionUpdate": "tool_call", "toolCallId": t,
+                    "title": "Bash", "status": "completed"}))}),
+            other => panic!("{other}"),
+        });
+    }
+    out
+}
+
+#[test]
+fn a_steer_written_in_while_the_reply_streams_cuts_none_of_it() {
+    // 2026-11-28: a lane report steered in between "or you " and "send a stop reason," and the
+    // asker got only the sentence after it.
+    let task = "Thanks, please take one more PR.\n\n**Task:** make the test pass.\n\n- **Check \
+        the cause first.**\n- **Cover the class.**\n- **Stop condition:** the PR is merged, or you ";
+    let events = turn_events(&[
+        ("tool", "t1"),
+        ("text", task),
+        ("steer", "[lane] my part is done · turn 6, idle"),
+        ("text", "send a stop reason, by 00:30Z."),
+    ]);
+    let want = format!("{task}send a stop reason, by 00:30Z.");
+    assert_eq!(last_reply(&events).as_deref(), Some(want.trim()));
+}
+
+#[test]
+fn the_reply_is_the_words_after_the_last_tool_call_steers_or_not() {
+    // Words before a tool call are not the reply; a steer after the reply leaves it whole.
+    let events = turn_events(&[
+        ("text", "Looking."),
+        ("tool", "t1"),
+        ("text", "Done: merged."),
+        ("steer", "a late message"),
+    ]);
+    assert_eq!(last_reply(&events).as_deref(), Some("Done: merged."));
+    // A turn that ends on a tool call still reports its last words before it.
+    let events = turn_events(&[("text", "Sent it."), ("steer", "x"), ("tool", "t1")]);
+    assert_eq!(last_reply(&events).as_deref(), Some("Sent it."));
+    // A turn with no words at all has no reply.
+    let events = turn_events(&[("steer", "x"), ("tool", "t1")]);
+    assert_eq!(last_reply(&events), None);
+}
+
 fn test_hub() -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: crate::config::Config = serde_json::from_value(json!({

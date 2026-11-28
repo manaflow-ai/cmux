@@ -117,3 +117,33 @@ async fn w5s_a_question_a_stop_kept_from_its_turn_never_gets_the_next_turns_repl
         );
     }
 }
+
+/// A question steered into a turn its agent ended before reading it is answered in the turn
+/// Claude Code carries it into (`carried_turn.rs`): that turn's end sends the reply, not the
+/// end of the turn it was steered into, whose words (often none: "(no reply)") answer nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_question_its_agent_reads_in_the_carried_turn_is_answered_by_that_turn() {
+    let (hub, alpha, beta) = two_chats().await;
+    let due = |prompt: &str| {
+        let mut d = ReplyDue::pending(prompt, alpha.id.clone(), None);
+        d.turn = Some("turn-a".into());
+        d
+    };
+    {
+        let mut inbox = beta.inbox();
+        keep_due(&mut inbox, due("steer-read-in-a"));
+        keep_due(&mut inbox, due("steer-carried"));
+    }
+    // Turn A ends carrying the steer it never read into turn B.
+    hub.question_replies_carried(&beta, "turn-a", &["steer-carried".to_owned()], "turn-b");
+    hub.question_replies_turn_ended(&beta, "turn-a", 1, true);
+    let left: Vec<(String, Option<String>)> =
+        beta.inbox().replies_due.iter().map(|d| (d.prompt_id.clone(), d.turn.clone())).collect();
+    assert_eq!(left, vec![("steer-carried".to_owned(), Some("turn-b".to_owned()))]);
+    // Turn B's end sends it.
+    hub.question_replies_turn_ended(&beta, "turn-b", 2, true);
+    assert!(beta.inbox().replies_due.is_empty());
+    for s in [alpha, beta] {
+        hub.kill(&s, true).await.unwrap();
+    }
+}

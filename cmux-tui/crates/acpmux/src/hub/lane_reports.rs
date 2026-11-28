@@ -444,18 +444,35 @@ fn state(summary: &Value) -> String {
     }
 }
 
-/// The last agent message among transcript events, oldest first.
+/// The last agent message among transcript events, oldest first: its words since its last
+/// tool call or thought. A steer written into the turn while those words streamed draws as a
+/// row between them (`transcript.rs`), but it is no break in the reply: the words on both sides
+/// of it are one reply, joined as they streamed. Before, only the part after the steer went, so
+/// the asker read the reply's tail with its start lost (2026-11-28: a ~1,300-character task
+/// arrived as its last sentence, a lane report steered in mid-stream).
 fn last_reply(events: &[Value]) -> Option<String> {
+    use crate::transcript::Item;
     let mut t = crate::transcript::Transcript::default();
     for e in events {
         t.apply_event(e);
     }
-    t.items.iter().rev().find_map(|i| match i {
-        crate::transcript::Item::Assistant { text } if !text.trim().is_empty() => {
-            Some(text.trim().to_owned())
+    let mut end = t.items.len();
+    while end > 0
+        && !matches!(&t.items[end - 1], Item::Assistant { text } if !text.trim().is_empty())
+    {
+        end -= 1;
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for item in t.items[..end].iter().rev() {
+        match item {
+            Item::Assistant { text } => parts.push(text),
+            Item::User { steer: true, .. } => {}
+            _ => break,
         }
-        _ => None,
-    })
+    }
+    let reply: String = parts.into_iter().rev().collect();
+    let reply = reply.trim();
+    (!reply.is_empty()).then(|| reply.to_owned())
 }
 
 /// A report's reply from its transcript read.
