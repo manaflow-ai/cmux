@@ -132,7 +132,8 @@ function classifyHung(
   const probeByVm = new Map(input.probes.map((probe) => [probe.vmId, probe]));
   const hung: HungVm[] = [];
   for (const vm of vmById.values()) {
-    const detail = hungDetail(probeByVm.get(vm.id), firstSeen.has(vm.id));
+    const probe = probeByVm.get(vm.id);
+    const detail = hungDetail(probe, firstSeen.has(vm.id));
     if (detail === null) continue;
     const row = rowByProviderId.get(vm.id);
     hung.push({
@@ -141,6 +142,7 @@ function classifyHung(
       owner: ownerFromRow(row),
       snapshot: vm.snapshot,
       size: { cpu: vm.cpu, memoryMib: vm.memoryMib, storageMib: vm.storageMib },
+      confirmedThisSweep: probe?.outcome === "hung",
       firstSeenHungAt: firstSeen.get(vm.id) ?? input.now.toISOString(),
       providerUpdatedAt: vm.updatedAt,
       dbUpdatedAt: row ? row.updatedAt.toISOString() : null,

@@ -117,6 +117,20 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
   return connected;
 }
 
+/// The registry of each Cloud VM's current peer lease, as reported by this Mac's daemon.
+export function peerCloudRegistriesFromStatus(status: unknown): Record<string, string> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  return Object.fromEntries(
+    peers.flatMap((peer) => {
+      const { name, cloudRegistryId } = (peer ?? {}) as { name?: unknown; cloudRegistryId?: unknown };
+      return typeof name === "string" && name && typeof cloudRegistryId === "string" && cloudRegistryId
+        ? [[name, cloudRegistryId]]
+        : [];
+    }),
+  );
+}
+
 /// Each connected peer's `agentLogin` flag from `_acpmux/status` (it listed `agent_login` at its
 /// last handshake). acpmux forgets a peer's features when its link ends, so a peer that is not
 /// connected reads false whatever it runs: it is left out, like a peer with no flag (an older

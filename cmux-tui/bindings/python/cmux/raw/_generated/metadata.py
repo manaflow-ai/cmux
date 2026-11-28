@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4'
+IR_SHA256 = '4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf'
 
 
 @dataclass(frozen=True)
@@ -4292,6 +4292,7 @@ EVENTS = {
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),
     'client-changed': EventMetadata('client-changed', 6, None, ('subscribe',), 'emitted'),
     'client-detached': EventMetadata('client-detached', 6, None, ('subscribe',), 'emitted'),
+    'client-disconnected-by': EventMetadata('client-disconnected-by', 12, None, ('control',), 'emitted'),
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-live': EventMetadata('cloud-conversation-live', 12, 'cloud-chief-live-v1', ('subscribe',), 'emitted'),

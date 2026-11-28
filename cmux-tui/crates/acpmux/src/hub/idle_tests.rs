@@ -49,6 +49,22 @@ async fn each_gate_keeps_a_session_awake() {
     hub.shutdown_all().await;
 }
 
+/// Under `adaptive-v1` a parent whose only work below is its open sub-sessions' sleeps through
+/// it; `static` keeps it up as before.
+#[tokio::test]
+async fn adaptive_lets_a_parent_sleep_while_only_its_sub_sessions_work() {
+    let (hub, session) = chat().await;
+    *session.work_below_since.lock().unwrap() = 1;
+    assert!(!hub.idle_eligible(&session), "static: a sub-session at work keeps it");
+    hub.set_idle_policy(IdlePolicyKind::AdaptiveV1);
+    assert!(hub.idle_eligible(&session), "adaptive-v1: its sub-sessions run in their own harness");
+    hub.set_idle_policy(IdlePolicyKind::Static);
+    assert!(!hub.idle_eligible(&session));
+    *session.work_below_since.lock().unwrap() = 0;
+    assert!(hub.idle_eligible(&session));
+    hub.shutdown_all().await;
+}
+
 /// A chat stored as hibernated comes back marked (after a restart it wakes for a turn), and
 /// clearing the hibernation drops the mark, a cause a wake recorded, and the stored flag.
 #[tokio::test]
@@ -193,11 +209,11 @@ async fn startup_settles_only_once_every_load_is_done() {
     assert!(hub.startup_settled());
 }
 
-/// An update's restart (`restart_harnesses`, the stale-binary pass after an app relaunch) never
-/// ends work below a chat with no turn open: the chat keeps its agent and moves before its next
-/// turn. With nothing below, it restarts now.
+/// An explicitly requested restart (`restart_harnesses`) preserves its existing work-below
+/// behavior: the chat keeps its agent and moves before its next turn. With nothing below,
+/// it restarts now. Automatic updates use the stricter quiet restart path instead.
 #[tokio::test]
-async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() {
+async fn an_explicit_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() {
     let (hub, session) = chat().await;
     let ids: std::collections::BTreeSet<String> = [session.id.to_string()].into();
     *session.work_below_since.lock().unwrap() = 1;
@@ -212,6 +228,44 @@ async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() 
         (1, 0),
         "a quiet chat did not restart now: {quiet:?}"
     );
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn an_account_restart_keeps_background_work_after_the_turn_settles() {
+    let (hub, session) = chat().await;
+    let child = hub.child_for(&session).await.unwrap();
+    let ids = std::collections::BTreeSet::from([session.id.clone()]);
+    let (shown, showing) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    *hub.turn_shown_seam.lock().unwrap() = Some((shown, released));
+    let prompt = || vec![json!({"type": "text", "text": "hello"})];
+    let turn = tokio::spawn({
+        let (hub, session) = (hub.clone(), session.clone());
+        async move { hub.prompt(&session, prompt(), "test", false).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), showing).await.unwrap().unwrap();
+    assert!(session.turn().is_some());
+    let process = |state: &str| {
+        let update = json!({"params": {"update": {"sessionUpdate": "background_task_update",
+            "toolCallId": "worker", "taskId": "worker", "state": state, "command": "serve"}}});
+        let event = hub.append(&session, "in", "background_task_update", update);
+        hub.note_process(&session, &event, None);
+    };
+    process("running");
+    let restarts = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!((restarts.now, restarts.after_turn), (0, 1));
+    release.send(()).unwrap();
+    turn.await.unwrap().unwrap();
+
+    assert!(hub.holds_work_below(&session));
+    assert!(session.route_switch.load(Ordering::SeqCst));
+    assert!(Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+
+    process("completed");
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert!(!Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+    assert!(!session.route_switch.load(Ordering::SeqCst));
     hub.shutdown_all().await;
 }
 

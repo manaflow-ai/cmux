@@ -42,6 +42,7 @@ import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
 import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudLastPick } from "../cloudLastPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -51,7 +52,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { MoveDock } from "../place/PlaceMounts";
+import { AutoSizeDock, MoveDock } from "../place/PlaceMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -876,14 +877,17 @@ export function drawPaneComposer({
             <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
             {!showNewTab && !quick && (
-              <MoveDock
-                session={snapshot.sessionId}
-                say={notices.transient}
-                claims={() => ({
-                  queued: snapshot.queue.length,
-                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                })}
-              />
+              <>
+                <MoveDock
+                  session={snapshot.sessionId}
+                  say={notices.transient}
+                  claims={() => ({
+                    queued: snapshot.queue.length,
+                    hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                  })}
+                />
+                <AutoSizeDock say={notices.transient} />
+              </>
             )}
             {!showNewTab && (
               <ShareNudge
@@ -1195,7 +1199,8 @@ export function drawPaneComposer({
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
                 // The agent picked for the machine (cloudAgentPick.ts) goes first: the chips show it.
-                const machinePick = cloudAgentPick();
+                // With none held, Cloud's own last pick (cloudLastPick.ts) before anything of This Mac's.
+                const machinePick = cloudAgentPick() ?? cloudLastPick();
                 const held = heldPick(composerSnapshot);
                 const shownModel = composerSnapshot.summary?.model;
                 // Before the picker has a harness (the catalog still listing), the person's last local pick
@@ -1225,6 +1230,7 @@ export function drawPaneComposer({
                       composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
                       cloudShownAgent.harness ?? "",
                       cloudShownAgent.model,
+                      machinePick !== undefined,
                     ),
                     // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
@@ -1382,9 +1388,11 @@ export function drawPaneComposer({
               const sentIn = !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd;
               const startedHere =
                 pickedProject.current && sentIn === pickedProject.current && !remoteChat ? sentIn : undefined;
+              // A newer folder pick made while this chat starts stays the next New Tab's default.
+              const sentAt = Date.now();
               const rememberStart = () => {
                 if (!startedHere) return;
-                rememberStartedProject(startedHere, callNative);
+                rememberStartedProject(startedHere, callNative, sentAt);
                 if (pickedProject.current === startedHere) pickedProject.current = undefined;
               };
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):

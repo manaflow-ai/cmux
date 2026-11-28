@@ -757,9 +757,11 @@ impl Peer {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease. A boundary peer
+    /// is dialed and kept (`peer_demand.rs` `closes_idle`), so a parked one wakes.
     pub fn set_vm_boundary(&self, on: bool) {
         self.vm_boundary.store(on, Ordering::SeqCst);
+        self.demand_changed();
     }
 
     /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.
@@ -970,6 +972,9 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            // It re-arms a moved session's waits (`server/bg_rearm.rs`): rebalance moves a
+            // session with running waits only to a peer that does.
+            "bgRearm": self.lists(crate::server::bg_rearm::FEATURE),
             // The ping bar: null while the link is down or before its first pong.
             "quality": if link.is_ready() { self.with_quality(|q| q.view()) } else { Value::Null },
             "received": self.received.split(),

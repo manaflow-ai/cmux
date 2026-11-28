@@ -809,6 +809,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
             allow_downgrade: false,
             caller: None,
             now: true,
+            same_build_installed: false,
         },
     );
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -885,6 +886,7 @@ fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
         allow_downgrade: false,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
     let up = update_locked(&Down, &opts);
     assert_eq!(
@@ -922,6 +924,7 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
         allow_downgrade: false,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
     let now = 1_793_000_000_000; // 2026-10-26
     let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);

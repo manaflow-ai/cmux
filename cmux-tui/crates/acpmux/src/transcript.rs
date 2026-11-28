@@ -540,6 +540,10 @@ impl Transcript {
         if dir != "mux" {
             return;
         }
+        // A line the harness wrote into a turn (a task notification) is no prompt to draw here.
+        if kind == "user_message" && crate::adopt_replay::harness_row(msg) {
+            return;
+        }
         // A queued user can be promoted out of the middle of the transcript,
         // and a permission decision can update an older item.
         let from = match kind {

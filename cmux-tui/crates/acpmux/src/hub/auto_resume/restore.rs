@@ -411,7 +411,6 @@ impl Hub {
             hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
             // A restored capacity wait reads as an outage still on: the first due probes it.
             hub.capacity_gate_cut(&session, Some(retry.reason));
-            let _permit = hub.capacity_gate_admit(&session, &turn_id, retry.reason, &wake).await;
             let cut = CutTurn {
                 from: from.as_deref(),
                 prompt_id: &retry.prompt_id,
@@ -423,7 +422,7 @@ impl Hub {
                 slash: slash.as_deref(),
             };
             let attempt = usize::try_from(retry.attempt).unwrap_or(usize::MAX);
-            hub.resume_or_compact(&session, cut, attempt).await;
+            hub.resume_or_compact(&session, cut, attempt, Some((wake, retry.reason))).await;
         });
     }
 }

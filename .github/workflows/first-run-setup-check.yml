@@ -1,0 +1,118 @@
+name: first run setup check
+
+# The first launch of a fresh install, on the pull request that changes it (goal next-first-run-setup, cmuxterm-hq
+# goals/next-first-run-setup.md). Until now the goal was measured only after merge, by the synthetic-probes onboarding
+# walk on the published NIGHTLY, so a change that broke first run went red on the board days later and not on its own
+# pull request. This runs the same harness, scripts/measure/first-run-setup-walk.sh, at the PR head: the build
+# fleet's Debug app for that head (compile-checks phase scheme-debug, the app the cmux scheme compile takes), launched
+# as a fresh side instance with an empty state, once with --onboarding (the card must show "Set Up cmux" with its
+# agents, account and command line rows) and once without (as it ships, onboarding off by default: no card). It
+# changes no default.
+#
+# Cost: one Linux gateway job that reads the head's app, submits one exclusive display step and ends
+# (cmux-ci run --report-check --detach, report_check.go), so no GitHub runner waits on a fleet Mac. The fleet posts the
+# verdict as the check run named in REPORT_CHECK on the head; the step's report.tgz (per-side text, the Accessibility
+# reads and a screenshot) stays in the fleet store: `cmux-ci artifact STEP report.tgz`, STEP from this job's log.
+#
+# Narrow on purpose, as intro-walk-check.yml is: it runs only when the first-run sources or the harness change. No
+# ruleset requires it, so the path filter never leaves a pull request waiting. Off switch: repository variable
+# CI_FIRST_RUN_SETUP_CHECK=0.
+
+# Started by pr-router.yml (scripts/ci/pr_router.json holds its pull_request types and paths).
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit to walk (40 hex); its scheme-debug app must exist
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-run-setup-check-${{ github.event.pull_request.number || github.run_id }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  # The gateway runner's hook takes only job ids ending in -fleet (nightly-pr-build.yml, run 45799805163).
+  walk-fleet:
+    name: first run setup walk submit (advisory)
+    if: ${{ github.repository_owner == 'manaflow-ai' && (vars.CI_FIRST_RUN_SETUP_CHECK || '1') != '0' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # The scheme-debug read waits up to 10 min for the head's app; the submit then ends in about a minute.
+    timeout-minutes: 20
+    env:
+      SHA: ${{ github.event.pull_request.head.sha || inputs.ref }}
+      PR: ${{ github.event.pull_request.number || '' }}
+      CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+      REPORT_CHECK: first run setup walk (advisory)
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/fleet_compile_result.py
+          sparse-checkout-cone-mode: false
+      - name: Read the head's app from the build fleet
+        id: app
+        run: |
+          set -uo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=first run setup::ref must be 40 hex"; exit 2; }
+          word="$(python3 -I scripts/ci/fleet_compile_result.py --sha "$SHA" --repo "$GITHUB_REPOSITORY" --pr "$PR" \
+            --phase scheme-debug --job-out "$RUNNER_TEMP/job" --wait 600 --no-record 300)" || word=none
+          job="$(head -n1 "$RUNNER_TEMP/job" 2>/dev/null || true)"
+          if [[ "$word" != pass || ! "$job" =~ ^[0-9a-f]{24}$ ]]; then
+            echo "::warning title=first run setup::no passing build fleet app for ${SHA:0:12} (reader: $word, job: ${job:-none}); the walk did not run, not judged"
+            echo "### First run setup walk: not run"$'\n\n'"No build fleet app for \`${SHA:0:12}\` (reader: $word)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "job=$job" >> "$GITHUB_OUTPUT"
+      - name: Submit the walk to a display worker
+        if: ${{ steps.app.outputs.job != '' }}
+        env:
+          JOB: ${{ steps.app.outputs.job }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! "$client" run --help 2>/dev/null | grep -q -- --detach; then
+            # This runner has no client that can detach: take the controller's, sha256-checked against its manifest
+            # (as nightly-pr-build.yml and fleet-scheme-app.sh do).
+            [[ -n "$CONTROLLER" ]] || { echo "::warning title=first run setup::no cmux-ci client and no controller; not judged"; exit 0; }
+            fresh="$RUNNER_TEMP/fleet-client"; mkdir -p "$fresh"
+            curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$fresh/manifest.json"
+            python3 -I - "$fresh" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+            printf '#!/bin/sh\nCMUX_CI_CONTROLLER=%q exec python3 -I %q "$@"\n' "$CONTROLLER" "$fresh/ci-client.py" > "$fresh/cmux-ci"
+            chmod +x "$fresh/cmux-ci"
+            client="$fresh/cmux-ci"
+          fi
+          log="$RUNNER_TEMP/first-run-setup-walk.log"
+          status=0
+          "$client" run --class exclusive --label measure --display --script scripts/measure/first-run-setup-walk.sh \
+            --ref "$SHA" --repo "$GITHUB_REPOSITORY" --arg="build=$JOB" \
+            --artifact .build/first-run-setup-walk/report.tgz --timeout 1800 \
+            --reason "first run setup check ${PR:+#$PR }${SHA:0:12}" \
+            --report-check "$REPORT_CHECK" --detach 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          if [[ "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
+            step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
+            echo "::notice title=first run setup::the fleet posts the verdict as check run \"$REPORT_CHECK\" on ${SHA:0:12}; report: cmux-ci artifact $step report.tgz"
+            echo "### First run setup walk: submitted"$'\n\n'"App: build fleet job \`$JOB\`. Step \`$step\`; verdict as check run \"$REPORT_CHECK\"." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "$status" in
+            69|75|124) echo "::warning title=first run setup::the fleet took no step (cmux-ci exit $status); not judged" ;;
+            *) echo "::error title=first run setup::the walk's submit failed (cmux-ci exit $status)"; exit "$status" ;;
+          esac

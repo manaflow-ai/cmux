@@ -1,6 +1,10 @@
 //! Part of `Hub`; see `hub/mod.rs`. The model and effort a new chat starts
 //! on when its request names none (cx-qtmy2, cx-fusxy; Lawrence 2026-10-13):
 //!
+//! 0. the cmux settings `agents.defaults.<family>.model` and `.effort`
+//!    (`model_settings.rs`, Settings > Agents): what the person chose for every
+//!    new chat of Claude Code or Codex. Above the saved default, which every
+//!    pick in a chat rewrites; shown to the app as `saved`, the person's choice;
 //! 1. the saved default in config.json `defaults` (family, then profile):
 //!    what `acpmux defaults <family> model=… effort=…` sets, and what the
 //!    person's pick in a chat writes (`note_pick`: the app pane's
@@ -104,7 +108,8 @@ pub(super) fn profile_sets_model(
 /// Where a start value came from (`_acpmux/harnesses` `start.*Source`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StartSource {
-    /// config.json `defaults` (an `acpmux defaults` write or a pick).
+    /// config.json `defaults` (an `acpmux defaults` write or a pick), or the
+    /// person's Settings row (`model_settings.rs`): both are their own choice.
     Saved,
     /// The profile's own `model`/`effort`.
     Profile,
@@ -256,6 +261,16 @@ impl Hub {
         );
     }
 
+    /// Tells open pages every harness's `start` may have changed (a Settings row of
+    /// `model_settings.rs`), so a prewarmed New Tab draws the new start model and effort.
+    pub(super) async fn start_settings_changed(&self) {
+        let cfg = self.config.read().await;
+        let names: Vec<&String> = cfg.harnesses.keys().collect();
+        self.send_harness_change(
+            json!({"harnesses": names, "diagnostics": cfg.profile_diagnostics}),
+        );
+    }
+
     /// The model and effort a new chat on `agent` starts on when nothing
     /// pins them (module docs). `model`: the model the chat runs when the
     /// request or a pin names it, which only the effort then follows.
@@ -299,14 +314,18 @@ impl Hub {
         // harness's own default, its config's model, instead (cnx-ios full verify D4).
         let reported = self.reported_model_ids(agent);
         // Codex: a config model the catalog does not list still runs (module docs).
-        let codex = crate::config::derive_family(agent, profile) == "codex";
+        let family = crate::config::derive_family(agent, profile);
+        let codex = family == "codex";
+        // The person's Settings rows for this family (module docs, 0), read at each start.
+        let chosen = crate::model_settings::ChatDefaults::current(&family);
         let own_unlisted =
             || own().model.clone().filter(|m| codex && !m.is_empty() && own_model().is_none());
         let start_model = match model {
             Some(_) => None,
-            None => saved
+            None => chosen
                 .model
                 .clone()
+                .or_else(|| saved.model.clone())
                 .map(|value| StartValue { value, source: StartSource::Saved })
                 .or_else(|| {
                     own_model()
@@ -334,10 +353,11 @@ impl Hub {
             |m: &str| curated.as_ref().is_none_or(|c| c.models.iter().any(|x| x.id == m));
         let fits =
             |e: &String| runs.is_none_or(described) && effort_fits(curated.as_ref(), runs, e);
-        let start_effort = saved
+        let start_effort = chosen
             .effort
             .clone()
             .filter(fits)
+            .or_else(|| saved.effort.clone().filter(fits))
             .map(|value| StartValue { value, source: StartSource::Saved })
             .or_else(|| {
                 // Codex applies its effort to whatever model runs, so an effort with no model
@@ -428,7 +448,7 @@ fn c_ids(curated: Option<&CatalogHarness>) -> Vec<String> {
 /// Whether reported id `id` names `model`: the same id, or a DSH route
 /// (`["provider","model"]`) for `model` or `provider/model`, as
 /// `model_catalog::resolve` accepts them.
-fn names(id: &str, model: &str) -> bool {
+pub(super) fn names(id: &str, model: &str) -> bool {
     id == model
         || serde_json::from_str::<Vec<String>>(id)
             .is_ok_and(|p| p.len() == 2 && (p[1] == model || format!("{}/{}", p[0], p[1]) == model))

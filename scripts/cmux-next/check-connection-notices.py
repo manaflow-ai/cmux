@@ -90,6 +90,21 @@ CONNECTION_WORDS = re.compile(
     r"|link (?:is )?down|waiting for (?:the )?(?:agent service|daemon|service|connection|network|host|machine|mac|server)"
     r")"
 )
+# A piece of every CONNECTION_WORDS match, lowercased: a cheap test that skips text that cannot match.
+WORD_STEMS = ("connect", "attaching", "retrying", "restoring", "handshak", "getting access", "offline", "reach",
+              "link ", "waiting for ")
+KEY_TOKEN = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def may_say_words(text: str) -> bool:
+    """False only when CONNECTION_WORDS cannot match: ASCII text (where its case-blind read is `lower()`) holding
+    none of WORD_STEMS."""
+    if not text.isascii():
+        return True
+    low = text.lower()
+    return any(stem in low for stem in WORD_STEMS)
+
+
 # A string literal that is UI copy, not a state tag, an identifier or a log reason: it starts with a capital (or an
 # opening quote or a format) and is either one word ("Offline", "Reconnecting…") or has a space.
 TEXT_SHAPE = re.compile(r"^[“\"'(%\\]*[A-Z](?:[a-z’'\-]*[a-z](?:…|\.\.\.|\.)?$|.*\s)")
@@ -141,6 +156,9 @@ PERSON_ACTIONS = re.compile(
     # (`<ConnectButton onConnect={...} />`). A bare `<MarkButton />` is no action by its name alone: one declared
     # or imported here counts only when it acts itself (drawn_actions).
     r"|<[A-Z]\w*Button\b[^>]*?\bon[A-Z]\w*\s*="
+    # A web form the unit draws with its own submit handler: its submit button (Try again in a sign-in form's
+    # footer, ChatGPTDeviceForm) is the person's action for the failure drawn above it.
+    r"|<form\b[^>]*?\bonSubmit\s*="
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
@@ -152,6 +170,9 @@ PERSON_ACTIONS = re.compile(
     # and not a type (`timeout(run: () => void, ms)`, a timer or frame scheduler's signature).
     r"|\brun:\s*(?:\(\s*\)\s*=>(?!\s*(?:void|Promise\b|unknown\b))|\w+(?:\.\w+)*\.on[A-Z]\w*\b))"
 )
+# A literal piece of every PERSON_ACTIONS match: text with none of them skips its (slow, unanchored) search.
+PERSON_ACTION_STEMS = ("onClick", "onPress", "Button", "button", "Action", "action", "#selector(", ".onTapGesture",
+                       "activate", "run:")
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(
     r"\b(log(?:ger)?\.\w+|Logger|os_log|NSLog|print|debugPrint|console\.\w+|fatalError|precondition\w*|assert\w*"
@@ -329,7 +350,11 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            if path.endswith(".swift"):
+                # `extension Credentials.Failure` is the Failure type, not Credentials: its words answer something
+                # the person did (ERROR_TYPE), so it keeps its own name instead of merging into its outer type.
+                name = name if ERROR_TYPE.search(name) else name.split(".")[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1
@@ -386,12 +411,17 @@ def scan(tree: Tree) -> list[Unit]:
     presenter_imports: dict[str, list[tuple[str, str, str]]] = {}
     opaque_modules: set[str] = set()
     unresolved_exports: set[str] = set()
+    # A hit is a literal that is a key in `keys` or says CONNECTION_WORDS. A key literal is a whole KEY_TOKEN of its
+    # line (it sits between quotes, `>` or spaces) and CONNECTION_WORDS needs one of WORD_STEMS, so a file or line with
+    # neither can say nothing and skips the per-literal reads below.
     for path in files:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
             continue
         source = strip_comments(tree.read(path))
         lines = source.split("\n")
+        file_words = may_say_words(source)
+        file_keys = bool(keys) and not keys.isdisjoint(KEY_TOKEN.findall(source))
         if path.endswith((".ts", ".tsx")):
             imports[path] = []
             for match in TS_IMPORT.finditer(source):
@@ -424,7 +454,10 @@ def scan(tree: Tree) -> list[Unit]:
             base = len(unit.lines)
             unit.lines.extend(body)
             unit.numbers.extend(range(first + 1, last + 2))
-            for offset, line in enumerate(body):
+            for offset, line in enumerate(body if file_words or file_keys else ()):
+                if not ((file_words and may_say_words(line) and CONNECTION_WORDS.search(line))
+                        or (file_keys and not keys.isdisjoint(KEY_TOKEN.findall(line)))):
+                    continue
                 if NOT_UI_LINE.search(line):
                     continue
                 said = [g for m in STRING_LITERAL.finditer(line) for g in m.groups() if g is not None]
@@ -438,7 +471,7 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         text = "\n".join(unit.lines)
         unit.gated = bool(TIME_GATES.search(text))
-        unit.acted = bool(PERSON_ACTIONS.search(text))
+        unit.acted = any(stem in text for stem in PERSON_ACTION_STEMS) and bool(PERSON_ACTIONS.search(text))
         unit.literal_grace = [m.group(0) for m in LITERAL_GRACE.finditer(text)
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
@@ -541,6 +574,14 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
     for unit in units.values():
         by_file.setdefault(unit.path, []).append(unit)
     swift_units = [u for u in units.values() if u.path.endswith(".swift")]
+    texts: dict[int, str] = {}  # a unit's joined lines; propagate only adds hits, so they hold for every round
+
+    def text_of(u: Unit) -> str:
+        t = texts.get(id(u))
+        if t is None:
+            t = texts[id(u)] = "\n".join(u.lines)
+        return t
+
     for _round in range(4):
         moved = False
         for unit in list(units.values()):
@@ -566,7 +607,7 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
             if unit.path.endswith(".swift"):
                 module = module_of(unit.path)
                 pool = [u for u in swift_units if u is not unit and u.path.startswith(module)]
-                if not any(use.search("\n".join(u.lines)) for u in pool):
+                if not any(unit.name in text_of(u) and use.search(text_of(u)) for u in pool):
                     pool = [u for u in swift_units if u is not unit]
             else:
                 stem = re.sub(r"\.(tsx?)$", "", unit.path)
@@ -583,7 +624,9 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
             for other in pool:
                 if other.name == "<file>":
                     continue  # its imports, not a drawing
-                by_value = instance is not None and bool(named.search("\n".join(other.lines)))
+                if unit.name not in text_of(other):
+                    continue  # `use`, `drop` and the by-value read all need the provider's name in the text
+                by_value = instance is not None and bool(named.search(text_of(other)))
                 for i, line in enumerate(other.lines):
                     m = use.search(line) or (instance.search(line) if by_value else None)
                     if m and drop.search(line) and not use.search(drop.sub("", line)):

@@ -8,6 +8,7 @@ import {
   type AnyRouter,
   type RouteComponent,
   type RouterHistory,
+  redirect,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { ensureSection, routeSection } from "./sectionQueries";
@@ -16,6 +17,9 @@ import { routeFocus } from "./legacyLinks";
 
 /** What every route's loader reads from: the page's query cache and its store. */
 export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore };
+export const CLOUD_MODELS_FOCUS = "card.cloudModels";
+export const CLOUD_MODELS_ADD_FOCUS = "cloudModels.add";
+export const MODELS_ADD_FOCUS = "models.add";
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
  * search's text (`q`). `changed=1` is the removed Changed filter's: an old link keeps it, and the page
@@ -26,9 +30,15 @@ export type SettingsSearch = {
   workspace?: string;
   q?: string;
   changed?: true;
-  /** `cmux://slack/connected` lands here: a hint to re-read the connection, never trusted for its contents. */
+  provider?: string;
+  machine?: string;
+  machineName?: string;
+  environment?: string;
+  recoverySession?: string;
+  /** `cmux://slack/connected` hints to re-read the connection. */
   slack?: "connect" | "connected";
   open?: string;
+  fromSend?: true;
 };
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {
@@ -38,11 +48,26 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   const workspace = text(raw.workspace);
   const q = text(raw.q);
   const part = text(raw.part);
+  const provider = text(raw.provider);
+  const open = text(raw.open);
   if (focus) out.focus = focus;
   // `?part=` was Personalization's (#/settings/personalization?part=background): its focus now.
   else if (part) out.focus = `personalization.${part}`;
   if (workspace) out.workspace = workspace;
   if (q) out.q = q;
+  if (provider) out.provider = provider;
+  if (typeof raw.machine === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(raw.machine)) out.machine = raw.machine;
+  if (typeof raw.environment === "string" && /^(?:env|denv)_[a-f0-9]{24}$/i.test(raw.environment)) {
+    out.environment = raw.environment;
+  }
+  if (typeof raw.recoverySession === "string" && /^[A-Za-z0-9_.:@-]{1,128}$/.test(raw.recoverySession)) {
+    out.recoverySession = raw.recoverySession;
+  }
+  if (typeof raw.machineName === "string" && raw.machineName.length <= 128 && raw.machineName.trim()) {
+    out.machineName = raw.machineName.trim();
+  }
+  if (open) out.open = open;
+  if (raw.fromSend === true || raw.fromSend === "1") out.fromSend = true;
   if ((raw.slack === "connect" || raw.slack === "connected") && text(raw.open)) {
     out.slack = raw.slack;
     out.open = text(raw.open);
@@ -66,6 +91,23 @@ export function stringifySettingsSearch(search: Record<string, unknown>): string
   return text ? `?${text}` : "";
 }
 
+/** Compatibility for links that opened Cloud setup through the Models category. */
+function legacyModelSetup(section: string | undefined, search: SettingsSearch): SettingsSearch | undefined {
+  const { focus, provider } = search;
+  if (provider === "ollama" || provider === "lm-studio") return undefined;
+  const target = focus === "cloud.claude" ? "claude" : focus === "cloud.chatgpt" ? "chatgpt" : undefined;
+  if (focus === "cloud.apiKey" && !provider) return { ...search, focus: CLOUD_MODELS_ADD_FOCUS };
+  if (
+    (section === "models" && provider && !focus) ||
+    focus === "cloud.claude" ||
+    focus === "cloud.chatgpt" ||
+    focus === "cloud.apiKey" ||
+    (section === "cloud" && provider && !focus)
+  ) {
+    return { ...search, focus: CLOUD_MODELS_FOCUS, provider: provider ?? target };
+  }
+}
+
 /**
  * The page's router. The root route is the window (`layout`: the sidebar and the content column);
  * each section is a route whose loader ensures the host reads its cards draw from
@@ -87,6 +129,31 @@ export function createSettingsRouter(
     createRoute({
       getParentRoute: () => rootRoute,
       path,
+      beforeLoad: ({ params, search }) => {
+        const section = (params as { section?: string }).section;
+        const settingsSearch = search as SettingsSearch;
+        if (
+          section === "models" &&
+          !settingsSearch.focus &&
+          (settingsSearch.provider === "ollama" || settingsSearch.provider === "lm-studio")
+        ) {
+          throw redirect({
+            href:
+              "/settings/models" +
+              stringifySettingsSearch({
+                ...settingsSearch,
+                provider: undefined,
+                focus: MODELS_ADD_FOCUS + "." + settingsSearch.provider,
+              }),
+            replace: true,
+          });
+        }
+        const setup = legacyModelSetup(section, settingsSearch);
+        if (setup) {
+          const search = stringifySettingsSearch({ ...setup, open: setup.open ?? crypto.randomUUID() });
+          throw redirect({ href: "/settings/cloud" + search, replace: true });
+        }
+      },
       // The focused key picks the section (a key's home), so it is a loader dependency; the
       // search text and the workspace are not.
       loaderDeps: ({ search }) => ({ focus: (search as SettingsSearch).focus }),
@@ -184,10 +251,13 @@ export function parseLocation(href: string): SettingsLocation {
       if (!(error instanceof URIError)) throw error;
     }
   }
-  const section = routeSection(requestedSection, focus ?? legacyFocus(url.searchParams.get("part")));
+  const legacy = legacyModelSetup(requestedSection, validateSettingsSearch(Object.fromEntries(url.searchParams)));
+  const section = legacy ? "cloud" : routeSection(requestedSection, focus ?? legacyFocus(url.searchParams.get("part")));
   return {
     section,
-    focus: routeFocus(requestedSection, focus ?? legacyFocus(url.searchParams.get("part"))),
+    focus: legacy
+      ? (legacy.focus ?? null)
+      : routeFocus(requestedSection, focus ?? legacyFocus(url.searchParams.get("part"))),
     workspace: url.searchParams.get("workspace"),
     query: url.searchParams.get("q") ?? "",
   };

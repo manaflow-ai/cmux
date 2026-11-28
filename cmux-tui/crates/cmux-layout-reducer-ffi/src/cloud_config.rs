@@ -331,6 +331,21 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!(screen_picker::rows(&request.machines))
         }
+        // The install token mint and revoke (`install_auth`): `{state, event, now_ms}` in,
+        // `{state, effect}` out; the app performs the effect and sends what it got back.
+        b"cloud_identity_install_auth_step" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                state: Option<cmux_cloud_config::install_auth::State>,
+                event: cmux_cloud_config::install_auth::Event,
+                now_ms: f64,
+            }
+            let request: Request = read(request)?;
+            let (state, effect) =
+                cmux_cloud_config::install_auth::step(request.state, request.event, request.now_ms);
+            json!({ "state": state, "effect": effect })
+        }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
             struct Request {

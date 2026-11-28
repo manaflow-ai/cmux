@@ -42,7 +42,8 @@ run() { # DIR [ENV...]
 make_source "$tmp/none" none
 run "$tmp/none"
 grep -qx "local=$tmp/none/client/cmux-tui" "$tmp/none/reload-env" || fail "reload.sh did not get the local build: $(cat "$tmp/none/reload-env")"
-grep -q "cmux-ci-media/cmux-tui-client-target/r1" "$tmp/none/client-built" || fail "no per-runner Cargo target"
+grep -q "cmux-ci-media/cmux-tui-client-target/shared" "$tmp/none/client-built" || fail "no per-host Cargo target"
+grep -q "cmux-tui-client-target/r1" "$tmp/none/client-built" && fail "a per-runner Cargo target (one ~12 GiB copy per runner)"
 
 # Published tree: no local build.
 make_source "$tmp/ready" ready
