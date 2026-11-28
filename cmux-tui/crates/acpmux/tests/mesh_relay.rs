@@ -585,6 +585,7 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {
@@ -1555,6 +1556,7 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {
@@ -1606,6 +1608,7 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {
@@ -1676,6 +1679,7 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        tags: None,
         updated_at: None,
     };
     fake.with(|s| {

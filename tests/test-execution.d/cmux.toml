@@ -42,6 +42,11 @@ lane = "manual"
 reason = "Checks scripts/ci/cmux_machine_channel_pr_head.py find (PR_HEAD_FAST_LANE): the merge takes its PR head's thin build only for a same-repo squash into feat-cmux-next with the same v2 tree key and both artifacts, waits a bounded time for a build still running, and otherwise builds; run python3 tests/test_cmux_machine_channel_pr_head.py yourself after changing it (no network)."
 
 [[test]]
+path = "tests/test_cmux_machine_channel_twin.py"
+lane = "manual"
+reason = "Checks scripts/ci/cmux_machine_channel_twin.py (TWIN_BUILD): a push takes the newest same-v2-tree-key first-parent ancestor's live or passed x86_64 build, stops at the first other key, bounds its job reads, and its wait returns the run once every target's artifact is there and nothing when a build ended without one or the wait runs out; and cmux-machine-channel.yml wires twin_run into the twin waiters and the points. Run python3 tests/test_cmux_machine_channel_twin.py yourself after changing them (no network)."
+
+[[test]]
 path = "tests/test_cmux_machine_channel_router_plan.py"
 lane = "manual"
 reason = "Checks that pr-router.yml's route job answers the machine channel's pull request plan (scripts/ci/cmux-machine-channel-pr-plan.sh) and cmux-machine-channel.yml takes it with no plan runner, and runs the plan and the finder's tree key on a fixture repo; run python3 tests/test_cmux_machine_channel_router_plan.py yourself after changing them (under 1 s, no network)."
@@ -137,6 +142,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_dispatch_heavy_compiles.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_exemption_ratchet.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_exemption_ratchet.py"
 
 [[test]]
 path = "tests/test_cmux_next_fast_gates.py"
@@ -570,4 +580,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_vmd_autocloud_template.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_vmd_host_artifacts.py"
 lane = "linux-guard"

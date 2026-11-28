@@ -334,6 +334,10 @@ pub const KEYMAP_APP_KEYS: [&str; 2] = ["keyStyle", "shortcutLayout"];
 /// `app.shortcutLayout` (no other `app` key), then each `shortcuts` member.
 /// The file is `{"shortcuts": {...}}`, a bare `shortcuts` object (it has
 /// `bindings`, `tiers` or `when`), or a bare bindings object.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn import_edits(value: &Value) -> Result<Vec<Value>, OpError> {
     let Some(root) = value.as_object() else {
         return Err(OpError::Invalid("keymap must be a JSON object".to_owned()));

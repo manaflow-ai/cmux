@@ -3,7 +3,7 @@
 // web/services/vms/images/agents.ts) with their models, and hides this Mac's own harness profiles
 // (claude-sr2, a folder's profile), which exist only here. Each is pickable whatever this Mac has: the
 // machine carries the binary, and what lets it run is a connection that serves Cloud (Settings > Cloud >
-// Models for Cloud, CloudModelsCard.tsx `cloudReadiness`), not this Mac's install or login. Claude and
+// Models), not this Mac's install or login. Claude and
 // Codex both run once their family is connected for Cloud; a send on one that is not gets the Set up
 // Cloud card (cloudSetup.ts, `cloud_setup_required`), whose buttons connect it and start the chat again.
 // Its last row opens Settings > Cloud, where the person sets up more ways to reach models on Cloud.
