@@ -1,0 +1,24 @@
+// A second take on the look's thinking glyph: three accent dots in a row with a wave running left
+// to right, as the reference app's Jump to latest button shows. Try it with
+// agentPane.display.thinking.glyph: {"$file": "agent-pane/thinking-glyph-row.json"}.
+{
+  "$schema": "cmux.particles/1",
+  "particle": { "shape": "circle", "size": 2.6, "color": "accent", "max": 3 },
+  "phases": {
+    "lone": { "duration": 300, "frames": [{ "at": 0, "dots": [[-5, 0, 0.7], [0, 0, 0.7], [5, 0, 0.7]] }] },
+    "wave": {
+      "duration": 1050,
+      "ease": "easeInOut",
+      "frames": [
+        { "at": 0, "dots": [[-5, 0, 1.1], [0, 0, 0.65], [5, 0, 0.65]] },
+        { "at": 0.33, "dots": [[-5, 0, 0.65], [0, 0, 1.1], [5, 0, 0.65]] },
+        { "at": 0.66, "dots": [[-5, 0, 0.65], [0, 0, 0.65], [5, 0, 1.1]] },
+        { "at": 1, "dots": [[-5, 0, 1.1], [0, 0, 0.65], [5, 0, 0.65]] }
+      ]
+    }
+  },
+  "triggers": {
+    "sendMessage": { "intro": ["lone"], "loop": ["wave"] },
+    "cycle": ["wave"]
+  }
+}

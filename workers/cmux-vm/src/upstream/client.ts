@@ -32,6 +32,8 @@ export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
   /** HTTP status from the provider, or null when no response arrived. */
   readonly status: number | null;
+  /** A bounded, internal classification of a provider response. Never contains provider text. */
+  readonly kind?: "capacity_overloaded";
 }> {}
 
 /** The fields of the provider's VM record this service reads. Everything else is ignored. */
@@ -99,6 +101,8 @@ export interface CreateVmSpec {
    * skipped only when `journal.minted`; the boot image read always. Absent: both reads come first.
    */
   readonly withoutReads?: boolean;
+  /** A create no one is waiting on (a spare): its provider create slot is taken behind everyone else's. */
+  readonly background?: boolean;
   /**
    * Filled as the create runs, for the handler's vm_create line: recoverMs, verifyImageMs, createMs, recoverAfterMs,
    * resizeMs (each only when that provider call was made), `recovered`, `imageVariant` for an approved image, and the

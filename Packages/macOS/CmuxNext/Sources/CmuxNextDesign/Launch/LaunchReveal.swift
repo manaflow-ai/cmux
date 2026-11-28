@@ -3,27 +3,28 @@ import CmuxNextWakeups
 import Observation
 public import CmuxNextDesignTokens
 
-/// Launch load-in, region by region: a view held for a region stays clear
-/// on the window glass until that region's data is ready, then fades in
-/// (`MotionFade.fadeIn`; capped under Reduce Motion), independently of the
-/// other regions, never all at once. A view held after its region is
-/// ready, or ready before the window first drew it, shows at once, so a
-/// fast launch or a relaunch with saved data adds no fade and no delay.
+/// Launch readiness, region by region. Every view draws from the first frame
+/// with what it has (saved state first: the launch snapshot's sidebar and
+/// splits, saved tab strips, terminal frames and pages), and nothing is
+/// hidden or faded in while data arrives (Leo, 2026-11-27: "stop putting the
+/// opaque thing from the start like it should just load fast look like as it
+/// was asap ... all settings all layout all as soon as it comes"). A region's
+/// readiness is still tracked: the real launch window swaps in over stage 0
+/// at `whenContentReady`, and launch work waits on `whenReady`.
 ///
 /// Producers call `markReady` where the data lands (the sidebar's first
 /// rows, the first non-empty tab strip, the first terminal frame); a
 /// launch that cannot produce a region (daemon unavailable) calls
 /// `markAllReady`. A region whose data never arrives (no tabs, a pane
-/// that never draws) is released by the deadline, which the first `hold`
+/// that never draws) is marked ready by the deadline, which the first `hold`
 /// arms (a region made after the window: its own first hold): a missed
-/// producer costs a short delay, never a blank window.
+/// producer delays only the work waiting on it.
 ///
 /// Call `markReady` where real data lands, not on an empty placeholder
 /// model (unless nothing is coming before the first frame: a fresh
-/// profile's sidebar has no saved rows to wait for), and hold containers,
-/// not views that animate their own alpha.
+/// profile's sidebar has no saved rows to wait for).
 /// The regions are app-wide and cover the first launch: once a region is
-/// ready, windows opened later show it at once.
+/// ready, windows opened later see it ready at once.
 @MainActor
 @Observable
 public final class LaunchReveal {
@@ -58,10 +59,10 @@ public final class LaunchReveal {
 
     public func isReady(_ region: LaunchRegion) -> Bool { ready.contains(region) }
 
-    /// Keeps `view` clear until `region` is ready (a no-op once it is).
+    /// Tracks `view` as drawing `region` until the region is ready (a no-op once it is). The view
+    /// stays visible: this arms the region's deadline, it never hides the view.
     public func hold(_ view: NSView, until region: LaunchRegion) {
         guard !isReady(region) else { return }
-        view.alphaValue = 0
         // NSHashTable is a class: insert the table first, since `add` through
         // a defaulted subscript would go to a temporary.
         let table = held[region] ?? NSHashTable<NSView>.weakObjects()
@@ -108,17 +109,10 @@ public final class LaunchReveal {
         timer.schedule(after: wait) { @MainActor [weak self] in self?.waits.removeValue(forKey: id); once.run() }
     }
 
-    /// `region`'s data arrived: its held views fade in. Later calls do nothing.
+    /// `region`'s data arrived: what waits on it runs. Later calls do nothing.
     public func markReady(_ region: LaunchRegion) {
         guard ready.insert(region).inserted else { return }
-        let views = held.removeValue(forKey: region)?.allObjects ?? []
-        for view in views {
-            // The model value at once; the fade runs on the layer.
-            view.alphaValue = 1
-            // A view whose window has not drawn it yet (no presentation layer: a relaunch's saved
-            // tabs before the first frame) shows in its first frame, not faded in from clear.
-            if let layer = view.layer, layer.presentation() != nil { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
-        }
+        held.removeValue(forKey: region)
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
     }
 
@@ -128,12 +122,11 @@ public final class LaunchReveal {
         markReady(region)
     }
 
-    /// `view` has its data before its region (a terminal's frame from the last quit): it shows at
-    /// once, with no fade, while the region's other views stay held.
+    /// `view` has its data before its region (a terminal's frame from the last quit): it is no
+    /// longer tracked with the region's other views.
     public func release(_ view: NSView) {
         guard held.values.contains(where: { $0.contains(view) }) else { return }
         for table in held.values { table.remove(view) }
-        view.alphaValue = 1
     }
 
     /// Every region is ready (or will never be): nothing stays held.
