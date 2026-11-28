@@ -23,7 +23,8 @@
 # (default 300) it reads each candidate's cmux-tui artifacts runs (pin-cmux-tui.sh runs-state)
 # and then pin-cmux-tui.sh active-publisher <key>, and two answers
 # in a row of "no active cmux-tui artifacts run has this tree" end the wait
-# (an unreadable runs list keeps waiting). An active run counts only while it makes
+# (an unreadable runs list keeps waiting, unless CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS is set: that
+# many unreadable answers in a row end the wait too). An active run counts only while it makes
 # progress (pin-cmux-tui.sh run-progress): a build failed on its last retry attempt, or a job queued with no runner
 # past CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is "not building" too. Otherwise it waits up to
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
@@ -32,6 +33,13 @@
 # without reading any runs list. app-bundle-cmux-tui-client.sh, when it has a fallback tree,
 # waits CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 1500) here, then bundles the
 # newest published tree on a miss instead of failing (RFD 0021, row 1).
+# It also sets CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS (default 2 there; 0 here, no limit): this wait
+# runs inside nightly-next-one, which holds the one signing Mac, and a runs list it cannot read is no
+# reason to hold that Mac. 2026-11-28, NIGHTLY 46105117438 (4236d7e5) read "could not all be read"
+# five times, 04:23-04:48Z (github.token's budget was spent; #64035 added spare tokens), held that Mac
+# 1568 s for the full limit, then bundled the fallback tree anyway; the next NIGHTLY, 46107156699,
+# waited 43 min for that Mac and gave its slot up. With a fallback tree in hand, two unreadable
+# checks (about 5 min) bundle it and free the Mac; the next NIGHTLY carries the new tree.
 # A publisher rebuilding its failed primary macOS leg (pin-cmux-tui.sh run-progress: rebuilding)
 # extends the limit by up to CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS (default 1200) while it
 # keeps reading so. That rebuild lands the tree about 30 min after a clean run would: 2026-11-27,
@@ -57,6 +65,9 @@ wait_seconds="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-2700}"
 poll_seconds="${CMUX_TUI_TREE_CLIENT_POLL_SECONDS:-20}"
 check_seconds="${CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS:-300}"
 rebuild_grace="${CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS:-1200}"
+unreadable_limit="${CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-0}"
+[[ "$unreadable_limit" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS must be a whole number" >&2; exit 2; }
+unreadable_limit=$((10#$unreadable_limit))
 [[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
 [[ "$rebuild_grace" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS must be whole seconds" >&2; exit 2; }
 rebuild_grace=$((10#$rebuild_grace))
@@ -76,6 +87,7 @@ manifest_exists() {
 started=$(date +%s)
 next_check=0
 idle_checks=0
+unreadable_checks=0
 rebuilding=false
 while :; do
   rc=0
@@ -124,24 +136,37 @@ while :; do
       ended|none) ;;
       *) publisher=unknown ;;
     esac
+    # A publisher whose build failed on attempt MAX_ATTEMPTS (run-progress "failed ... (the last
+    # attempt)") will not publish, and no retry follows: tree-publisher already passed it over and
+    # found no other same-key run. End at this check, not 5 min later at the second (nightly
+    # 46119598955, 2026-11-28, held the signing Mac 5 min on a failed build-linux). An earlier
+    # attempt's failure (a retry may start) and a stalled job (it may get a runner) keep two checks.
+    idle_limit=2
+    [[ "$stuck" == *" is failed "*"(the last attempt): "* ]] && idle_limit=1
     case "$publisher" in
-      unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read (${publisher_why:-no note}); waiting on" >&2 ;;
+      unknown)
+        idle_checks=0 unreadable_checks=$(( unreadable_checks + 1 ))
+        if (( unreadable_limit > 0 && unreadable_checks >= unreadable_limit )); then
+          echo "error: tree $key is not published, no candidate manifest is uploaded, and the cmux-tui artifacts runs could not be read $unreadable_checks checks in a row (${publisher_why:-no note}); not holding this job on an unreadable answer" >&2
+          exit 1
+        fi
+        echo "the cmux-tui artifacts runs could not all be read (${publisher_why:-no note}); waiting on" >&2 ;;
       "")
-        idle_checks=$(( idle_checks + 1 ))
+        unreadable_checks=0 idle_checks=$(( idle_checks + 1 ))
         if [[ -n "$stuck" ]]; then
-          echo "no cmux-tui artifacts run with tree $key is making progress: $stuck (check $idle_checks of 2)" >&2
+          echo "no cmux-tui artifacts run with tree $key is making progress: $stuck (check $idle_checks of $idle_limit)" >&2
         else
           echo "no active cmux-tui artifacts run has tree $key (check $idle_checks of 2)" >&2
         fi ;;
       *)
-        idle_checks=0
+        idle_checks=0 unreadable_checks=0
         if [[ "$rebuilding" == true ]]; then
           echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key (rebuilding its failed primary macOS leg)" >&2
         else
           echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2
         fi ;;
     esac
-    if (( idle_checks >= 2 )); then
+    if (( idle_checks >= idle_limit )); then
       if [[ -n "$stuck" ]]; then
         echo "error: tree $key is not published, no candidate manifest is uploaded, and no cmux-tui artifacts run that builds it is making progress ($stuck); nothing will publish it in time" >&2
       else
