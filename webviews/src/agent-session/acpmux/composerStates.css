@@ -19,7 +19,7 @@
      (tailGlide.ts, followChase.ts arrivalStepMs): one step, so all of it rests together, within
      120 ms of the event (Leo 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take
      long"; row-arrival-settle.test.ts). */
-  --agent-motion-arrive: var(--cmux-motion-quick, 80ms);
+  --agent-motion-arrive: var(--cmux-motion-arrive, var(--cmux-motion-quick, 80ms));
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);

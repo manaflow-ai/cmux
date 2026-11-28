@@ -69,6 +69,7 @@ or changes what moves, so the transcript still never shifts.
 | `--cmux-motion-standard` | 180ms | a panel or card entering, a row's move |
 | `--cmux-motion-large` | 240ms | a sheet, a drawer, the chat switch |
 | `--cmux-motion-settle` | 180ms | a fold or Show more growing or shrinking |
+| `--cmux-motion-arrive` | the move step | a row arriving in a running turn (a thought, a tool call) and the rows it moves; `0ms` lands rows in place |
 | `--cmux-motion-send` | 0ms | a sent prompt's room, bubble and the thread's rise |
 | `--cmux-motion-stream` | the host's fade-in (120ms) | a streamed reply's newest words fading in |
 | `--cmux-ease-out` | `cubic-bezier(0, 0, 0.58, 1)` | anything entering |
