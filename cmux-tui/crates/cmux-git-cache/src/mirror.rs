@@ -819,8 +819,8 @@ impl Mirrors {
             }
         }
         let lock = self.lock(&dir);
+        let keep_lock = self.keep_lock(&dir);
         let fills = self.fills.clone();
-        let scope = self.scope.clone();
         let http = self.http.clone();
         self.scope.spawn_until_cancelled("fill mirror", async move {
             let mut refused = false;
@@ -893,8 +893,13 @@ impl Mirrors {
                 if ok {
                     let _ = std::fs::write(dir.join(FILLED), b"");
                     Self::drop_kept_refs(&dir).await;
-                    if fresh {
-                        Self::bitmap_later(&scope, dir.clone());
+                    let plan =
+                        if fresh { Consolidate::Full } else { consolidation(&pack_sizes(&dir)) };
+                    if plan != Consolidate::None {
+                        // No keep writes while git rewrites the packs: a failed keep clears every
+                        // partial write, the repack's own `.tmp-*` pack among them.
+                        let _keeps = keep_lock.lock().await;
+                        Self::consolidate(&dir, plan).await;
                     }
                 }
                 (ok, fetched == Fetched::NoRoom)
@@ -1045,26 +1050,93 @@ impl Mirrors {
         }
     }
 
-    /// After a mirror's first fill: one pack with a bitmap, so a clone from it reuses the pack
-    /// instead of counting objects. Beside serving (git swaps packs atomically), at low priority.
-    fn bitmap_later(scope: &cmux_scope::Scope, dir: PathBuf) {
-        scope.spawn_until_cancelled("repack with bitmap", async move {
-            // `repack -a -d` writes the new pack beside the old ones before it drops them.
-            let need = pack_bytes(&dir);
-            if !crate::room::has_room_for(&dir, need) {
-                eprintln!(
-                    "git-cache: repack not started: {}",
-                    crate::room::why_not_for(&dir, need)
-                );
-                return;
-            }
-            let mut cmd = low_priority_git();
-            cmd.arg("-C").arg(&dir).args(["repack", "-a", "-d", "-q", "--write-bitmap-index"]);
-            if !status_ok_watched(cmd, "repack", FILL_TIMEOUT, Some(floor_watch(&dir))).await {
-                clear_partial_writes(&dir);
-            }
-        });
+    /// Rewrites the mirror's packs as `plan` says, under the mirror's lock (the caller holds it
+    /// and the keep lock): no fetch, keep or fill runs beside it, so none of their failures can
+    /// clear the repack's `.tmp-*` pack mid-write. gcp-codex-lane-5, 2026-11-28 13:33: the only
+    /// repack, spawned beside serving after the first fill, failed "unable to rename temporary
+    /// file" and never ran again, and the mirror grew to 73 packs, 20.6 GiB.
+    async fn consolidate(dir: &Path, plan: Consolidate) {
+        let sizes = pack_sizes(dir);
+        let largest = sizes.iter().copied().max().unwrap_or(0);
+        // A repack writes its new pack beside the old ones before it drops them.
+        let need = match plan {
+            Consolidate::None => return,
+            Consolidate::Full => pack_bytes(dir),
+            Consolidate::Geometric => sizes.iter().sum::<u64>().saturating_sub(largest),
+        };
+        if !crate::room::has_room_for(dir, need) {
+            eprintln!("git-cache: repack not started: {}", crate::room::why_not_for(dir, need));
+            return;
+        }
+        let before = pack_bytes(dir);
+        let mut cmd = low_priority_git();
+        cmd.arg("-C").arg(dir);
+        match plan {
+            Consolidate::Full => cmd.args(["repack", "-a", "-d", "-q", "--write-bitmap-index"]),
+            _ => cmd.args(["repack", "-d", "-q", "--geometric=2"]),
+        };
+        if status_ok_watched(cmd, "repack", FILL_TIMEOUT, Some(floor_watch(dir))).await {
+            eprintln!(
+                "git-cache: {} repacked ({plan:?}): {} packs, {} MiB -> {} packs, {} MiB",
+                dir.display(),
+                sizes.len(),
+                before >> 20,
+                pack_sizes(dir).len(),
+                pack_bytes(dir) >> 20
+            );
+        } else {
+            clear_partial_writes(dir);
+        }
     }
+}
+
+/// How a filled mirror's packs are rewritten after a fill. Every fill of a filled mirror adds
+/// one increment pack (gcp-codex-lane-5, 2026-11-28: 72 in 8 hours, 3.5 GiB beside the 17 GiB
+/// pack), and `gc.auto=0` means git never rolls them up; a whole kept or refetched clone adds
+/// the repository again (fs-agent-lane-20: 77.7 GB for a 17 GiB repository).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Consolidate {
+    None,
+    /// Roll the small packs into one (`repack --geometric=2`); the big pack stays as it is.
+    Geometric,
+    /// One pack with a bitmap (`repack -a -d`): drops what several packs hold twice.
+    Full,
+}
+
+/// Increment packs a mirror keeps before they are rolled up.
+const MAX_PACKS: usize = 16;
+
+/// What a mirror whose unkept packs are `sizes` bytes needs: `Full` once the packs beside the
+/// largest hold a quarter of its size (a second copy of the repository, or a day of increments),
+/// `Geometric` past `MAX_PACKS` packs, else nothing.
+fn consolidation(sizes: &[u64]) -> Consolidate {
+    let largest = sizes.iter().copied().max().unwrap_or(0);
+    let rest = sizes.iter().sum::<u64>().saturating_sub(largest);
+    if sizes.len() >= 2 && rest > largest / 4 {
+        Consolidate::Full
+    } else if sizes.len() > MAX_PACKS {
+        Consolidate::Geometric
+    } else {
+        Consolidate::None
+    }
+}
+
+/// Sizes of the mirror's `objects/pack/*.pack` files git may rewrite (no `.keep` beside them).
+fn pack_sizes(dir: &Path) -> Vec<u64> {
+    let pack = dir.join("objects").join("pack");
+    let Ok(entries) = std::fs::read_dir(&pack) else { return vec![] };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path.file_name()?.to_str()?;
+            (name.starts_with("pack-")
+                && name.ends_with(".pack")
+                && !path.with_extension("keep").exists())
+            .then(|| e.metadata().ok().map(|m| m.len()))
+            .flatten()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1104,6 +1176,63 @@ mod tests {
         );
         assert_eq!(api_size_bytes(b"{}"), None);
         assert_eq!(api_size_bytes(b"not json"), None);
+    }
+
+    #[test]
+    fn a_filled_mirror_rolls_up_its_increments_and_drops_a_second_copy() {
+        const G: u64 = 1 << 30;
+        const M: u64 = 1 << 20;
+        assert_eq!(consolidation(&[]), Consolidate::None);
+        assert_eq!(consolidation(&[17 * G]), Consolidate::None);
+        // A few increments beside the big pack wait.
+        assert_eq!(consolidation(&[17 * G, 50 * M, 8 * M, 115 * M]), Consolidate::None);
+        // gcp-codex-lane-5, 2026-11-28: 72 increments, 3.5 GiB, beside the 17 GiB pack.
+        let mut lane5 = vec![17 * G];
+        lane5.extend(std::iter::repeat_n(50 * M, 72));
+        assert_eq!(consolidation(&lane5), Consolidate::Geometric);
+        // fs-agent-lane-20: the repository several times over.
+        assert_eq!(consolidation(&[17 * G, 17 * G, 17 * G, 16 * G]), Consolidate::Full);
+        assert_eq!(consolidation(&[17 * G, 5 * G]), Consolidate::Full);
+    }
+
+    #[tokio::test]
+    async fn a_consolidation_leaves_one_pack_and_skips_kept_ones() {
+        let up = tempfile::tempdir().unwrap();
+        sh_git(up.path(), &["init", "-q", "-b", "main"]);
+        let mirror = tempfile::tempdir().unwrap();
+        sh_git(mirror.path(), &["init", "-q", "--bare"]);
+        let url = up.path().to_str().unwrap().to_owned();
+        for i in 0..4 {
+            std::fs::write(up.path().join("a"), format!("{i}").repeat(4096)).unwrap();
+            sh_git(up.path(), &["add", "a"]);
+            sh_git(
+                up.path(),
+                &[
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "commit",
+                    "-q",
+                    "-m",
+                    &i.to_string(),
+                ],
+            );
+            sh_git(
+                mirror.path(),
+                &["-c", "fetch.unpackLimit=1", "fetch", "-q", &url, "+refs/heads/*:refs/heads/*"],
+            );
+        }
+        assert_eq!(packs(mirror.path()).len(), 4);
+        assert_eq!(pack_sizes(mirror.path()).len(), 4);
+        let kept = mirror.path().join("objects/pack").join(&packs(mirror.path())[0]);
+        std::fs::write(kept.with_extension("keep"), b"operator").unwrap();
+        assert_eq!(pack_sizes(mirror.path()).len(), 3);
+        Mirrors::consolidate(mirror.path(), Consolidate::Full).await;
+        // The kept pack stays; the other three became one.
+        assert_eq!(packs(mirror.path()).len(), 2);
+        assert!(kept.exists());
+        sh_git(mirror.path(), &["fsck", "-q"]);
     }
 
     #[tokio::test]
