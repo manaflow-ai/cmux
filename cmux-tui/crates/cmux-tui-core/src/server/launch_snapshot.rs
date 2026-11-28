@@ -382,64 +382,196 @@ fn budget_wait(written: usize, max_bytes_per_second: u64) -> Duration {
     Duration::from_secs_f64(written as f64 / max_bytes_per_second.max(1) as f64)
 }
 
-fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result<Value> {
+/// What the snapshot holds, read once a write. It is serialized straight from
+/// these parts, never through a whole-file `serde_json::Value` (at 1,000 items
+/// that tree of values, and the two parses that compared it with the file,
+/// were tens of MB of transient heap the allocator kept: goal infinite-items-flat).
+struct LaunchSnapshotParts {
+    registry_id: String,
+    generation: String,
+    tree: Value,
+    personal: Option<crate::workspace_registry::PersonalSnapshot>,
+    projections: Vec<crate::workspace_registry::FrontendProjection>,
+    sidebar_doc: Value,
+}
+
+fn launch_snapshot_parts(
+    mux: &Mux,
+    include_projections: bool,
+) -> anyhow::Result<LaunchSnapshotParts> {
     let tree = list_workspaces_reply(mux)?;
     let (registry_id, generation) = mux.registry_identity();
-    // Rooms, pins and personal groups filter and group the sidebar, so a
-    // provisional sidebar drawn without them regroups when live data lands.
-    // Room default env can hold credentials; the sidebar does not need it.
-    // A session's capability list (up to `MAX_SESSION_CAPABILITIES_BYTES`
-    // each) is not drawn either, and the file has its own size bound.
     let personal = match mux.personal_snapshot() {
-        Ok(personal) => {
-            let mut personal = serde_json::to_value(personal)?;
-            for profile in
-                personal.get_mut("profiles").and_then(Value::as_array_mut).into_iter().flatten()
-            {
-                if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
-                    defaults.remove("env");
-                }
-            }
-            for session in
-                personal.get_mut("sessions").and_then(Value::as_array_mut).into_iter().flatten()
-            {
-                if let Some(session) = session.as_object_mut() {
-                    session.remove("capabilities");
-                }
-            }
-            personal
-        }
+        Ok(personal) => Some(personal),
         Err(error) => {
             eprintln!("cmux-tui: launch snapshot without personal state: {error:#}");
-            Value::Null
+            None
         }
     };
-    let projections = if include_projections {
-        serde_json::to_value(mux.launch_snapshot_frontend_projections()?)?
-    } else {
-        json!([])
-    };
+    let projections =
+        if include_projections { mux.launch_snapshot_frontend_projections()? } else { Vec::new() };
     // The sidebar document (`sidebar.get`'s reply): its Pinned band draws in
     // the app's first frame, not after this daemon's restore and handshake
     // (seconds on a large registry). A pin bumps `personal_revision`, so a
     // pin change rewrites the snapshot. Left out of the smaller retry.
     let sidebar_doc = if include_projections { launch_sidebar_doc(mux) } else { Value::Null };
-    Ok(json!({
-        "schema_version": LAUNCH_SNAPSHOT_SCHEMA_VERSION,
-        "app": "cmux-tui",
-        "version": env!("CARGO_PKG_VERSION"),
-        "session": mux.session,
-        "registry_id": registry_id,
-        "generation": generation,
-        "written_at_ms": std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-            .unwrap_or_default(),
-        "tree": tree,
-        "personal": personal,
-        "frontend_projections": projections,
-        "sidebar_doc": sidebar_doc,
-    }))
+    Ok(LaunchSnapshotParts { registry_id, generation, tree, personal, projections, sidebar_doc })
+}
+
+/// A native projection as the file holds it: its keys in the sorted order a
+/// `serde_json::Value` object gives them, so the bytes are those of the
+/// `Value` form the file had before.
+#[derive(Serialize)]
+struct SortedProjection<'a> {
+    frontend: &'a str,
+    projection: &'a Value,
+    projection_revision: u64,
+    schema_version: u32,
+    scope: &'a str,
+    subject_key: &'a str,
+}
+
+impl<'a> From<&'a crate::workspace_registry::FrontendProjection> for SortedProjection<'a> {
+    fn from(projection: &'a crate::workspace_registry::FrontendProjection) -> Self {
+        Self {
+            frontend: &projection.frontend,
+            projection: &projection.projection,
+            projection_revision: projection.projection_revision,
+            schema_version: projection.schema_version,
+            scope: &projection.scope,
+            subject_key: &projection.subject_key,
+        }
+    }
+}
+
+/// The key that ends the file: everything before its value is the snapshot's
+/// contents, and a write that would change only it is skipped.
+const WRITTEN_AT_KEY: &[u8] = b"\"written_at_ms\":";
+
+fn write_key(out: &mut Vec<u8>, first: bool, key: &str) -> anyhow::Result<()> {
+    if !first {
+        out.push(b',');
+    }
+    serde_json::to_writer(&mut *out, key)?;
+    out.push(b':');
+    Ok(())
+}
+
+/// One array, an element at a time: each element goes through a `Value`
+/// (sorted keys, and `fixup` drops what the file leaves out), never the
+/// whole array at once.
+fn write_sorted_array<T: Serialize>(
+    out: &mut Vec<u8>,
+    items: &[T],
+    fixup: impl Fn(&mut Value),
+) -> anyhow::Result<()> {
+    out.push(b'[');
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            out.push(b',');
+        }
+        let mut value = serde_json::to_value(item)?;
+        fixup(&mut value);
+        serde_json::to_writer(&mut *out, &value)?;
+    }
+    out.push(b']');
+    Ok(())
+}
+
+/// `list-personal`'s reply as the file holds it. Rooms, pins and personal
+/// groups filter and group the sidebar, so a provisional sidebar drawn
+/// without them regroups when live data lands. Room default env can hold
+/// credentials; the sidebar does not need it. A session's capability list
+/// (up to `MAX_SESSION_CAPABILITIES_BYTES` each) is not drawn either, and
+/// the file has its own size bound. Keys sorted, as the `Value` form had them.
+fn write_personal(
+    out: &mut Vec<u8>,
+    personal: &crate::workspace_registry::PersonalSnapshot,
+) -> anyhow::Result<()> {
+    let keep = |_: &mut Value| {};
+    out.push(b'{');
+    write_key(out, true, "browser_profiles")?;
+    write_sorted_array(out, &personal.browser_profiles, keep)?;
+    write_key(out, false, "groups")?;
+    write_sorted_array(out, &personal.groups, keep)?;
+    write_key(out, false, "personal_revision")?;
+    serde_json::to_writer(&mut *out, &personal.personal_revision)?;
+    write_key(out, false, "pins")?;
+    write_sorted_array(out, &personal.pins, keep)?;
+    write_key(out, false, "profiles")?;
+    write_sorted_array(out, &personal.profiles, |profile| {
+        if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
+            defaults.remove("env");
+        }
+    })?;
+    write_key(out, false, "sessions")?;
+    write_sorted_array(out, &personal.sessions, |session| {
+        if let Some(session) = session.as_object_mut() {
+            session.remove("capabilities");
+        }
+    })?;
+    write_key(out, false, "terminals")?;
+    write_sorted_array(out, &personal.terminals, keep)?;
+    write_key(out, false, "workspaces")?;
+    write_sorted_array(out, &personal.workspaces, keep)?;
+    out.push(b'}');
+    Ok(())
+}
+
+/// The file's bytes up to and including [`WRITTEN_AT_KEY`], keys in sorted
+/// order (`written_at_ms` last), the projections whose `keep` is true. The
+/// same bytes the `serde_json::Value` form serialized to, built without it.
+fn launch_snapshot_body(
+    mux: &Mux,
+    parts: &LaunchSnapshotParts,
+    keep: &[bool],
+) -> anyhow::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    out.push(b'{');
+    write_key(&mut out, true, "app")?;
+    serde_json::to_writer(&mut out, "cmux-tui")?;
+    write_key(&mut out, false, "frontend_projections")?;
+    out.push(b'[');
+    let mut first = true;
+    for (projection, _) in parts.projections.iter().zip(keep).filter(|(_, keep)| **keep) {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        serde_json::to_writer(&mut out, &SortedProjection::from(projection))?;
+    }
+    out.push(b']');
+    write_key(&mut out, false, "generation")?;
+    serde_json::to_writer(&mut out, &parts.generation)?;
+    write_key(&mut out, false, "personal")?;
+    match &parts.personal {
+        Some(personal) => write_personal(&mut out, personal)?,
+        None => out.extend_from_slice(b"null"),
+    }
+    write_key(&mut out, false, "registry_id")?;
+    serde_json::to_writer(&mut out, &parts.registry_id)?;
+    write_key(&mut out, false, "schema_version")?;
+    serde_json::to_writer(&mut out, &LAUNCH_SNAPSHOT_SCHEMA_VERSION)?;
+    write_key(&mut out, false, "session")?;
+    serde_json::to_writer(&mut out, &mux.session)?;
+    write_key(&mut out, false, "sidebar_doc")?;
+    serde_json::to_writer(&mut out, &parts.sidebar_doc)?;
+    write_key(&mut out, false, "tree")?;
+    serde_json::to_writer(&mut out, &parts.tree)?;
+    write_key(&mut out, false, "version")?;
+    serde_json::to_writer(&mut out, env!("CARGO_PKG_VERSION"))?;
+    out.push(b',');
+    out.extend_from_slice(WRITTEN_AT_KEY);
+    Ok(out)
+}
+
+/// The write time and the closing brace that end the file after its body.
+fn launch_snapshot_tail() -> Vec<u8> {
+    let written_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default();
+    format!("{written_at_ms}}}").into_bytes()
 }
 
 /// The sidebar document, or null before its migration or on a read error
@@ -460,45 +592,66 @@ fn launch_sidebar_doc(mux: &Mux) -> Value {
     }
 }
 
-/// Whether the snapshot at `path` holds what `bytes` holds, apart from `written_at_ms`.
-fn same_snapshot_on_disk(path: &Path, bytes: &[u8]) -> bool {
-    let parse = |bytes: &[u8]| {
-        serde_json::from_slice::<Value>(bytes).ok().map(|mut value| {
-            if let Some(object) = value.as_object_mut() {
-                object.remove("written_at_ms");
-            }
-            value
-        })
-    };
-    let Ok(stored) = std::fs::read(path) else { return false };
-    matches!((parse(&stored), parse(bytes)), (Some(stored), Some(next)) if stored == next)
+/// Whether the file at `path` holds `body` (a [`launch_snapshot_body`]),
+/// apart from the `written_at_ms` that ends it: a byte compare, streamed
+/// from the file, with no parse of either side.
+fn same_snapshot_on_disk(path: &Path, body: &[u8]) -> bool {
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
+    let mut offset = 0;
+    while offset < body.len() {
+        let chunk = match reader.fill_buf() {
+            Ok([]) | Err(_) => return false,
+            Ok(chunk) => chunk,
+        };
+        let take = chunk.len().min(body.len() - offset);
+        if chunk[..take] != body[offset..offset + take] {
+            return false;
+        }
+        offset += take;
+        reader.consume(take);
+    }
+    // What is left is the write time and the closing brace.
+    let mut tail = Vec::new();
+    if reader.take(24).read_to_end(&mut tail).is_err() {
+        return false;
+    }
+    matches!(tail.split_last(), Some((b'}', digits))
+        if !digits.is_empty() && digits.iter().all(u8::is_ascii_digit))
 }
 
 /// Writes the snapshot; returns the projections left out to fit its bound
 /// (`frontend/scope/subject`), empty when all fit, and the bytes written
 /// (0 when the file already holds this snapshot).
 fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<(Vec<String>, usize)> {
-    let mut value = launch_snapshot_value(mux, true)?;
-    let mut bytes = serde_json::to_vec(&value)?;
+    let parts = launch_snapshot_parts(mux, true)?;
+    let tail = launch_snapshot_tail();
+    let mut keep = vec![true; parts.projections.len()];
+    let mut body = launch_snapshot_body(mux, &parts, &keep)?;
+    let finished = |body: &[u8]| body.len() + tail.len();
     let mut dropped = Vec::new();
-    if bytes.len() > MAX_LAUNCH_SNAPSHOT_BYTES {
-        dropped = drop_largest_projections(&mut value, bytes.len());
-        bytes = serde_json::to_vec(&value)?;
+    if finished(&body) > MAX_LAUNCH_SNAPSHOT_BYTES {
+        dropped = drop_largest_projections(&parts.projections, &mut keep, finished(&body));
+        body = launch_snapshot_body(mux, &parts, &keep)?;
     }
-    if bytes.len() > MAX_LAUNCH_SNAPSHOT_BYTES {
+    drop(parts);
+    if finished(&body) > MAX_LAUNCH_SNAPSHOT_BYTES {
         // The tree and personal state alone: the smaller form, as before.
-        bytes = serde_json::to_vec(&launch_snapshot_value(mux, false)?)?;
+        drop(body);
+        body = launch_snapshot_body(mux, &launch_snapshot_parts(mux, false)?, &[])?;
         dropped.push("sidebar_doc".to_string());
     }
     anyhow::ensure!(
-        bytes.len() <= MAX_LAUNCH_SNAPSHOT_BYTES,
+        finished(&body) <= MAX_LAUNCH_SNAPSHOT_BYTES,
         "launch snapshot exceeds {MAX_LAUNCH_SNAPSHOT_BYTES} bytes"
     );
     // Most wakeups change nothing the snapshot holds: the same contents (its write time aside)
     // are not written and synced again.
-    if same_snapshot_on_disk(path, &bytes) {
+    if same_snapshot_on_disk(path, &body) {
         return Ok((dropped, 0));
     }
+    let mut bytes = body;
+    bytes.extend_from_slice(&tail);
     let directory = path.parent().context("launch snapshot path has no directory")?;
     let temporary = directory.join(format!("{LAUNCH_SNAPSHOT_FILE}.{}.tmp", std::process::id()));
     let result = (|| -> anyhow::Result<()> {
@@ -522,18 +675,39 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<(Vec<String>,
     result.map(|()| (dropped, bytes.len()))
 }
 
-/// Removes native projections from `value`, largest first, until the
-/// snapshot fits [`MAX_LAUNCH_SNAPSHOT_BYTES`]; returns their names. The
-/// registry keeps them: the app reads them after it connects.
-fn drop_largest_projections(value: &mut Value, mut bytes: usize) -> Vec<String> {
-    let Some(projections) = value.get_mut("frontend_projections").and_then(Value::as_array_mut)
-    else {
-        return Vec::new();
-    };
+/// Counts what a serializer writes, keeping none of it.
+#[derive(Default)]
+struct ByteCount(usize);
+
+impl Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Clears `keep` for native projections, largest first, until a snapshot of
+/// `bytes` fits [`MAX_LAUNCH_SNAPSHOT_BYTES`]; returns their names, last
+/// index first. The registry keeps them: the app reads them after it
+/// connects.
+fn drop_largest_projections(
+    projections: &[crate::workspace_registry::FrontendProjection],
+    keep: &mut [bool],
+    mut bytes: usize,
+) -> Vec<String> {
     let mut sized: Vec<(usize, usize)> = projections
         .iter()
         .enumerate()
-        .map(|(index, projection)| (serde_json::to_vec(projection).map_or(0, |b| b.len()), index))
+        .map(|(index, projection)| {
+            let mut count = ByteCount::default();
+            let size = serde_json::to_writer(&mut count, &SortedProjection::from(projection))
+                .map_or(0, |()| count.0);
+            (size, index)
+        })
         .collect();
     sized.sort_unstable_by(|a, b| b.cmp(a));
     let mut removed = Vec::new();
@@ -542,17 +716,15 @@ fn drop_largest_projections(value: &mut Value, mut bytes: usize) -> Vec<String> 
             break;
         }
         bytes = bytes.saturating_sub(size + 1);
+        keep[index] = false;
         removed.push(index);
     }
     removed.sort_unstable_by(|a, b| b.cmp(a));
     removed
         .into_iter()
         .map(|index| {
-            let projection = projections.remove(index);
-            let field = |key: &str| {
-                projection.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
-            };
-            format!("{}/{}/{}", field("frontend"), field("scope"), field("subject_key"))
+            let projection = &projections[index];
+            format!("{}/{}/{}", projection.frontend, projection.scope, projection.subject_key)
         })
         .collect()
 }

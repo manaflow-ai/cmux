@@ -44,29 +44,143 @@ fn workspace_names(snapshot: &Value) -> Vec<String> {
 /// only as many as it must, and names them.
 #[test]
 fn an_oversized_snapshot_drops_the_largest_projections_first() {
-    let projection = |subject: &str, bytes: usize| {
-        json!({"frontend":"cmux-next","scope":"personal","subject_key":subject,
-               "projection":{"pad":"x".repeat(bytes)}})
+    let projection = |subject: &str, bytes: usize| crate::workspace_registry::FrontendProjection {
+        frontend: "cmux-next".into(),
+        scope: "personal".into(),
+        subject_key: subject.into(),
+        schema_version: 1,
+        projection_revision: 1,
+        projection: json!({"pad":"x".repeat(bytes)}),
     };
     let big = MAX_LAUNCH_SNAPSHOT_BYTES / 2;
-    let mut value = json!({"tree":{},"frontend_projections":[
-        projection("windows", 1000),
-        projection("history", big),
-        projection("bookmarks", big),
-    ]});
-    let bytes = serde_json::to_vec(&value).unwrap().len();
+    let projections =
+        vec![projection("windows", 1000), projection("history", big), projection("bookmarks", big)];
+    let size = |keep: &[bool]| {
+        let kept: Vec<_> = projections
+            .iter()
+            .zip(keep)
+            .filter(|(_, keep)| **keep)
+            .map(|(projection, _)| SortedProjection::from(projection))
+            .collect();
+        serde_json::to_vec(&json!({"tree":{},"frontend_projections":kept})).unwrap().len()
+    };
+    let mut keep = vec![true; projections.len()];
+    let bytes = size(&keep);
     assert!(bytes > MAX_LAUNCH_SNAPSHOT_BYTES);
-    let dropped = drop_largest_projections(&mut value, bytes);
+    let dropped = drop_largest_projections(&projections, &mut keep, bytes);
     assert_eq!(dropped.len(), 1, "only as many as needed: {dropped:?}");
     assert!(dropped[0].ends_with("/history") || dropped[0].ends_with("/bookmarks"));
-    assert!(serde_json::to_vec(&value).unwrap().len() <= MAX_LAUNCH_SNAPSHOT_BYTES);
-    let kept: Vec<_> = value["frontend_projections"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|p| p["subject_key"].as_str().unwrap().to_string())
-        .collect();
-    assert!(kept.contains(&"windows".to_string()), "the small window state is kept: {kept:?}");
+    assert!(size(&keep) <= MAX_LAUNCH_SNAPSHOT_BYTES);
+    assert!(keep[0], "the small window state is kept: {keep:?}");
+}
+
+/// The snapshot as it was built before it streamed: one `serde_json::Value`
+/// for the whole file. The streamed bytes must be these bytes.
+fn launch_snapshot_value_reference(mux: &Mux, include_projections: bool) -> Value {
+    let tree = list_workspaces_reply(mux).unwrap();
+    let (registry_id, generation) = mux.registry_identity();
+    let personal = match mux.personal_snapshot() {
+        Ok(personal) => {
+            let mut personal = serde_json::to_value(personal).unwrap();
+            for profile in
+                personal.get_mut("profiles").and_then(Value::as_array_mut).into_iter().flatten()
+            {
+                if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
+                    defaults.remove("env");
+                }
+            }
+            for session in
+                personal.get_mut("sessions").and_then(Value::as_array_mut).into_iter().flatten()
+            {
+                if let Some(session) = session.as_object_mut() {
+                    session.remove("capabilities");
+                }
+            }
+            personal
+        }
+        Err(_) => Value::Null,
+    };
+    let projections = if include_projections {
+        serde_json::to_value(mux.launch_snapshot_frontend_projections().unwrap()).unwrap()
+    } else {
+        json!([])
+    };
+    let sidebar_doc = if include_projections { launch_sidebar_doc(mux) } else { Value::Null };
+    json!({
+        "schema_version": LAUNCH_SNAPSHOT_SCHEMA_VERSION,
+        "app": "cmux-tui",
+        "version": env!("CARGO_PKG_VERSION"),
+        "session": mux.session,
+        "registry_id": registry_id,
+        "generation": generation,
+        "written_at_ms": 1_764_000_000_000u64,
+        "tree": tree,
+        "personal": personal,
+        "frontend_projections": projections,
+        "sidebar_doc": sidebar_doc,
+    })
+}
+
+/// The streamed snapshot is byte for byte the `Value` form it replaced, with
+/// personal state, a room env, session capabilities and projections in it,
+/// and the file compares equal to it apart from its write time.
+#[test]
+fn the_streamed_launch_snapshot_matches_the_value_form_byte_for_byte() {
+    let root = temp_root("bytes");
+    let mux =
+        Mux::open_persistent("launch-snapshot-bytes", SurfaceOptions::default(), &root).unwrap();
+    mux.create_empty_workspace(Some("one".into()), None, None).unwrap();
+    mux.create_empty_workspace(Some("two \"quoted\" \u{e9}".into()), None, None).unwrap();
+    run_command(
+        &mux,
+        json!({"cmd":"create-profile","profile":"prof_work","name":"Work",
+               "defaults":{"cwd":"/tmp","env":{"TOKEN":"secret"}}}),
+    );
+    run_command(
+        &mux,
+        json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh"},
+               "capabilities":["profiles-v1"]}),
+    );
+    run_command(
+        &mux,
+        json!({"cmd":"put-frontend-projection","frontend":"cmux-next","scope":"personal",
+               "subject_key":"windows","schema_version":1,
+               "projection":{"windows":[{"id":"w1","z":1.5,"b":[true,null]}]},
+               "origin":"test","mutation_id":"bytes-1"}),
+    );
+    for include_projections in [true, false] {
+        let parts = launch_snapshot_parts(&mux, include_projections).unwrap();
+        let keep = vec![true; parts.projections.len()];
+        let mut streamed = launch_snapshot_body(&mux, &parts, &keep).unwrap();
+        streamed.extend_from_slice(b"1764000000000}");
+        let reference =
+            serde_json::to_vec(&launch_snapshot_value_reference(&mux, include_projections))
+                .unwrap();
+        assert_eq!(
+            String::from_utf8(streamed).unwrap(),
+            String::from_utf8(reference).unwrap(),
+            "include_projections={include_projections}"
+        );
+    }
+    let path = root.join(LAUNCH_SNAPSHOT_FILE);
+    let (_, written) = write_launch_snapshot(&mux, &path).unwrap();
+    assert!(written > 0);
+    let (_, again) = write_launch_snapshot(&mux, &path).unwrap();
+    assert_eq!(again, 0, "the same contents are not written again");
+    let parts = launch_snapshot_parts(&mux, true).unwrap();
+    let keep = vec![true; parts.projections.len()];
+    let body = launch_snapshot_body(&mux, &parts, &keep).unwrap();
+    assert!(same_snapshot_on_disk(&path, &body));
+    assert!(!same_snapshot_on_disk(&path, &body[..body.len() - 1]));
+    let mut other = body.clone();
+    other[1] = b' ';
+    assert!(!same_snapshot_on_disk(&path, &other));
+    mux.create_empty_workspace(Some("three".into()), None, None).unwrap();
+    let (_, changed) = write_launch_snapshot(&mux, &path).unwrap();
+    assert!(changed > 0, "a change is written");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
