@@ -567,6 +567,17 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     /// throws (2026-10-09 nightly crash). The overlay planes also re-read
     /// their home's place here, so a pane ring follows a pane that moved
     /// because an ancestor moved (sidebar width), not only its own layout.
+    /// The launch's first layout pass is marked (`window.first_layout_*`).
+    private static var launchLayoutMarked = false
+
+    override func displayIfNeeded() {
+        let first = !Self.launchDisplayMarked // the first window's first display (startup-tti)
+        if first { Self.launchDisplayMarked = true; DebugTimings.markLaunch("window.first_display_start") }
+        super.displayIfNeeded()
+        if first { DebugTimings.markLaunch("window.first_display_done") }
+    }
+    private static var launchDisplayMarked = false
+
     override func layoutIfNeeded() {
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
@@ -575,7 +586,10 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         #endif
         let layouts = LayoutPassGuard.shared.viewLayoutCalls // AppKit runs this pass before every display (each key): one that laid out no view moved no traffic light
         overlayLayer.windowWillLayout()
+        let firstLayout = !Self.launchLayoutMarked && overlayLayer.layoutDepth == 1 // the first window's first pass (startup-tti): its marks split ordered_front
+        if firstLayout { Self.launchLayoutMarked = true; DebugTimings.markLaunch("window.first_layout_start") }
         super.layoutIfNeeded()
+        if firstLayout { DebugTimings.markLaunch("window.first_layout_done") }
         // The outermost pass only, and before the overlay layer's own after-pass work, so an occluder change it causes joins that work.
         if overlayLayer.layoutDepth == 1 {
             (contentView as? WindowRootView)?.windowDidLayout(placesTrafficLights: !LayoutPassGuard.shared.isInstalled || LayoutPassGuard.shared.viewLayoutCalls != layouts)

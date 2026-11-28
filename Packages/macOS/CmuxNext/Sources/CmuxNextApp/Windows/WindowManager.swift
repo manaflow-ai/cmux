@@ -495,9 +495,11 @@ final class WindowManager {
     /// Orders a new window in without taking focus under no-activate.
     func present(_ controller: WindowController) {
         controller.sidebar.sectionsPass?.completeFirstFrame() // the first frame reads each band item's value (SidebarFirstFrame)
+        DebugTimings.markLaunch("window.present.sections_done")
         // Tests: never on the user's display. Otherwise one rule: under no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
         services.background.windowWillAppear(activates: !behind && ordersWindowsIn) // leave background mode first (cx-ghagp)
+        DebugTimings.markLaunch("window.present.background_done")
         let restacks = restacking.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window,
            !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.controller(for: $0)?.window })) {
