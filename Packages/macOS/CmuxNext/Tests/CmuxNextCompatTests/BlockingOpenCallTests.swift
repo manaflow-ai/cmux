@@ -1,4 +1,4 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 @testable import CmuxNextCompat
 import Testing
 
