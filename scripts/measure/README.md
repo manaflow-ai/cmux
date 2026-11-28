@@ -353,6 +353,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
+| `ci-identical-reruns.py` | Runner-minutes in a window spent on a job whose (workflow, job, input key) had already passed earlier: the ceiling for skip-on-passed-key. Key: job_input_fingerprint, else tree SHA, else run id; reads the controller's timing feed, fleet jobs and run feed, no GitHub calls. | goal ci-runner-min-per-day-50k | 2026-11-25 | active |
 | `workspace-factory.sh` | Throwaway per-job workspace from a read-only seed vs today's step workspaces, one real SwiftPM prebuild (bench workspace-factory). | hq RFD 0005 | 2026-11-17 | active |
 | `workspace-factory` | `wsfactory`, the std-only Rust factory the script builds: seed publish/verify, create, destroy, reconcile. | hq RFD 0005 | 2026-11-17 | active |
 | `ci140-unmapped` | `unmapped.py`: PR job minutes the ci140 reuse measurement could not map to a head SHA, by reason, workflow, job and event, plus a minutes-weighted API sample of their real head SHAs: new head vs the same input as an earlier green. | goal ci-min-per-pr-140 | 2026-11-27 | active |
