@@ -237,26 +237,22 @@ fn reads_codesign_teams_store_answers_and_app_pids() {
     );
     assert_eq!(schemas("{\"not_ready\":true}"), None);
     assert_eq!(schemas("nope"), None);
-    let ps = "  101 /Applications/cmux NIGHTLY.app/Contents/MacOS/cmux\n  102 /Applications/cmux NIGHTLY.app/Contents/MacOS/cmux -psn_0\n  103 /Applications/cmux NIGHTLY.app/Contents/MacOS/cmux-helper\n  104 /Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux daemon\n";
-    assert_eq!(
-        pids_of(ps, Path::new("/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux")),
-        [101, 102]
-    );
 }
 
 #[test]
-fn a_waiting_sparkle_installer_stops_the_swap() {
+fn a_staged_sparkle_update_stops_the_swap() {
     let dir = tempfile::tempdir().unwrap();
     let running = running(dir.path(), "100");
-    let home = Path::new("/Users/me");
-    let framework = format!(
-        "  7 {}/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate\n",
-        running.bundle.display()
-    );
-    assert!(sparkle_waits(&framework, &running, home));
-    let cache = "  8 /Users/me/Library/Caches/com.cmuxterm.app.nightly/org.sparkle-project.Sparkle/Installation/Updater\n";
-    assert!(sparkle_waits(cache, &running, home));
-    assert!(!sparkle_waits("  9 /usr/bin/true\n", &running, home));
+    let home = dir.path().join("home");
+    assert!(!sparkle_waits(&running, &home));
+    let installation = home
+        .join("Library/Caches")
+        .join(&running.bundle_id)
+        .join("org.sparkle-project.Sparkle/Installation");
+    std::fs::create_dir_all(&installation).unwrap();
+    assert!(!sparkle_waits(&running, &home), "an empty folder stages nothing");
+    std::fs::create_dir_all(installation.join("abc123")).unwrap();
+    assert!(sparkle_waits(&running, &home));
 }
 
 #[test]

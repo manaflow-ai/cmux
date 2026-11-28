@@ -138,8 +138,8 @@ impl Running {
         let text = |key: &str| {
             dictionary.get(key).and_then(plist::Value::as_string).map(str::trim).map(str::to_owned)
         };
-        let bundle_id =
-            text("CFBundleIdentifier").filter(|id| id.starts_with("com.cmuxterm.app"))?;
+        let bundle_id = text("CFBundleIdentifier")
+            .filter(|id| id.starts_with(cmux_cloud_config::config::RELEASE_BUNDLE_ID))?;
         Some(Self {
             bundle: bundle.to_path_buf(),
             build: text("CFBundleVersion").filter(|build| !build.is_empty())?,
@@ -381,7 +381,7 @@ struct System {
 impl Checks for System {
     fn team(&self, bundle: &Path) -> Option<String> {
         let verified = output(
-            std::process::Command::new("/usr/bin/codesign")
+            cmux_process::Command::new("/usr/bin/codesign")
                 .args(["--verify", "--deep", "--strict"])
                 .arg(bundle),
             CODESIGN_TIMEOUT,
@@ -391,14 +391,14 @@ impl Checks for System {
 
     fn running_team(&self, bundle: &Path) -> Option<String> {
         let shown = output(
-            std::process::Command::new("/usr/bin/codesign").args(["-d", "--verbose=2"]).arg(bundle),
+            cmux_process::Command::new("/usr/bin/codesign").args(["-d", "--verbose=2"]).arg(bundle),
             PROBE_TIMEOUT,
         )?;
         team_identifier(&String::from_utf8_lossy(&shown.stderr))
     }
 
     fn readable(&self, bundle: &Path) -> Option<Schemas> {
-        let mut command = std::process::Command::new(bundle.join("Contents/Resources/bin/cmux"));
+        let mut command = cmux_process::Command::new(bundle.join("Contents/Resources/bin/cmux"));
         command.arg("__store-schemas");
         schemas(&String::from_utf8_lossy(&ok_output(&mut command)?))
     }
@@ -406,7 +406,7 @@ impl Checks for System {
     fn stored(&self) -> Option<Schemas> {
         let mut newest = Schemas::new();
         for directory in &self.state_dirs {
-            let mut command = std::process::Command::new(&self.running_cli);
+            let mut command = cmux_process::Command::new(&self.running_cli);
             command.args(["__store-schemas", "--stored"]);
             match directory {
                 Some(directory) => command.env("CMUX_TUI_STATE_DIR", directory),
@@ -440,68 +440,46 @@ pub(super) fn schemas(text: &str) -> Option<Schemas> {
         .collect()
 }
 
-fn ok_output(command: &mut std::process::Command) -> Option<Vec<u8>> {
+fn ok_output(command: &mut cmux_process::Command) -> Option<Vec<u8>> {
     let done = output(command, PROBE_TIMEOUT)?;
     done.status.success().then_some(done.stdout)
 }
 
-/// Runs `command` to its end or `timeout` (then it is killed: nil), its output read meanwhile.
-fn output(command: &mut std::process::Command, timeout: Duration) -> Option<std::process::Output> {
-    use std::io::Read;
-    use wait_timeout::ChildExt as _;
+/// Runs `command` to its end or `timeout` (then it is killed: nil). Its output goes to two
+/// unnamed temporary files, read back once it ended, so no reader thread runs beside it.
+fn output(command: &mut cmux_process::Command, timeout: Duration) -> Option<cmux_process::Output> {
+    use std::io::{Read, Seek};
+    let mut stdout = tempfile::tempfile().ok()?;
+    let mut stderr = tempfile::tempfile().ok()?;
     let mut child = command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(stdout.try_clone().ok()?)
+        .stderr(stderr.try_clone().ok()?)
         .spawn()
         .ok()?;
-    let reader = |pipe: Option<Box<dyn Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_end(&mut bytes);
-            }
-            bytes
-        })
-    };
-    let stdout = reader(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let stderr = reader(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
     let Ok(Some(status)) = child.wait_timeout(timeout) else {
         let _ = child.kill();
         let _ = child.wait();
         return None;
     };
-    Some(std::process::Output { status, stdout: stdout.join().ok()?, stderr: stderr.join().ok()? })
+    let read = |file: &mut std::fs::File| {
+        file.rewind().ok()?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).ok()?;
+        Some(bytes)
+    };
+    Some(cmux_process::Output { status, stdout: read(&mut stdout)?, stderr: read(&mut stderr)? })
 }
 
-/// The pids whose command line starts with `executable` (`ps -axo pid=,args=`).
-pub(super) fn pids_of(ps: &str, executable: &Path) -> Vec<i32> {
-    let executable = executable.to_string_lossy();
-    ps.lines()
-        .filter_map(|line| {
-            let line = line.trim_start();
-            let (pid, args) = line.split_once(char::is_whitespace)?;
-            let rest = args.trim_start().strip_prefix(executable.as_ref())?;
-            (rest.is_empty() || rest.starts_with(' ')).then(|| pid.parse().ok()).flatten()
-        })
-        .collect()
-}
-
-/// Whether a Sparkle installer for this app waits on its exit: a process from the app's Sparkle
-/// framework or its Sparkle cache would install the staged build over the swap (cmux#41013 review
-/// F2; the app cancels it first, the CLI cannot).
-pub(super) fn sparkle_waits(ps: &str, running: &Running, home: &Path) -> bool {
-    let framework = running.bundle.join("Contents/Frameworks/Sparkle.framework");
-    let cache =
-        home.join("Library/Caches").join(&running.bundle_id).join("org.sparkle-project.Sparkle");
-    let (framework, cache) = (framework.to_string_lossy(), cache.to_string_lossy());
-    ps.lines().any(|line| line.contains(framework.as_ref()) || line.contains(cache.as_ref()))
-}
-
-fn ps() -> String {
-    output(std::process::Command::new("/bin/ps").args(["-axo", "pid=,args="]), PROBE_TIMEOUT)
-        .map(|done| String::from_utf8_lossy(&done.stdout).into_owned())
-        .unwrap_or_default()
+/// Whether Sparkle staged an update for this app: its installer would put that build over the
+/// swap once the app quits (cmux#41013 review F2; the app cancels it first, the CLI cannot). Read
+/// from the staged folder on disk, never from a process list (cmux-next scans no processes).
+pub(super) fn sparkle_waits(running: &Running, home: &Path) -> bool {
+    let installation = home
+        .join("Library/Caches")
+        .join(&running.bundle_id)
+        .join("org.sparkle-project.Sparkle/Installation");
+    std::fs::read_dir(installation).is_ok_and(|mut entries| entries.next().is_some())
 }
 
 /// Ends `pids` (SIGTERM, then SIGKILL after [`TERM_GRACE`]); true when none is left.
@@ -513,7 +491,7 @@ fn end(pids: &[i32]) -> bool {
         }
     };
     for pid in pids {
-        // SAFETY: a signal to a pid read from ps a moment ago.
+        // SAFETY: a signal to the pid behind the app's socket, read a moment ago.
         unsafe { libc::kill(*pid, libc::SIGTERM) };
     }
     wait(Instant::now() + TERM_GRACE);
@@ -565,7 +543,14 @@ pub(super) fn in_app() -> bool {
 }
 
 /// Rolls back to `target` with no app. Exit 0 when the kept build was put in place and opened.
-pub(super) fn run(target: &Target, reason: &Reason, output_mode: OutputMode) -> i32 {
+/// `app_pid` is the pid behind the app's control socket (`LOCAL_PEERPID`), when it connected: the
+/// process to end. Without it the swap still happens and the person is told to quit the app.
+pub(super) fn run(
+    target: &Target,
+    reason: &Reason,
+    app_pid: Option<u32>,
+    output_mode: OutputMode,
+) -> i32 {
     let messages = &crate::localization::catalog().app_control.nightly;
     let human = output_mode == OutputMode::Human;
     let say = |line: String| {
@@ -604,8 +589,7 @@ pub(super) fn run(target: &Target, reason: &Reason, output_mode: OutputMode) -> 
         Ok(picked) => picked,
         Err(refusal) => return refuse(refusal),
     };
-    let processes = ps();
-    if sparkle_waits(&processes, &running, &home) {
+    if sparkle_waits(&running, &home) {
         return refuse(Refusal::SparkleWaits);
     }
     say(messages
@@ -619,7 +603,7 @@ pub(super) fn run(target: &Target, reason: &Reason, output_mode: OutputMode) -> 
     // The build left behind is not offered again, and a newer one waits for a click (`swapForRollback`).
     for (key, value) in [(SKIPS_KEY, &running.build), (PICKED_KEY, &picked.build)] {
         let _ = output(
-            std::process::Command::new("/usr/bin/defaults").args([
+            cmux_process::Command::new("/usr/bin/defaults").args([
                 "write",
                 &running.bundle_id,
                 key,
@@ -629,14 +613,13 @@ pub(super) fn run(target: &Target, reason: &Reason, output_mode: OutputMode) -> 
             PROBE_TIMEOUT,
         );
     }
-    let pids =
-        pids_of(&processes, &running.bundle.join("Contents/MacOS").join(&running.executable));
-    let ended = end(&pids);
+    let pids: Vec<i32> = app_pid.and_then(|pid| i32::try_from(pid).ok()).into_iter().collect();
+    let ended = !pids.is_empty() && end(&pids);
     if !ended {
         say(messages.direct_still_running.to_owned());
     }
     let opened = ended
-        && output(std::process::Command::new("/usr/bin/open").arg(&running.bundle), PROBE_TIMEOUT)
+        && output(cmux_process::Command::new("/usr/bin/open").arg(&running.bundle), PROBE_TIMEOUT)
             .is_some_and(|done| done.status.success());
     let now = Running::read(&running.bundle).map(|now| now.build);
     if now.as_deref() != Some(picked.build.as_str()) {

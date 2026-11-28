@@ -191,7 +191,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let direct_target = match command {
         Command::Install { target: target @ (Target::Previous | Target::Build(_)), direct } => {
             if *direct {
-                return frozen::run(target, &frozen::Reason::Asked, global.output);
+                return frozen::run(target, &frozen::Reason::Asked, app_pid(global), global.output);
             }
             Some(target)
         }
@@ -202,7 +202,8 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         Err(error) => {
             if let Some(target) = direct_target.filter(|_| frozen::in_app()) {
                 let why = error.get_str("message").unwrap_or_default().to_owned();
-                return frozen::run(target, &frozen::Reason::Unreachable(why), global.output);
+                let reason = frozen::Reason::Unreachable(why);
+                return frozen::run(target, &reason, app_pid(global), global.output);
             }
             return super::super::wire::print_local_error(&error, global.output, 3);
         }
@@ -220,31 +221,25 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     ) {
         Ok(Ok(value)) => value,
         // The app's main actor did not take the call in time: it is hung, go back without it.
-        Ok(Err(error))
+        Ok(Err(error)) => {
             if error.get_str("code") == Some("timeout")
-                && direct_target.is_some()
-                && frozen::in_app() =>
-        {
-            let why = error.get_str("message").unwrap_or("timeout").to_owned();
-            return frozen::run(
-                direct_target.unwrap(),
-                &frozen::Reason::NoAnswer(why),
-                global.output,
-            );
+                && let Some(target) = direct_target.filter(|_| frozen::in_app())
+            {
+                let why = error.get_str("message").unwrap_or("timeout").to_owned();
+                let reason = frozen::Reason::NoAnswer(why);
+                return frozen::run(target, &reason, peer_pid(&stream), global.output);
+            }
+            return super::super::wire::print_operation_error(&error, global.output);
         }
-        Ok(Err(error)) => return super::super::wire::print_operation_error(&error, global.output),
-        Err(message)
-            if direct_target.is_some()
-                && frozen::in_app()
-                && message == super::wait::timeout_message(LIST_TIMEOUT) =>
-        {
-            return frozen::run(
-                direct_target.unwrap(),
-                &frozen::Reason::NoAnswer(message),
-                global.output,
-            );
+        Err(message) => {
+            if message == super::wait::timeout_message(LIST_TIMEOUT)
+                && let Some(target) = direct_target.filter(|_| frozen::in_app())
+            {
+                let reason = frozen::Reason::NoAnswer(message);
+                return frozen::run(target, &reason, peer_pid(&stream), global.output);
+            }
+            return failure("app.transport", &message, global.output);
         }
-        Err(message) => return failure("app.transport", &message, global.output),
     };
     match command {
         Command::Help | Command::WhatsIn { .. } | Command::Which { .. } => 0,
@@ -583,3 +578,14 @@ mod feed;
 mod frozen;
 #[cfg(test)]
 mod tests;
+
+/// The pid behind the app's control socket (`LOCAL_PEERPID`): the app process a rollback with no
+/// app ends. A socket connect, not a process scan (plans/cmux-next/pty-holder.md 4).
+fn app_pid(global: &GlobalArgs) -> Option<u32> {
+    let socket = super::command_socket(global).ok()?;
+    peer_pid(&std::os::unix::net::UnixStream::connect(&socket.path).ok()?)
+}
+
+fn peer_pid(stream: &impl std::os::fd::AsRawFd) -> Option<u32> {
+    cmux_link::caller::peer_pid(stream.as_raw_fd()).ok().flatten()
+}
