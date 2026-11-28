@@ -3,7 +3,7 @@ import { type AcpmuxSnapshot } from "../model";
 import { newTabChipSnapshot } from "../newtab/chipDefaults";
 import { useHarnessesPage } from "../harnesses/harnessesPage";
 import { holdCloudModePick } from "../cloudModePick";
-import { holdCloudAgentPick, useCloudAgentPick } from "../cloudAgentPick";
+import { holdCloudAgentPick, holdCloudEffortPick, useCloudAgentPick } from "../cloudAgentPick";
 import { useDraftActionsVersion } from "../composerDraft";
 import { useHarnessesListed } from "../catalog";
 import { usePickerCatalog } from "../modelCatalogHost";
@@ -84,6 +84,7 @@ function PickerChips({
             model:
               cloudPick.model ??
               (snapshot.summary?.harness === cloudPick.harness ? snapshot.summary?.model : undefined),
+            ...(cloudPick.effort ? { effort: cloudPick.effort } : {}),
           } as AcpmuxSnapshot["summary"],
         }
       : snapshot;
@@ -164,6 +165,12 @@ function PickerChips({
       }}
       onMode={onMode}
       onEffort={(configId, value) => {
+        // Cloud picked: the level is the machine's, held with its agent and model for the Cloud send.
+        // Starting a chat on this Mac here swapped the chips to that chat (its provider and model).
+        if (onCloud) {
+          holdCloudEffortPick(shown.summary?.harness, shown.summary?.model, value);
+          return;
+        }
         start();
         void callNative("chat.effort", { configId, value });
       }}

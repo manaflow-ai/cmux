@@ -1231,7 +1231,11 @@ export function drawPaneComposer({
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
-                    ...cloudPickExtras(composerSnapshot.summary),
+                    // A level picked for Cloud (cloudAgentPick.ts) wins over the local chat's chip.
+                    ...cloudPickExtras({
+                      ...composerSnapshot.summary,
+                      ...(machinePick?.effort ? { effort: machinePick.effort } : {}),
+                    }),
                   },
                 );
                 if (typeof started === "string") {

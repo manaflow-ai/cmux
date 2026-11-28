@@ -1024,12 +1024,16 @@ export function drawPaneBody({
                               ...(() => {
                                 const machine = cloudAgentPick();
                                 const agent = machine?.harness ?? harness;
-                                return cloudSendAgent(
-                                  snapshot.catalog.find((entry) => entry.id === agent)?.family,
-                                  agent,
-                                  machine ? machine.model : model,
-                                  machine !== undefined,
-                                );
+                                return {
+                                  ...cloudSendAgent(
+                                    snapshot.catalog.find((entry) => entry.id === agent)?.family,
+                                    agent,
+                                    machine ? machine.model : model,
+                                    machine !== undefined,
+                                  ),
+                                  // The level picked for Cloud goes with its model, as the pane's own Cloud send does.
+                                  ...(machine?.effort ? { effort: machine.effort } : {}),
+                                };
                               })(),
                             },
                             true,
