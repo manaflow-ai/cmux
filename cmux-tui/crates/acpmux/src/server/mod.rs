@@ -82,7 +82,7 @@ mod connection_loop;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
-mod connections;
+pub(crate) mod connections;
 mod consent_grant;
 pub(crate) mod controls;
 mod delivery;
@@ -263,6 +263,7 @@ pub mod tailnet_ingress;
 pub(crate) mod tailnet_service;
 mod team;
 mod team_directory;
+mod team_settings;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
@@ -1345,6 +1346,8 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 }
 
 #[cfg(unix)]
+pub(crate) use unix_bind::bind_daemon_unix;
+#[cfg(unix)]
 pub use unix_bind::bind_unix;
 #[cfg(unix)]
 pub(crate) use unix_bind::peer_uid_allowed;
@@ -2250,6 +2253,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 use crate::hub::is_permission_ask;
 pub use crate::ws_auth;
+pub(crate) use agent_login::claude_machine_login_env;
 pub(crate) use change_kind::session_change_kind;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub(crate) use chats::usage_upload_loop;
