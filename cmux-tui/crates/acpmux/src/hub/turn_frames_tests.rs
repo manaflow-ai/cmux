@@ -146,7 +146,8 @@ fn the_same_picture_is_kept_only_when_its_outline_changed() {
     assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", "page", None, same), None);
     assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", "page", None, None), None);
     let saved = Some(outline(&["h1 Draft", "button Saved"]));
-    let frame = keep(session, "t1", dir.path(), &picture, "edit", "page", None, saved.clone()).unwrap();
+    let frame =
+        keep(session, "t1", dir.path(), &picture, "edit", "page", None, saved.clone()).unwrap();
     assert_eq!(frame.index, 1);
     assert_eq!(frame.change.as_deref(), Some("+1 -1 +button Saved -button Save"));
     assert_eq!(frame.shape, saved.as_ref().map(|s| s.hash));
