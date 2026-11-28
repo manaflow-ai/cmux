@@ -19,6 +19,11 @@ def case(name, result="Passed"):
     return {"nodeType": "Test Case", "name": name, "result": result}
 
 
+def node_id(node, ident):
+    node["nodeIdentifier"] = ident
+    return node
+
+
 def tree(*bundles):
     return {"testNodes": [{"nodeType": "Test Plan", "name": "CmuxMobileKit", "children": list(bundles)}]}
 
@@ -59,6 +64,25 @@ class FilterTests(unittest.TestCase):
         ):
             code, out = run(tree(LIVE), item)
             self.assertEqual(code, 0, (item, out))
+
+    def test_a_display_named_nested_suite_matches_by_its_type_path(self):
+        # Swift Testing names a suite by its display name in the tree; -only-testing: takes the type path, nested
+        # suites and all. WorkspaceCacheSaveBurstPerfTests ran and passed, and the step failed "matched no test".
+        perf = bundle("CmuxMobileInstantPerfTests", node_id(suite(
+            "Instant list perf: small vs god",
+            node_id(suite("DSA bench: snapshot save gate",
+                          node_id(case("snapshot_save_gate"), "InstantPerfTests/SnapshotSaveGatePerfTests/gate()")),
+                    "InstantPerfTests/SnapshotSaveGatePerfTests"),
+        ), "InstantPerfTests"))
+        for item in ("CmuxMobileInstantPerfTests",
+                     "CmuxMobileInstantPerfTests/InstantPerfTests",
+                     "CmuxMobileInstantPerfTests/InstantPerfTests/SnapshotSaveGatePerfTests"):
+            self.assertEqual(run(tree(perf), item)[0], 0, item)
+        for item in ("CmuxMobileInstantPerfTests/InstantPerfTests/WorkspaceCacheSaveBurstPerfTests",
+                     "CmuxMobileInstantPerfTests/SnapshotSaveGatePerfTests"):
+            code, out = run(tree(perf), item)
+            self.assertEqual(code, 1, (item, out))
+            self.assertIn("matched no test", out)
 
     def test_a_suite_named_under_the_wrong_target_fails_naming_it(self):
         # The measured miss: the suite lives in CmuxMobileLiveTests, so xcodebuild ran nothing and exited 0.

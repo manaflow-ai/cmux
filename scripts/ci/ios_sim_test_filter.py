@@ -23,28 +23,46 @@ RAN = {"Passed", "Failed", "Expected Failure"}
 BUNDLES = {"Unit test bundle", "UI test bundle"}
 
 
-def cases(node, target=None, suites=()):
-    """Yield (target, suites, case name, result) for every test case under node."""
+def cases(node, target=None, suites=(), ids=()):
+    """Yield (target, suites, case name, result, id path) for every test case under node.
+
+    suites are the nodes' names; a Swift Testing suite with a display name (`@Suite("Instant list perf: X")`)
+    is named by it there, not by its type. The id path is the type path from xcresulttool's `nodeIdentifier`
+    (`InstantPerfTests/SnapshotSaveGatePerfTests/gate()`), the form -only-testing: takes, nested suites and all.
+    """
     kind = node.get("nodeType")
     name = node.get("name", "")
+    ident = node.get("nodeIdentifier") or ""
     if kind in BUNDLES:
         target = name
     elif kind == "Test Suite":
         suites = suites + (name,)
+        ids = tuple(ident.split("/")) if ident else ids + (name,)
     elif kind == "Test Case":
-        yield target, suites, name, node.get("result")
+        path = tuple(ident.split("/")) if ident else ids + (name,)
+        yield target, suites, name, node.get("result"), path
         return
     for child in node.get("children") or []:
-        yield from cases(child, target, suites)
+        yield from cases(child, target, suites, ids)
 
 
-def matches(item, target, suites, case):
+def bare(part):
+    return part.split("(")[0]
+
+
+def matches(item, target, suites, case, path=()):
     parts = item.split("/")
     if parts[0] != target:
         return False
+    rest = [bare(p) for p in parts[1:]]
+    # By type path: SUITE, SUITE/test or OUTER/INNER (a nested suite, as `extension InstantPerfTests { struct X }`),
+    # each a prefix of the case's id path. Read only as names, OUTER/INNER took INNER for a test and every display-
+    # named suite matched nothing: both DSA benches ran and passed yet failed the step (2026-11-28).
+    if rest and [bare(p) for p in path[: len(rest)]] == rest:
+        return True
     if len(parts) >= 2 and parts[1] not in suites:
         return False
-    if len(parts) == 3 and case.split("(")[0] != parts[2].split("(")[0]:
+    if len(parts) == 3 and bare(case) != bare(parts[2]):
         return False
     return True
 
@@ -56,7 +74,7 @@ def check(tree, items):
         return ["no test case ran at all (filter: %s)" % ",".join(items)]
     problems = []
     for item in items:
-        hit = [c for c in found if matches(item, c[0], c[1], c[2])]
+        hit = [c for c in found if matches(item, c[0], c[1], c[2], c[4])]
         if not hit:
             targets = sorted({c[0] for c in found if c[0]})
             problems.append("%s matched no test (targets that ran: %s)" % (item, ", ".join(targets) or "none"))
