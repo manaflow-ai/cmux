@@ -60,6 +60,9 @@ impl StatusBarOptions {
     }
 }
 
+/// The maximum number of configured segments per status bar side.
+pub const MAX_STATUS_SEGMENTS: usize = 8;
+
 /// The maximum width of one literal status segment, in terminal cells.
 pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
 
@@ -82,10 +85,15 @@ pub(super) fn resolve_status_segments(
     raw: Vec<RawStatusSegment>,
     side: &str,
 ) -> Vec<StatusSegment> {
-    // No count limit: a text segment is a string, and a `run` segment is one worker thread
-    // whose command runs once per interval (at least one second) under a five-second bound.
     let mut segments = Vec::new();
     for segment in raw {
+        if segments.len() >= MAX_STATUS_SEGMENTS {
+            crate::client_log::stderr_log!(
+                "config",
+                "{BIN}: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
+            );
+            break;
+        }
         let content = match (segment.text, segment.run) {
             (Some(_), Some(_)) | (None, None) => {
                 crate::client_log::stderr_log!(

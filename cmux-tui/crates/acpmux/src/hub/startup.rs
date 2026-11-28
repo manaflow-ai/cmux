@@ -71,11 +71,7 @@ impl Hub {
         // Startup's work is done here (`loading.startupDone`); the sync after it is not startup.
         self.end_startup_work();
         let config = self.config.read().await.clone();
-        // The fleet memory mount (`memory_mount.rs`) runs beside it; each returns when off.
-        tokio::join!(
-            crate::artifacts_sync::run_background(config.clone(), &self.shutdown),
-            crate::memory_mount::run_background(config, &self.shutdown),
-        );
+        crate::artifacts_sync::run_background(config, &self.shutdown).await;
     }
 
     /// What an agent start needs, run beside the chats' logs and adoption (`daemon.rs`): the

@@ -57,16 +57,7 @@ impl Spec {
         };
         match self {
             Spec::Local => {
-                // Inside `cmux autocloud` the daemon is this same binary's `acp` scope, so a
-                // cmux install needs no `acpmux` on PATH.
-                let mut c = match host_cmux() {
-                    Some(cmux) => {
-                        let mut c = Command::new(cmux);
-                        c.arg("acp");
-                        c
-                    }
-                    None => Command::new("acpmux"),
-                };
+                let mut c = Command::new("acpmux");
                 stdio_args(&mut c);
                 c
             }
@@ -79,7 +70,7 @@ impl Spec {
                 c
             }
             Spec::Machine(id) => {
-                let mut c = Command::new(host_cmux().unwrap_or_else(|| "cmux".into()));
+                let mut c = Command::new("cmux");
                 c.args(["carrier", "dial", "--machine", id, "--service", "acpmux"]);
                 c
             }
@@ -90,15 +81,6 @@ impl Spec {
             }
         }
     }
-}
-
-/// The `cmux` binary this code runs inside (`cmux autocloud`), so its links use that build's
-/// `carrier dial` and `acp`, not whichever `cmux` or `acpmux` PATH finds. `None` in the
-/// standalone `cmux-autocloud`.
-fn host_cmux() -> Option<std::path::PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let name = exe.file_stem()?.to_str()?;
-    matches!(name, "cmux" | "cmux-tui").then_some(exe)
 }
 
 /// What the reader hands the client.

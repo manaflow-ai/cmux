@@ -59,7 +59,7 @@ pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your
 - CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine), never a loop or repeated gh pr checks, gh run view or sleep. Rate limits, deadlines, cleanup: the cmux:cmux-quota skill.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- UI work: before your first UI edit, load the cmux:cmux-ui-preview skill: live mode and a preview tab you open, which cmux pictures before and after each turn.
+- UI work: before your first UI edit, load the cmux:cmux-ui-preview skill; frames show in the chat on their own, never screenshot by hand.
 - Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
 
 /// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
@@ -70,7 +70,7 @@ pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person'
 - CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine; it sleeps through rate limits), never a loop or repeated calls of gh pr checks, gh run view or sleep. On a GitHub rate limit, wait for its reset (`gh api rate_limit` is free), never retry at once. Stop only processes you started, by PID.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- UI work: before your first UI edit, read the cmux-ui-preview skill (live mode, a preview tab you open, which cmux pictures before and after each turn, and how to try it at turn end).
+- UI work: before your first UI edit, read the cmux-ui-preview skill (live mode, a preview tab cmux captures into the chat, a Try it on action at turn end); never screenshot by hand.
 - Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
 
 /// The harness families the switches name.
@@ -147,19 +147,16 @@ pub struct UserSkill {
     pub dir: PathBuf,
 }
 
-/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`
-/// (`cmux-next` instead of `cmux` on macOS, `cmux_config::NEXT_DIR`).
+/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`.
 pub fn user_skills_dir() -> Option<PathBuf> {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(dir) = var(USER_SKILLS_DIR_ENV) {
         return Some(dir);
     }
     if let Some(xdg) = var("XDG_CONFIG_HOME") {
-        return Some(xdg.join(cmux_config::NEXT_DIR).join("skills"));
+        return Some(xdg.join("cmux/skills"));
     }
-    var("HOME")
-        .or_else(dirs::home_dir)
-        .map(|home| home.join(".config").join(cmux_config::NEXT_DIR).join("skills"))
+    var("HOME").or_else(dirs::home_dir).map(|home| home.join(".config/cmux/skills"))
 }
 
 /// The person's skills in `dir`, in name order. A folder without a readable `SKILL.md`, or one
@@ -354,10 +351,7 @@ fn materialize_within(
     }
     let manifest = json!({
         "name": USER_PLUGIN_NAME,
-        "description": format!(
-            "Your own skills from ~/.config/{}/skills, for agents cmux starts",
-            cmux_config::NEXT_DIR
-        ),
+        "description": "Your own skills from ~/.config/cmux/skills, for agents cmux starts",
         "version": env!("CARGO_PKG_VERSION"),
     });
     files.push((".claude-plugin/plugin.json".to_owned(), manifest.to_string().into_bytes()));

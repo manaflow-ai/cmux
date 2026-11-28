@@ -5,6 +5,7 @@ use crate::server::controls::{FEATURE, METHOD, PAGE};
 use tokio::sync::watch;
 
 type Key = (String, String);
+const MAX_KNOWN: usize = 256;
 pub(super) struct Open {
     link: u64,
     stream: Option<String>,
@@ -247,8 +248,11 @@ impl Peer {
             if value.is_null() || terminal.is_some() {
                 open.known.remove(&(session.clone(), permission.clone()));
             } else {
-                // Every open ask the owner lists is known: a set past a fixed size made each
-                // snapshot end in a resync that listed the same asks again.
+                if !open.known.contains(&(session.clone(), permission.clone()))
+                    && open.known.len() >= MAX_KNOWN
+                {
+                    return Err(crate::server::controls::resync_error());
+                }
                 open.known.insert((session.clone(), permission.clone()));
             }
         }

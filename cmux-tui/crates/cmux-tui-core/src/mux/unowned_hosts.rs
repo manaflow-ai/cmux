@@ -234,10 +234,9 @@ impl Mux {
 }
 
 /// The state roots this owner looks in, sorted: its own, and on the app's
-/// per-build layout every build's (`<Application Support>/cmux-next/tags/<tag>/tui`
-/// for a build with kept names, `cmux-next/builds/<key>/tui` for any other bundled
-/// build: CmuxNextCompat `BuildIdentity.daemonStateDirectory`; `cmux/...` before
-/// cmux NEXT had its own folder, both looked in) and the shared root
+/// per-build layout every build's (`<Application Support>/cmux/tags/<tag>/tui`
+/// for a build with kept names, `cmux/builds/<key>/tui` for any other bundled
+/// build: CmuxNextCompat `BuildIdentity.daemonStateDirectory`) and the shared root
 /// of the builds before cx-6so.41 (`<Application Support>/cmux-tui/sessions`,
 /// the platform default `workspace_state_dir`). Each build's owner keeps one
 /// of these; a build that is never launched again leaves its hosts in it.
@@ -251,7 +250,7 @@ pub(super) fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     let tags = tag_dir.and_then(Path::parent);
     let base = if name(Some(own_state_root)) == Some("tui")
         && matches!(name(tags), Some("tags" | "builds"))
-        && matches!(name(tags.and_then(Path::parent)), Some("cmux" | "cmux-next"))
+        && name(tags.and_then(Path::parent)) == Some("cmux")
     {
         tags.and_then(Path::parent).and_then(Path::parent)
     } else if name(Some(own_state_root)) == Some("sessions") && name(tag_dir) == Some("cmux-tui") {
@@ -261,11 +260,9 @@ pub(super) fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     };
     let mut roots = vec![own_state_root.to_path_buf()];
     if let Some(base) = base {
-        for (app, builds) in
-            [("cmux", "tags"), ("cmux", "builds"), ("cmux-next", "tags"), ("cmux-next", "builds")]
-        {
+        for builds in ["tags", "builds"] {
             roots.extend(
-                std::fs::read_dir(base.join(app).join(builds))
+                std::fs::read_dir(base.join("cmux").join(builds))
                     .into_iter()
                     .flatten()
                     .flatten()

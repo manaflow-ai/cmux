@@ -7,14 +7,11 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2";
+pub const ir_sha256 = "4e34384345c5952de0733e534f694b5beca2a99236d90b5735bb411ba22aa32c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
-    echo_at_ms: wire.Field(u64) = .absent,
-    echo_input_at_ms: wire.Field(u64) = .absent,
     last_agent_action_at_ms: wire.Nullable(u64),
-    last_person_attach_at_ms: wire.Field(u64) = .absent,
     last_user_input_at_ms: wire.Nullable(u64),
     live_agents: u32,
 };
@@ -1763,13 +1760,6 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
-};
-
-pub const ReleaseWorkspaceNamesResult = struct {
-    /// Workspace names this call handed back to the automatic namer.
-    released: u64,
-    /// User-owned names left pinned: a row renamed between the read and its release.
-    still_pinned: u64,
 };
 
 pub const RemoteHostAppPermissions = struct {
@@ -5634,7 +5624,6 @@ pub fn conversationImport(client: anytype, request: ConversationImportRequest) !
 pub const ConversationInboxOpRequest = struct {
     conversation: []const u8,
     op: wire.Nullable(JsonValue),
-    op_id: wire.Field([]const u8) = .absent,
 };
 
 pub const ConversationInboxOpResult = struct {
@@ -7235,12 +7224,6 @@ pub fn listClients(client: anytype, request: ListClientsRequest) !wire.Decoded(L
 
 pub const ListNotificationsRequest = struct {
     limit: wire.Field(u64) = .absent,
-    /// true: the reply also carries agent_notice_stats.
-    stats: ?bool = null,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "stats",
-    };
 };
 
 pub const ListNotificationsResult = JsonValue;
@@ -8809,21 +8792,6 @@ pub fn releaseSurfaceSize(client: anytype, request: ReleaseSurfaceSizeRequest) !
             .name = "release-surface-size",
             .authority = "control",
             .since = 7,
-            .capability = null,
-        },
-        request,
-    );
-}
-
-pub const ReleaseWorkspaceNamesRequest = struct {};
-
-pub fn releaseWorkspaceNames(client: anytype, request: ReleaseWorkspaceNamesRequest) !wire.Decoded(ReleaseWorkspaceNamesResult) {
-    return client.callTyped(
-        ReleaseWorkspaceNamesResult,
-        .{
-            .name = "release-workspace-names",
-            .authority = "control",
-            .since = 12,
             .capability = null,
         },
         request,
@@ -13004,7 +12972,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 313;
+pub const command_count: usize = 312;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13213,7 +13181,6 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
-    .{ .name = "release-workspace-names", .authority = "control", .since = 12, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },

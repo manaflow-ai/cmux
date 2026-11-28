@@ -8,7 +8,6 @@ mod agent_hooks_at_rest;
 mod agent_plugin_reports_at_rest;
 mod agent_reports_at_rest;
 mod terminal_size_clamp;
-pub(crate) use journal_plugin_demand::demand_tapped as journal_plugin_demand_tapped;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
 use terminal_exit_snapshot::{
@@ -223,7 +222,6 @@ mod host_death_tests;
 mod idle_close;
 mod journal;
 mod journal_maintenance;
-mod journal_plugin_demand;
 mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
@@ -526,6 +524,7 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 
 /// Startup diagnostics kept until the frontend installs its sink.
 const MAX_PENDING_DIAGNOSTICS: usize = 8;
+const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 /// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
@@ -717,9 +716,6 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
-    /// Terminal output and agent events for the held journal plugin's watch
-    /// (`mux/journal_plugin_demand.rs`).
-    journal_plugin_demand: journal_plugin_demand::DemandTap,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).

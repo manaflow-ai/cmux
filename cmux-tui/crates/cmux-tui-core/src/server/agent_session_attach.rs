@@ -45,15 +45,13 @@ use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
-pub(crate) use agent_session_start::chat_folder_prewarm_on;
 pub use agent_session_start::{
-    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY,
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
-    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -125,8 +123,8 @@ const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
 const MAX_LOGIN_BYTES: usize = 4096;
 
-// Attached tabs are not capped by count: each holds one acpmux link (a unix socket, two
-// descriptors here) and its reader thread with a [`THREAD_STACK_BYTES`] stack, a constant cost.
+pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
+pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
@@ -198,9 +196,12 @@ struct AttachState {
 }
 
 impl AttachState {
-    /// The client's attached and reserved tabs (the proxy-author trust check reads it; no cap does).
     fn count(&self, client: u64) -> usize {
         self.attachments.keys().chain(self.reserved.iter()).filter(|(c, _)| *c == client).count()
+    }
+
+    fn total(&self) -> usize {
+        self.attachments.len() + self.reserved.len()
     }
 }
 
@@ -937,7 +938,7 @@ impl Refusal {
             Self::BadRequest => "bad request",
             Self::UnknownTab => "not an agent tab with a session in this daemon",
             Self::NotAttached => "the tab is not attached on this connection",
-            Self::Limit => "the agent tab could not attach now; try again",
+            Self::Limit => "too many attached agent tabs",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
             Self::BadList => "acpmux's session list could not be read whole",
@@ -977,6 +978,7 @@ impl Refusal {
         match error {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
+            LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }
@@ -1472,7 +1474,10 @@ fn attach(
     {
         let mut state = sessions.lock();
         let key = (client, params.surface);
-        if state.reserved.contains(&key) {
+        if state.reserved.contains(&key)
+            || state.count(client) >= MAX_ATTACHMENTS_PER_CLIENT
+            || state.total() >= MAX_ATTACHMENTS_TOTAL
+        {
             return refuse(writer, id, Refusal::Limit);
         }
         state.reserved.insert(key);

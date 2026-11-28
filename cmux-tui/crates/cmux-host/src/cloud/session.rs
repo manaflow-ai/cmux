@@ -8,7 +8,6 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use super::sender::{Answer, AttentionQueue, EventOutcome, EventQueue, OpRequest, Reporter};
-use super::wake_echo::WakeEcho;
 use super::wire::{
     ACP_ACTIVITY_TTL_MS, ATTENTION_EMIT_OP, Activity, ActivityChange, DaemonInfo, EVENT_EMIT_OP,
     activity_from_daemon,
@@ -37,8 +36,6 @@ pub struct Session {
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
-    /// Wake-to-first-echo timing of the latest resume (`wake_echo.rs`).
-    wake: WakeEcho,
 }
 
 /// What the machine's acpmux daemons last said: each one's sessions at work and until when it
@@ -195,7 +192,6 @@ impl Session {
             workload: None,
             idle_window: None,
             awaiting_daemon: false,
-            wake: WakeEcho::default(),
         }
     }
 
@@ -221,28 +217,14 @@ impl Session {
     }
 
     /// The guest resumed (the supervisor's clock-set wake, a confirmed
-    /// unchanged instance id) at wall-clock `wall`: one report named `resume`, and the wake's
-    /// timing starts (`wake_echo.rs`).
-    pub fn resume(&mut self, now: u64, wall: u64) -> Vec<OpRequest> {
-        if let Some(ended) = self.wake.resumed(now, wall) {
-            self.reporter.replace_wake(Some(ended));
-        }
+    /// unchanged instance id): one report named `resume`.
+    pub fn resume(&mut self, now: u64) -> Vec<OpRequest> {
         self.reporter.trigger("resume", now).into_iter().collect()
     }
 
     /// One `subscribe-activity` snapshot or `activity-changed` event.
     pub fn daemon_activity(&mut self, activity: &Value, now: u64) -> Vec<OpRequest> {
-        let mut out = match self.wake.daemon_activity(activity) {
-            Some(block) => self.reporter.set_wake(block, now).into_iter().collect(),
-            None => Vec::new(),
-        };
-        out.extend(self.own_activity(&activity_from_daemon(activity), now));
-        out
-    }
-
-    /// The wake being timed, or else the last one timed (the role's state file).
-    pub fn wake_latest(&self) -> Option<Value> {
-        self.wake.latest()
+        self.own_activity(&activity_from_daemon(activity), now)
     }
 
     /// The daemon's or the socket's activity changed: every change is reported.
@@ -486,9 +468,6 @@ impl Session {
             self.acp.expire(now);
             out.extend(self.acp_refresh(now));
         }
-        if let Some(block) = self.wake.fire(now) {
-            out.extend(self.reporter.set_wake(block, now));
-        }
         out.extend(self.reporter.fire(now));
         out.extend(self.events.fire(now));
         if let Some(req) = self.attention.fire(now) {
@@ -522,9 +501,6 @@ impl Session {
             return (next.into_iter().collect(), note);
         }
         let note = Some(report_note(&request.reason, answer));
-        if answer.ok() {
-            self.wake.report_ok(now);
-        }
         (self.reporter.finished(answer, now, random).into_iter().collect(), note)
     }
 
@@ -534,7 +510,6 @@ impl Session {
             self.events.next_deadline(),
             self.attention.next_deadline(),
             self.acp.next_expiry(),
-            self.wake.next_deadline(),
         ]
         .into_iter()
         .flatten()

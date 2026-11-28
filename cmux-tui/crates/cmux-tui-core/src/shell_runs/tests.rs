@@ -81,22 +81,21 @@ fn a_missing_folder_or_an_empty_command_is_refused() {
 }
 
 #[test]
-fn runs_past_the_old_caps_of_four_per_scope_and_sixteen_in_all_start() {
+fn at_most_four_run_per_scope_and_a_finished_one_frees_its_place() {
     let (runs, _home) = runs();
-    // The old caps were 4 running per scope and 16 on the daemon: 20 in one scope and 4 in
-    // another pass both.
-    let ids: Vec<_> = (0..20)
-        .map(|_| runs.run("pane", 1, "sleep 30", None).expect("run"))
-        .chain((0..4).map(|_| runs.run("other", 1, "sleep 30", None).expect("other scope")))
-        .collect();
-    assert_eq!(runs.kept(), 24, "running ones are never evicted");
-    for id in &ids {
+    let ids: Vec<_> =
+        (0..MAX_RUNNING).map(|_| runs.run("pane", 1, "sleep 30", None).expect("run")).collect();
+    assert_eq!(runs.run("pane", 1, "true", None).err(), Some(Refusal::TooMany));
+    // Another pane has its own four.
+    let other = runs.run("other", 1, "true", None).expect("other scope");
+    runs.stop(&ids[0]).expect("stop");
+    let (_, exit) = read_to_end(&runs, &ids[0]);
+    assert_eq!(exit.signal, Some(libc::SIGINT));
+    assert!(runs.run("pane", 1, "true", None).is_ok());
+    for id in &ids[1..] {
         runs.stop(id).expect("stop");
     }
-    for id in &ids {
-        let (_, exit) = read_to_end(&runs, id);
-        assert_eq!(exit.signal, Some(libc::SIGINT));
-    }
+    read_to_end(&runs, &other);
 }
 
 #[test]
@@ -133,24 +132,20 @@ fn a_read_waits_for_output_and_answers_empty_at_its_deadline() {
 }
 
 #[test]
-fn reads_that_wait_past_the_old_cap_of_thirty_two_all_answer() {
+fn reads_that_wait_are_bounded() {
     let (runs, _home) = runs();
-    let id = runs.run("pane", 1, "sleep 1; echo late", None).expect("run");
-    std::thread::scope(|scope| {
-        let readers: Vec<_> = (0..40)
-            .map(|_| {
-                scope.spawn(|| {
-                    assert!(matches!(runs.start_read(&id, 0), Ok(ReadStart::Wait)));
-                    runs.wait_read(&id, 0, READ_WAIT).expect("read").output
-                })
-            })
-            .collect();
-        for reader in readers {
-            assert_eq!(reader.join().expect("reader"), "late\n");
-        }
-    });
-    let (_, exit) = read_to_end(&runs, &id);
-    assert_eq!(exit.code, Some(0));
+    let id = runs.run("pane", 1, "sleep 30", None).expect("run");
+    let permits: Vec<_> = (0..MAX_WAITING_READS)
+        .map(|_| match runs.start_read(&id, 0).expect("start") {
+            ReadStart::Wait(permit) => permit,
+            ReadStart::Ready(_) => panic!("nothing to read yet"),
+        })
+        .collect();
+    assert!(matches!(runs.start_read(&id, 0), Err(Refusal::Busy)));
+    drop(permits);
+    assert!(matches!(runs.start_read(&id, 0), Ok(ReadStart::Wait(_))));
+    runs.stop(&id).expect("stop");
+    read_to_end(&runs, &id);
 }
 
 #[test]

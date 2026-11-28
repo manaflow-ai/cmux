@@ -11,10 +11,8 @@ impl Mux {
         self.journal_plugin.configure(options);
     }
 
-    /// Start the configured journal plugin against the bound local socket. An
-    /// `on_demand` plugin waits for the first running program
-    /// (`mux/journal_plugin_demand.rs`).
-    pub fn start_journal_plugin(self: &Arc<Self>, socket: std::path::PathBuf) {
+    /// Start the configured journal plugin against the bound local socket.
+    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
         let generation = match self.workspace_registry.lock() {
             Ok(registry) => registry.reserve_journal_plugin_generation(),
             Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
@@ -25,14 +23,10 @@ impl Mux {
                 self.session.clone(),
                 generation,
             ),
-            Err(error) => {
-                eprintln!(
-                    "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
-                );
-                return;
-            }
+            Err(error) => eprintln!(
+                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
+            ),
         }
-        self.watch_journal_plugin_demand();
     }
 
     /// The running journal plugin's process group, if one runs.

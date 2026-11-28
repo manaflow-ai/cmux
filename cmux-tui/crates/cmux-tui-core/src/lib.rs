@@ -38,7 +38,6 @@ pub mod chief_brains;
 mod chief_registry;
 mod command_context;
 mod conversation_drafts;
-mod conversation_inbox_once;
 mod conversation_live;
 mod conversation_search;
 mod conversation_store;

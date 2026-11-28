@@ -120,6 +120,10 @@ impl Mux {
                     );
                     (index, state.workspaces[index].clone())
                 } else {
+                    anyhow::ensure!(
+                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
+                        "workspace limit reached"
+                    );
                     (
                         new_workspace_position(
                             state,

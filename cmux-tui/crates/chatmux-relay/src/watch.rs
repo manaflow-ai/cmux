@@ -24,10 +24,6 @@ use crate::session::OutboundSink;
 use crate::workspace::{Refusal, Scope, WORKSPACE_FRAME_VERSION, slash_path};
 
 /// Concurrent watch sessions per machine (WORKSPACE_WATCH_MAX_SESSIONS).
-/// Measured: each is one recursive `notify` watcher on its own owner thread: on Linux one inotify
-/// instance of the user's `fs.inotify.max_user_instances` (128 by default, 128 on a lane VM,
-/// shared with every other process of the user) and one watch per directory of the tree from
-/// `max_user_watches` (503,795 on a lane VM).
 pub const WATCH_MAX_SESSIONS: usize = 16;
 /// Most changes one event frame may carry (WORKSPACE_WATCH_MAX_CHANGES); a
 /// burst past this sets `overflow` and the client re-pulls the tree.

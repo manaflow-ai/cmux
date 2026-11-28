@@ -7,10 +7,9 @@
 //! as the sender's own session when the sender proved one (its caller token, minted again), and
 //! sends the prompt there, so every rule of a direct send applies, and a peer's session is
 //! forwarded as usual (`peer_forward.rs`). An attempt ends on the target's acceptance (or its
-//! answer), on a refusal, or after [`ATTEMPT_WAIT`] with nothing heard. A connection error, a
-//! peer that is down and a slow target are tried again after [`RETRY_DELAYS_SECS`], with the same
-//! prompt id and `resend`, so a target that took the first attempt answers with it and never runs
-//! it twice. A
+//! answer), on a refusal, or after [`ATTEMPT_WAIT`]. A connection error, a peer that is down
+//! and a slow target are tried again after [`RETRY_DELAYS_SECS`], with the same prompt id and
+//! `resend`, so a target that took the first attempt answers with it and never runs it twice. A
 //! refusal (no such session, the folder's trust, a bad prompt, a full agent pair) fails the
 //! delivery at once, and a paused agent pair (`agent_pairs.rs`) leaves it `held` there: the
 //! person's resume runs it, so it is never sent again from here.
@@ -86,10 +85,7 @@ const MOVING_FAST_FOR: Duration = Duration::from_secs(120);
 /// (`movedTo` chains that point back) must not keep a message bouncing for its whole day.
 const MAX_MOVES_FOLLOWED: u32 = 16;
 
-/// How long one attempt waits for the target's acceptance with nothing heard from it: each line
-/// the connection answers (a forward's progress, an update) starts it again, so an attempt that is
-/// moving is never cut off. Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed
-/// to keep going?"
+/// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
 /// How often a delivery held behind another (`Delivery::waits_behind`) looks again when no
 /// outbox change woke it.
@@ -119,10 +115,6 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
-    // A name nothing live here answers to goes to the session that took it over or claimed it,
-    // and a session on a peer that is down is looked up on the mesh hub first (`send_check.rs`).
-    let asked = target.clone();
-    let (target, unchecked) = super::send_check::route(hub, &mut request, target).await?;
     // Team-scoped addresses are always hub-routed and are never resolved as
     // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
@@ -176,8 +168,6 @@ pub(super) async fn handle(
             );
         }
     }
-    // The hub did not answer the post, or the book could not tell: the name was not checked.
-    let unchecked = unchecked.or_else(|| hub_post.as_ref().map(|(_, why)| why.clone()));
     // A peer that is down now: queued and tried again, and the answer says so.
     let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
@@ -273,7 +263,6 @@ pub(super) async fn handle(
     if host_unreachable {
         status.set("hostUnreachable", json!(true));
     }
-    super::send_check::note(&mut status, &asked, &delivery.target, unchecked);
     Ok(status)
 }
 
@@ -1019,8 +1008,8 @@ fn own_ready_since(outbox: &crate::hub::outbox::Outbox, seen: Option<&(String, u
 /// answers with its first outcome; one that lost it with its disk runs it now, once; a refused
 /// one fails it, saying why). All of them go on this link, in batches of [`REDELIVER_BATCH`],
 /// while it is up; the next link goes on after the last one reached, so none waits behind the
-/// others for good. One task per call; each resend waits [`ATTEMPT_WAIT`] of silence at most.
-/// `since`: where each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
+/// others for good. One task per call; each resend waits at most [`ATTEMPT_WAIT`]. `since`: where
+/// each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
 /// a proven delivery whose copy is not kept is sent again (`od::unproven`).
 pub(crate) fn redeliver_open(
     hub: &Arc<Hub>,
@@ -1390,18 +1379,18 @@ pub(super) async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         }
     }
-    let mut quiet = cmux_deadline::IdleDeadline::<tokio::time::Instant>::new(ATTEMPT_WAIT, None);
+    let deadline = tokio::time::sleep(ATTEMPT_WAIT);
+    tokio::pin!(deadline);
     loop {
         let line = tokio::select! {
             line = out_rx.recv() => line,
-            () = tokio::time::sleep_until(quiet.end()) => {
+            () = &mut deadline => {
                 return Err((
-                    format!("nothing heard for {} s", ATTEMPT_WAIT.as_secs()),
+                    format!("no answer within {} s", ATTEMPT_WAIT.as_secs()),
                     Next::Retry,
                 ));
             }
         };
-        quiet.progressed();
         let Some(line) = line else {
             return Err(("this daemon's connection closed".into(), Next::Retry));
         };
@@ -2120,6 +2109,3 @@ mod relay_tests;
 #[cfg(test)]
 #[path = "outbox_hub_queue_tests.rs"]
 mod hub_queue_tests;
-#[cfg(test)]
-#[path = "lost_message_tests.rs"]
-mod lost_message_tests;

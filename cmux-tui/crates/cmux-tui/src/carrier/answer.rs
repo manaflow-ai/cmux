@@ -761,7 +761,6 @@ impl TicketCache {
 
     /// The ticket alone, for a control socket's authentication: it spends no
     /// grant.
-    #[cfg(test)]
     pub(super) async fn ticket(&self) -> Result<String, ()> {
         self.take(false).await.map(|credential| credential.ticket.to_string())
     }

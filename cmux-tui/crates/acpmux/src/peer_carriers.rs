@@ -13,7 +13,6 @@
 //!   With it the peer is relay first (`peer_paths.rs`): the cold connect dials the relay and
 //!   the remembered path at once, and the link moves to a direct path after its probes.
 
-use super::carrier::{DialError, connect_fail, fail_of_chain};
 use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
 use crate::no_panic::LockExt;
 use crate::peer_link::{Heard, HeardStream};
@@ -38,21 +37,6 @@ const PROBE_CONNECT: Duration = Duration::from_secs(10);
 /// freeze. Bound its transport dial and WebSocket upgrade together; the cold
 /// connect budget still accommodates a first handshake or a slow ssh login.
 const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
-
-/// Who a dial is for. Only the link's own dial carries its `initialize` behind the upgrade
-/// (`Peer::early_initialize`). A probe's socket greets the peer with its observer `probe_hello`;
-/// a full `initialize` ahead of it made the hub probe a second full client of the peer, and its
-/// dual send stopped delivering (#54052: mac-mac direct failover 2.4-2.9 s became 7.9 s).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum For {
-    Link,
-    Probe,
-}
-
-/// How often a redial of a URL that already carried this peer starts a fresh TCP connect while
-/// none has connected. The pair matrix's direct path after a 60 s outage: the link opened 9.9 s
-/// after the network came back, its dial waiting on the SYN sent 16 s before.
-const URL_REDIAL_AGAIN: Duration = Duration::from_secs(2);
 
 pub(crate) trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
@@ -103,12 +87,12 @@ pub(crate) fn direct_via(wireguard_running: bool, link_host: bool) -> Option<Via
 /// it, or every failure, in the order they came.
 #[cfg(test)]
 #[allow(clippy::type_complexity)]
-pub(super) async fn race<T, E, F>(
+pub(super) async fn race<T, F>(
     candidates: Vec<(Via, F)>,
     stagger: Duration,
-) -> Result<(Via, T, Vec<(Via, E)>), Vec<(Via, E)>>
+) -> Result<(Via, T, Vec<(Via, String)>), Vec<(Via, String)>>
 where
-    F: Future<Output = Result<T, E>>,
+    F: Future<Output = Result<T, String>>,
 {
     race_together(candidates, 1, stagger).await
 }
@@ -116,19 +100,19 @@ where
 /// `race` with the first `together` candidates dialed at once (relay first: the hub relay
 /// and the remembered path, `Paths::dial_together`), the rest staggered after them.
 #[allow(clippy::type_complexity)]
-pub(super) async fn race_together<T, E, F>(
+pub(super) async fn race_together<T, F>(
     candidates: Vec<(Via, F)>,
     together: usize,
     stagger: Duration,
-) -> Result<(Via, T, Vec<(Via, E)>), Vec<(Via, E)>>
+) -> Result<(Via, T, Vec<(Via, String)>), Vec<(Via, String)>>
 where
-    F: Future<Output = Result<T, E>>,
+    F: Future<Output = Result<T, String>>,
 {
     let mut together = together.max(1);
-    async fn tagged<T, E, F: Future<Output = Result<T, E>>>(
+    async fn tagged<T, F: Future<Output = Result<T, String>>>(
         via: Via,
         dial: F,
-    ) -> (Via, Result<T, E>) {
+    ) -> (Via, Result<T, String>) {
         (via, dial.await)
     }
     let mut waiting = candidates.into_iter();
@@ -169,11 +153,7 @@ where
 /// path, won: which path carries the link and why ssh does not (its failure class,
 /// `peer_ssh.rs`, never ssh's stderr; or that it had not answered first). None when ssh won
 /// or the peer has no ssh path.
-pub(super) fn backup_line<E: std::fmt::Display>(
-    via: Via,
-    has_ssh: bool,
-    failed: &[(Via, E)],
-) -> Option<String> {
+pub(super) fn backup_line(via: Via, has_ssh: bool, failed: &[(Via, String)]) -> Option<String> {
     if via == Via::Ssh || !has_ssh {
         return None;
     }
@@ -185,9 +165,9 @@ pub(super) fn backup_line<E: std::fmt::Display>(
 }
 
 /// One line for a connect whose every path failed.
-pub(super) fn failures_line<E: std::fmt::Display>(failed: &[(Via, E)]) -> String {
+pub(super) fn failures_line(failed: &[(Via, String)]) -> String {
     match failed {
-        [(_, only)] => only.to_string(),
+        [(_, only)] => only.clone(),
         many => many
             .iter()
             .map(|(via, error)| format!("{}: {error}", via.as_str()))
@@ -486,8 +466,6 @@ impl Peer {
                 for (via, _) in &failed {
                     self.path_failed(*via);
                 }
-                // Every path failed: the route is down, for the most telling of their kinds.
-                self.went_down(connect_fail(failed.iter().map(|(_, error)| error)));
                 return Err(failures_line(&failed));
             }
         };
@@ -557,15 +535,12 @@ impl Peer {
     }
 
     /// A raw stream to the peer's listener on a direct path, and the URL its upgrade names.
-    async fn direct_stream(&self, via: Via) -> Result<(BoxDuplex, String), DialError> {
+    async fn direct_stream(&self, via: Via) -> Result<(BoxDuplex, String), String> {
         match via {
             Via::Wireguard => {
                 let (transport, address) =
                     self.wireguard.get().ok_or_else(|| "no WireGuard route".to_owned())?;
-                let stream = transport
-                    .connect(*address)
-                    .await
-                    .map_err(|e| DialError::new(fail_of_chain(&e), e.to_string()))?;
+                let stream = transport.connect(*address).await.map_err(|e| e.to_string())?;
                 Ok((Box::new(stream), format!("ws://localhost:{}", address.port())))
             }
             Via::Link => {
@@ -578,20 +553,19 @@ impl Peer {
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
-            Via::Tailnet => self.tailnet_stream().await.map_err(DialError::from),
+            Via::Tailnet => self.tailnet_stream().await,
             #[cfg(feature = "hub-carrier")]
             Via::Hub => Ok((Box::new(self.hub_stream().await?), "ws://localhost/".to_owned())),
-            other => Err(format!("{} is not a direct stream path", other.as_str()).into()),
+            other => Err(format!("{} is not a direct stream path", other.as_str())),
         }
     }
 
-    /// Open the peer's WebSocket on direct path `via`, for the link or for a probe (`For`).
+    /// Open the peer's WebSocket on direct path `via`.
     async fn open_direct(
         &self,
         via: Via,
         ssh_tokens: Option<&(tokens::Tokens, bool)>,
-        dialer: For,
-    ) -> Result<Opened, DialError> {
+    ) -> Result<Opened, String> {
         let (token, peer_token) = self
             .direct_credentials(ssh_tokens)
             .ok_or_else(|| "no token for the peer yet".to_owned())?;
@@ -604,9 +578,8 @@ impl Peer {
         };
         // The first request goes out with the upgrade (`Peer::early_initialize`); a peer whose
         // listener predates that refuses the upgrade ("junk after client request"), which is
-        // remembered (`early_refused`) and dialed again without it. A probe sends none: its
-        // socket is the observer `probe_hello`'s, never the link's (`For`).
-        let mut use_early = dialer == For::Link && !self.early_refused.load(Ordering::SeqCst);
+        // remembered (`early_refused`) and dialed again without it.
+        let mut use_early = !self.early_refused.load(Ordering::SeqCst);
         loop {
             let heard = Heard::default();
             let early = use_early.then(|| self.early_initialize()).flatten();
@@ -615,7 +588,7 @@ impl Peer {
                 let (stream, url) = self.direct_stream(via).await.map_err(|e| (false, e))?;
                 let req = self
                     .ws_request(&url, Some(&token), peer_token.as_deref())
-                    .map_err(|e| (false, DialError::from(e)))?;
+                    .map_err(|e| (false, e))?;
                 tokio_tungstenite::client_async_with_config(
                     req,
                     match early {
@@ -626,7 +599,7 @@ impl Peer {
                 )
                 .await
                 // Only an answer that is not the token's refusal may be the early frame's.
-                .map_err(|e| (!tokens::refused(&e), DialError::ws(&e)))
+                .map_err(|e| (!tokens::refused(&e), e.to_string()))
             };
             match tokio::time::timeout(deadline, opening).await {
                 Ok(Ok((ws, _))) => {
@@ -644,14 +617,13 @@ impl Peer {
                     use_early = false;
                 }
                 Ok(Err((_, error))) => return Err(error),
-                Err(_) => return Err(DialError::timeout(connect_timed_out(deadline))),
+                Err(_) => return Err(connect_timed_out(deadline)),
             }
         }
     }
 
-    /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL, for the link or for a
-    /// probe (`For`).
-    async fn open_url(&self, dialer: For) -> Result<Opened, DialError> {
+    /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
+    async fn open_url(&self) -> Result<Opened, String> {
         // The peer token never crosses a network in clear.
         let peer_token = match self.peer_token.as_deref() {
             Some(_) if !super::carries_peer_token(&self.url) => {
@@ -662,32 +634,24 @@ impl Peer {
             }
             other => other,
         };
-        // Whether an attempt sent the early `initialize` (a refusal then dials without it).
-        let sent_early = AtomicBool::new(false);
-        let token_said_no = AtomicBool::new(false);
-        // One whole open, `connect_async`'s steps with the TCP stream's reads counted (`Heard`).
-        let attempt = || async {
-            let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
-            let heard = Heard::default();
-            // Over TLS the upgrade is written inside the stream this would wrap: no early frame. A
-            // probe sends none either (`For`).
-            let early = (dialer == For::Link
-                && self.url.starts_with("ws://")
-                && !self.early_refused.load(Ordering::SeqCst))
+        let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
+        let heard = Heard::default();
+        // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
+        let early = (self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
             .then(|| self.early_initialize())
             .flatten();
-            let early_id = early.as_ref().map(|(id, _)| *id);
-            if early_id.is_some() {
-                sent_early.store(true, Ordering::SeqCst);
-            }
+        let early_id = early.as_ref().map(|(id, _)| *id);
+        let token_said_no = AtomicBool::new(false);
+        // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
+        let connect = async {
             let host = req.uri().host().ok_or_else(|| "the peer URL has no host".to_owned())?;
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
             let tcp =
-                crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| DialError::io(&e))?;
+                crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| e.to_string())?;
             // A peer forwards the pane's prompts and their images: the listener's limits.
-            let (ws, _) = tokio_tungstenite::client_async_tls_with_config(
+            tokio_tungstenite::client_async_tls_with_config(
                 req,
                 match early {
                     Some((_, frame)) => heard.wrap_early(tcp, frame),
@@ -702,56 +666,18 @@ impl Peer {
                     token_said_no.store(true, Ordering::SeqCst);
                     self.token_refused();
                 }
-                DialError::ws(&e)
-            })?;
-            Ok::<_, DialError>((ws, heard, early_id))
+                e.to_string()
+            })
         };
-        // A URL that already carried this peer is opened again every `URL_REDIAL_AGAIN` while
-        // no attempt has opened (`happy_dial::again`): an open sent into an outage otherwise
-        // waits out its SYN and segment retransmissions after the network is back. A wake or a
-        // network change starts a fresh attempt at once, not at the next tick.
-        let connect = async {
-            if !self.linked_once.load(Ordering::SeqCst) {
-                return attempt().await;
-            }
-            let kick = || async {
-                let mut slept = crate::peer_link::SleepWatch::now();
-                tokio::select! {
-                    () = self.network_changed() => {
-                        tracing::info!(peer = %self.name, "network changed mid-dial; dialing again now");
-                    }
-                    () = async {
-                        loop {
-                            tokio::time::sleep(URL_REDIAL_AGAIN).await;
-                            if slept.check().is_some() {
-                                break;
-                            }
-                        }
-                    } => {
-                        tracing::info!(peer = %self.name, "this computer slept mid-dial; dialing again now");
-                    }
-                }
-            };
-            crate::happy_dial::again(
-                URL_REDIAL_AGAIN,
-                crate::happy_dial::AGAIN_AT_MOST,
-                kick,
-                attempt,
-            )
-            .await
-        };
-        let (ws, heard, early_id) = match tokio::time::timeout(self.timings.connect, connect).await
-        {
+        let (ws, _) = match tokio::time::timeout(self.timings.connect, connect).await {
             Ok(Ok(opened)) => opened,
             // A listener that predates the early request refuses the upgrade: dial without.
-            Ok(Err(_))
-                if sent_early.load(Ordering::SeqCst) && !token_said_no.load(Ordering::SeqCst) =>
-            {
+            Ok(Err(_)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
                 self.early_refused.store(true, Ordering::SeqCst);
-                return Box::pin(self.open_url(dialer)).await;
+                return Box::pin(self.open_url()).await;
             }
             Ok(Err(error)) => return Err(error),
-            Err(_) => return Err(DialError::timeout(connect_timed_out(self.timings.connect))),
+            Err(_) => return Err(connect_timed_out(self.timings.connect)),
         };
         Ok(Opened {
             ws: OpenedWs::Url(Box::new(ws)),
@@ -766,7 +692,7 @@ impl Peer {
     async fn open_ssh(
         &self,
         mut ssh_tokens: Option<(tokens::Tokens, bool)>,
-    ) -> Result<Opened, DialError> {
+    ) -> Result<Opened, String> {
         let mut restarted = false;
         loop {
             // A first connect with nothing read: the tunnel logs in while the read does, so the
@@ -789,7 +715,7 @@ impl Peer {
                 Ok(tokens) => tokens,
                 Err(error) => {
                     self.end_tunnel().await;
-                    return Err(error.into());
+                    return Err(error);
                 }
             };
             // A read that waited for the remote's peer token (`TOKEN_REREADS`) outlasted the
@@ -828,16 +754,16 @@ impl Peer {
                     upgraded = &mut upgrade => upgraded,
                     () = self.next_ask_after(attempt + RESTART_AFTER), if may_restart => {
                         restart = true;
-                        return Err("a client asked while the attempt was still connecting".to_owned().into());
+                        return Err("a client asked while the attempt was still connecting".to_owned());
                     }
                 };
-                let (ws, _) = upgraded
-                    .map_err(|_| DialError::timeout(connect_timed_out(self.timings.connect)))?
-                    .map_err(|e| {
+                let (ws, _) = upgraded.map_err(|_| connect_timed_out(self.timings.connect))?.map_err(
+                    |e| {
                         refused = tokens::refused(&e);
-                        DialError::ws(&e)
-                    })?;
-                Ok::<_, DialError>(ws)
+                        e.to_string()
+                    },
+                )?;
+                Ok(ws)
             }
             .await;
             let error = match upgraded {
@@ -873,9 +799,7 @@ impl Peer {
             }
             let reason = errors.finish().await;
             self.note_ssh_failure(reason);
-            // ssh's own failure class says more than the upgrade's error over its tunnel.
-            let fail = ssh_errors::dial_fail(reason).or(error.fail);
-            return Err(DialError::new(fail, ssh_errors::describe(error.text, reason)));
+            return Err(ssh_errors::describe(error, reason));
         }
     }
 
@@ -884,17 +808,15 @@ impl Peer {
         &self,
         via: Via,
         ssh_tokens: Option<(tokens::Tokens, bool)>,
-    ) -> Result<Opened, DialError> {
+    ) -> Result<Opened, String> {
         let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
-            Via::Url => self.open_url(For::Link).await,
+            Via::Url => self.open_url().await,
             Via::Wireguard | Via::Link | Via::Tailnet => {
-                self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
+                self.open_direct(via, ssh_tokens.as_ref()).await
             }
-            Via::Hub if via.streams() => {
-                self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
-            }
-            Via::Hub => Err("the hub relay carries no live link yet".to_owned().into()),
+            Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
+            Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }?;
         // Unproven until the daemon's `initialize` answer on this connection says it is the
         // peer principal (`dualPrincipal`, read by the handshake).
@@ -1096,17 +1018,17 @@ impl Peer {
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
             Via::Wireguard | Via::Link | Via::Tailnet => {
-                let opened = self.open_direct(via, None, For::Probe).await?;
+                let opened = self.open_direct(via, None).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))
             }
             Via::Hub if via.streams() => {
-                let opened = self.open_direct(via, None, For::Probe).await?;
+                let opened = self.open_direct(via, None).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))
             }
             Via::Url => {
-                let ws = self.open_url(For::Probe).await?.ws;
+                let ws = self.open_url().await?.ws;
                 self.note_token_path(via, false);
                 Ok((ws, None))
             }

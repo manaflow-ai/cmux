@@ -39,8 +39,7 @@ wait. A gate that says "read" reads them at a tool boundary (each echoed), then 
 the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
 next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate; "end-first"
 does the same with only the first waiting line, and the rest stay unread; "fail" ends the turn
-with a connection error, and "overload" with the provider's "Repeated 529 Overloaded errors" (in
-the result Claude Code calls a success, `claude_stdio/api_error.rs`). An interrupt is answered and changes nothing.
+with a connection error. An interrupt is answered and changes nothing.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -482,15 +481,6 @@ def gated(prompt, base):
             send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
                   "result": "API Error: Connection error.", "duration_api_ms": 5})
             return
-        if how == "overload":
-            # As Claude Code ends a turn its retries gave up on: its own synthetic API error
-            # line, then a result that does not say it failed.
-            send({"type": "assistant", "message": {"id": "api-error", "model": "<synthetic>",
-                  "role": "assistant", "content": [{"type": "text",
-                  "text": "API Error: Repeated 529 Overloaded errors"}]}})
-            send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
-                  "result": "API Error: Repeated 529 Overloaded errors", "duration_api_ms": 5})
-            return
         if how == "read":
             for m in waiting:
                 send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
@@ -810,13 +800,6 @@ while True:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": refusal}})
             continue
-        # FAKE_CLAUDE_HOLD_FORK_IF=<path>: a `--fork-session` start answers initialize only once
-        # that file is gone (a fork whose agent a daemon restart cuts off as it starts).
-        hold_fork = os.environ.get("FAKE_CLAUDE_HOLD_FORK_IF")
-        if request.get("subtype") == "initialize" and hold_fork and "--fork-session" in sys.argv:
-            import time
-            while os.path.exists(hold_fork):
-                time.sleep(0.05)
         # FAKE_CLAUDE_INIT_DELAY_MS: the initialize answer takes that long (a slow start).
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
             import time

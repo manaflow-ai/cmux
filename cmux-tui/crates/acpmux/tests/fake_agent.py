@@ -9,7 +9,6 @@ Behaviour per prompt text:
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
-  "ticking:N:MS" -> a word every MS ms, N times; honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
@@ -72,13 +71,6 @@ task_complete, written a moment after the turn answers. session/load finds a rol
 unknown id fails), and "history-probe" replies with the prompts and session
 ids the loaded rollout holds.
 
-FAKE_CLAUDE_STORE=1: a session file where Claude Code keeps its own, with the
-prompts answered as without it: each session is
-~/.claude/projects/<cwd, every character but a letter or digit a dash>/<uuid>.jsonl,
-a first line, then one line per prompt. session/load of an id with no file in
-its cwd's project folder fails, as a resume of a conversation Claude does not
-have.
-
 FAKE_FORK_DEFAULTS=1: session/fork answers with the harness's default model and effort
 (configOptions), not the forked session's, as Codex does.
 
@@ -110,18 +102,10 @@ call through the ACP permission flow: announced, asked, run only after an allow.
 
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
 FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, as it starts) to <path>.
-"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid, "diskio": n}
-to <path>: n is its own process's disk I/O policy (`getiopolicy_np`, macOS; the tool inherits it),
-None elsewhere.
+"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
-
-Auto mode (tests/auto_session.rs):
-"auto-shell: <path>": a running tool call whose shell, in a session of its own, appends a line to
-<path> every 50 ms (its pid in <path>.pid); the turn waits for session/cancel (bounded at 120 s).
-"auto-run: <path>" (tests/auto_journey.rs): the same, with a shell that appends "start" to <path>,
-works for ten minutes, then appends "end".
 
 Start under load (tests/start_under_load_bench.rs):
 FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
@@ -290,39 +274,6 @@ def codex_load(sid):
                 rollouts[sid] = os.path.join(root, name)
                 return True
     return False
-
-
-CLAUDE_STORE = os.environ.get("FAKE_CLAUDE_STORE") == "1"
-# FAKE_CLAUDE_STORE: each session's project file.
-claude_files = {}
-
-
-def claude_file(cwd, sid):
-    project = "".join(c if c.isascii() and c.isalnum() else "-" for c in cwd)
-    return os.path.join(os.path.expanduser("~"), ".claude", "projects", project, sid + ".jsonl")
-
-
-def claude_write(sid, record):
-    with open(claude_files[sid], "a") as f:
-        f.write(json.dumps(record) + "\n")
-
-
-def claude_new(cwd):
-    import uuid
-    sid = str(uuid.uuid4())
-    claude_files[sid] = claude_file(cwd, sid)
-    os.makedirs(os.path.dirname(claude_files[sid]), exist_ok=True)
-    # Not Claude Code's own record types: nothing in acpmux reads this file as a transcript.
-    claude_write(sid, {"type": "fake-session", "sessionId": sid, "cwd": cwd})
-    return sid
-
-
-def claude_load(cwd, sid):
-    path = claude_file(cwd, sid)
-    if not os.path.isfile(path):
-        return False
-    claude_files[sid] = path
-    return True
 
 
 def prompt_text(params):
@@ -1537,43 +1488,13 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
-    # "auto-shell: <path>": a running tool call whose shell is in a session of its own, as a
-    # tool's detached shell is, and appends a line to <path> every 50 ms; its pid goes to
-    # <path>.pid. The turn then waits as "until-cancel" (module docs, tests/auto_session.rs).
-    # "auto-run: <path>" is the same with a command that runs once: it appends "start" to
-    # <path>, works for ten minutes, then appends "end" (tests/auto_journey.rs).
-    if text.startswith("auto-shell:") or text.startswith("auto-run:"):
-        import subprocess
-        once = text.startswith("auto-run:")
-        out = text.split(":", 1)[1].strip()
-        script = ('echo start >> "$0"; sleep 600; echo end >> "$0"' if once
-                  else 'while :; do echo tick >> "$0"; sleep 0.05; done')
-        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tc-auto", "title": "Run the build",
-                     "kind": "execute", "status": "in_progress", "rawInput": {"command": "build"}})
-        shell = subprocess.Popen(["sh", "-c", script, out],
-                                 stdin=subprocess.DEVNULL, start_new_session=True)
-        with open(f"{out}.pid.tmp", "w") as f:
-            f.write(str(shell.pid))
-        os.replace(f"{out}.pid.tmp", f"{out}.pid")
-        for _ in range(2400):
-            with lock:
-                was_cancelled = sid in cancelled
-                cancelled.discard(sid)
-            if was_cancelled:
-                shell.kill()
-                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
-                return
-            time.sleep(0.05)
-        shell.kill()
-        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
-        return
     # "class-probe: <path>": a tool the turn runs, its pid to <path> (module docs).
     if text.startswith("class-probe:"):
         import subprocess
         sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
         out = text[len("class-probe:"):].strip()
         with open(f"{out}.tmp", "w") as f:
-            f.write(json.dumps({"sleeper": sleeper.pid, "diskio": own_disk_io()}))
+            f.write(json.dumps({"sleeper": sleeper.pid}))
         os.replace(f"{out}.tmp", out)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -2174,10 +2095,6 @@ def handle_prompt(rid, params):
     if text.startswith("ticking:"):
         n, ms = (int(v) for v in text[len("ticking:"):].split(":"))
         for i in range(n):
-            if sid in cancelled:
-                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
-                cancelled.discard(sid)
-                return
             update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"tick{i} "}})
             time.sleep(ms / 1000)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -2251,15 +2168,6 @@ def stdin_lines(early):
         import io
         yield from io.TextIOWrapper(io.BytesIO(early), encoding=sys.stdin.encoding, errors=sys.stdin.errors)
     yield from sys.stdin
-
-
-def own_disk_io():
-    """This process's disk I/O policy (`getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS)`):
-    4 at utility, 0 or 1 at the default tier. None off macOS."""
-    if sys.platform != "darwin":
-        return None
-    import ctypes
-    return ctypes.CDLL(None).getiopolicy_np(0, 0)
 
 
 def own_pri():
@@ -2359,11 +2267,6 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
-            # FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
-            if os.environ.get("FAKE_MCP_OUT"):
-                os.makedirs(os.environ["FAKE_MCP_OUT"], exist_ok=True)
-                with open(os.path.join(os.environ["FAKE_MCP_OUT"], f"{os.getpid()}.json"), "w") as out:
-                    json.dump(LAST_MCP_SERVERS, out)
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
@@ -2487,9 +2390,6 @@ def main():
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": os.environ.get("FAKE_AGENT_NAME", "fake"), "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}},
-                                      # FAKE_MCP_HTTP=1: it takes HTTP MCP servers, as Codex
-                                      # (cmux-codex-acp) and Claude Code do.
-                                      **({"mcpCapabilities": {"http": True, "sse": False}} if os.environ.get("FAKE_MCP_HTTP") == "1" else {}),
                                       # It asks (session/request_permission) before every tool call
                                       # it makes, so it keeps any acpmux policy (acpmux believes it
                                       # only from a harness entry of its config); FAKE_ASK_CLAIM=0
@@ -2508,8 +2408,6 @@ def main():
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
             new_sid = codex_new() if CODEX_STORE else f"{SESSION_PREFIX}{sessions}"
-            if CLAUDE_STORE:
-                new_sid = claude_new(params.get("cwd") or os.getcwd())
             known.add(new_sid)
             result = {
                 "sessionId": new_sid,
@@ -2594,8 +2492,6 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "result": None})
             else:
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error", "data": {"details": "no rollout found for thread id " + params["sessionId"]}}})
-        elif m == "session/load" and CLAUDE_STORE and not claude_load(params.get("cwd") or os.getcwd(), params["sessionId"]):
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error", "data": {"details": "No conversation found with session ID: " + params["sessionId"]}}})
         elif m == "session/load":
             # FAKE_LOAD_ERROR=<details>: the load fails as codex-acp does while
             # another Codex holds the thread: "Internal error", the reason in data.details.
@@ -2745,8 +2641,6 @@ def main():
                 target = claude_prompt
             if CODEX_STORE:
                 target = codex_store_prompt
-            if CLAUDE_STORE and params.get("sessionId") in claude_files:
-                claude_write(params["sessionId"], {"type": "fake-prompt", "text": prompt_text(params)})
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
             # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
             # file exists: a long answer then waits in the agent host's stdin writer, as it does

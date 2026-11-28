@@ -146,10 +146,10 @@ fn a_repository_folder_keeps_nothing_home() {
 }
 
 /// A stand-in machine socket at `path`: each dial's ask is counted, then answered `ok`.
-fn answering(path: &Path) -> Arc<std::sync::atomic::AtomicUsize> {
+fn answering(path: &Path) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
     use std::sync::atomic::Ordering;
     let listener = std::os::unix::net::UnixListener::bind(path).unwrap();
-    let dials = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let dials = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = dials.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming() {

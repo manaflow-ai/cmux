@@ -261,8 +261,6 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
         row("mcp:acpmux", "cmux", "cmux", true, false),
-        // A gateway-served server now (tools_mcp::SERVERS), so it lists like the others.
-        row("mcp:cmux-hosted", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
     ];
     // cmux-computer-use needs no machine consent here, or control granted: the authority is the OS
@@ -346,7 +344,6 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
             row("mcp:acpmux", "cmux", "cmux", true, true),
-            row("mcp:cmux-hosted", "cmux", "cmux", true, true),
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-computer-use", "cmux", "cmux", true, false),

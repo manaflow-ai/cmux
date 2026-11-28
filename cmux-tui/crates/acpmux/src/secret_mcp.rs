@@ -155,9 +155,6 @@ where
         tools,
         instructions,
         call,
-        on_initialize: None,
-        list: None,
-        handle: None,
     }])
     .await
 }

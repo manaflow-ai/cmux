@@ -106,10 +106,7 @@ fn self_paths() -> Vec<PathBuf> {
     if let Some(h) = dirs::home_dir() {
         out.push(h.join("Library/LaunchAgents/dev.cmux.hand.plist"));
         out.push(h.join(".config/systemd/user/cmux-hand.service"));
-        // Classic's config folder and NEXT's own (the same one off macOS).
-        for dir in [cmux_config::location::LEGACY_DIR, cmux_config::NEXT_DIR] {
-            out.push(h.join(".config").join(dir));
-        }
+        out.push(h.join(".config/cmux"));
     }
     if let Ok(exe) = std::env::current_exe() {
         out.push(exe);

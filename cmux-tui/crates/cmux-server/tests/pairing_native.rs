@@ -521,7 +521,7 @@ fn server_pairing_native_cli_reports_pending_registration_without_mutating_it() 
         let path = home.path().join("state/cmux/server/pairing/identity.json");
         #[cfg(target_os = "macos")]
         let path =
-            home.path().join("Library/Application Support/cmux-next/server/pairing/identity.json");
+            home.path().join("Library/Application Support/cmux/server/pairing/identity.json");
         let api = Api::new(&path);
         if backend_pending {
             api.state.lock().unwrap().lose_backend_reply = true;

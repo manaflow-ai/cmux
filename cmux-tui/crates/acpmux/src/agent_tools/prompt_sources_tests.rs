@@ -19,7 +19,6 @@ fn tools() -> AgentTools {
         displays: None,
         project_servers: Default::default(),
         http: Default::default(),
-        memory_follow: None,
     }
 }
 

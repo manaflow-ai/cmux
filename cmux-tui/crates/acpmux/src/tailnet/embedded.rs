@@ -183,11 +183,6 @@ struct Inner {
     closed: bool,
 }
 
-/// A coordination server other than Tailscale's (a Headscale URL) for the embedded node.
-pub const CONTROL_URL_ENV: &str = "CMUX_TAILNET_CONTROL_URL";
-/// A file holding a pre-auth key, for a headless first sign-in (later starts reuse the login).
-pub const AUTH_KEY_FILE_ENV: &str = "CMUX_TAILNET_AUTHKEY_FILE";
-
 /// Owns one embedded node per daemon install. The controller is cheap to
 /// clone; all state and node handles remain shared and serialized.
 pub struct Controller {
@@ -339,10 +334,7 @@ impl Controller {
                     self.note_resume_error_if_current(generation, error);
                 })?;
             if enabled {
-                tracing::info!("embedded tailnet: resuming the saved opt-in");
                 self.start_locked().await?;
-            } else {
-                tracing::info!("embedded tailnet: off (no opt-in marker in {:?})", self.state_dir);
             }
             return Ok(());
         }
@@ -714,24 +706,7 @@ impl Controller {
             // relaunch can retry. Logout clears it under these same gates.
             crate::config::write_atomic(&state_dir.join("enabled"), b"1\n")
                 .map_err(|e| e.to_string())?;
-            let mut config = node_config(state_dir, hostname, profile_slot.as_ref(), auth_key);
-            // No saved join: a self-hosted coordination server (Headscale) and a headless
-            // first sign-in from the environment (the stable node's host sets these).
-            if config.control_url.is_none() {
-                config.control_url = std::env::var(CONTROL_URL_ENV).ok().filter(|v| !v.is_empty());
-            }
-            if config.auth_key.is_none() {
-                config.auth_key = std::env::var_os(AUTH_KEY_FILE_ENV)
-                    .and_then(|path| std::fs::read_to_string(path).ok())
-                    .map(|key| key.trim().to_owned())
-                    .filter(|key| !key.is_empty());
-            }
-            tracing::info!(
-                hostname = %config.hostname,
-                control = config.control_url.as_deref().unwrap_or("default"),
-                auth_key = config.auth_key.is_some(),
-                "embedded tailnet: starting the node"
-            );
+            let config = node_config(state_dir, hostname, profile_slot.as_ref(), auth_key);
             #[cfg(test)]
             {
                 *seen_config.lock().unwrap_or_else(PoisonError::into_inner) = Some(config.clone());
@@ -1332,22 +1307,12 @@ impl Controller {
             Ok(watch) => {
                 for notify in watch {
                     let mut snapshot = self.snapshot();
-                    let (was, had_error) = (snapshot.state, snapshot.error.clone());
                     snapshot.apply_notify(&notify, Some(&node));
-                    if snapshot.state != was || snapshot.error != had_error {
-                        tracing::info!(
-                            state = snapshot.state,
-                            error = snapshot.error.as_deref().unwrap_or(""),
-                            "embedded tailnet: {was} -> {}",
-                            snapshot.state
-                        );
-                    }
                     self.publish_if_current(generation, snapshot);
                 }
             }
             // Say why: a stream that never opened otherwise reads as a plain stop.
             Err(error) => {
-                tracing::info!("embedded tailnet: cannot watch the node: {}", error.0);
                 let mut snapshot = self.snapshot();
                 snapshot.error =
                     Some(format!("the tailnet state stream did not open: {}", error.0));

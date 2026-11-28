@@ -27,8 +27,6 @@
 //! A remote-origin session gets no tools at all (`agent_tools::left_out`). An app outside
 //! acpmux (Claude desktop, Claude Code, Codex) linked with `acpmux desktop link` runs it in guest
 //! mode (`acpmux_mcp_guest.rs`): the tools that need no session, plus `machines` and `new`.
-//! A session's own chat gets `machines`, `machine_start`, `new` and `fork` too
-//! (`acpmux_mcp_start.rs`): it starts machines and chats from the chat, as its CLI would.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,16 +60,22 @@ of independent tool calls, and keep working while a bg_start task runs.";
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
 /// holds thousands of sessions (8,636 on one Mac, 29 MB as whole rows), and a reply that large
-/// closed the MCP connection of every harness that asked for it. 50: an agent reads this list
-/// every turn it calls it (29 KB at 100 whole-path rows), and the newest 50 name every live lane.
-const LS_DEFAULT_LIMIT: usize = 50;
+/// closed the MCP connection of every harness that asked for it.
+const LS_DEFAULT_LIMIT: usize = 100;
 const LS_MAX_LIMIT: usize = 500;
-/// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest, and
-/// `detail: true` adds [`LS_DETAIL_FIELDS`]. The folder and time were a third of each row and
-/// the rows come newest first already.
-const LS_FIELDS: &[&str] =
-    &["name", "status", "title", "peer", "sessionId", "harness", "asOfMs", "via"];
-const LS_DETAIL_FIELDS: &[&str] = &["cwd", "updatedAt"];
+/// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest.
+const LS_FIELDS: &[&str] = &[
+    "name",
+    "status",
+    "title",
+    "peer",
+    "sessionId",
+    "harness",
+    "cwd",
+    "updatedAt",
+    "asOfMs",
+    "via",
+];
 
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
@@ -91,8 +95,6 @@ pub(crate) mod pr;
 pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_control.rs"]
 mod control;
-#[path = "acpmux_mcp_look.rs"]
-mod look;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
 #[path = "acpmux_mcp_race.rs"]
@@ -101,8 +103,6 @@ mod race;
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
 mod send_status;
-#[path = "acpmux_mcp_start.rs"]
-mod start;
 #[path = "acpmux_mcp_watch.rs"]
 mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
@@ -120,12 +120,10 @@ pub(crate) fn tools() -> Value {
         list.push(pr::wait_tool());
         list.push(wrap_up::tool());
         list.push(who_else::tool());
-        list.push(look::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
         list.extend(race::tools());
         list.push(send_status::tool());
-        list.extend(start::tools());
         list.extend(control::tools());
         list.extend(machine::tools());
         for tool in list.iter_mut() {
@@ -180,14 +178,13 @@ fn base_tools() -> Value {
         },
         {
             "name": "ls",
-            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title, newest first. Closed sessions only with status closed; stops at limit and says how many more match.",
+            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title, newest first. Closed sessions are left out unless status is closed, and the list stops at limit and says how many more match. Use it to find the session to message.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, waiting, disconnected or closed."},
                     "query": {"type": "string", "description": "Only sessions whose name, title or peer contains this text (any case)."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": LS_MAX_LIMIT, "description": "Most sessions to list (default 50)."},
-                    "detail": {"type": "boolean", "description": "Also each session's folder and last update."}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": LS_MAX_LIMIT, "description": "Most sessions to list (default 100)."}
                 }
             }
         },
@@ -214,7 +211,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "machine_info",
-            "description": "What this machine can do: identity, repository, background work, ports and previews, browser/display support, the verify command, and secret names with status (never values). Missing capabilities name the next step.",
+            "description": "Report what this machine can do from acpmux's current state: machine and workspace identity, repository, running background work, ports and previews, browser/display support, the environment's verify command, and secret names with status. Secret values are never returned; unavailable capabilities include the next action to take.",
             "inputSchema": {
                 "type": "object",
                 "properties": {}
@@ -222,7 +219,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "team_send",
-            "description": "Send an information message to a teammate's agent or a team role. Addresses are team-scoped (for example @lawrence/coordinator or @team/reviewer). The receipt says how the hub resolved it; a normal message never starts work.",
+            "description": "Send an information message to a teammate's agent or a team role. Addresses are team-scoped (for example @lawrence/coordinator or @team/reviewer). The receipt includes the hub's resolution and whether the message may start work; a normal message never starts work automatically.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -256,7 +253,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "search",
-            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index: use it instead of grepping a transcript. Searches your own session unless name says another (across sessions: `cmux agent search`); role assistant finds what you wrote earlier.",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from the acpmux engine's index of its log: use it instead of grepping a transcript. For every authorized session on this host and its peers, use the `cmux agent search` front door. This MCP tool searches your own session unless name says another; role assistant finds what you yourself wrote earlier.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -424,9 +421,6 @@ fn served_with(
                 if name == who_else::NAME {
                     return who_else::call(&daemon, &session, &args).await;
                 }
-                if name == look::NAME {
-                    return look::call(&daemon, &session).await;
-                }
                 if goal::TOOLS.contains(&name) {
                     return goal::call(&daemon, &session, name, &args).await;
                 }
@@ -440,9 +434,6 @@ fn served_with(
                 }
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
-                }
-                if start::TOOLS.contains(&name) {
-                    return start::call(&daemon, name, &args).await;
                 }
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
@@ -680,31 +671,11 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
 /// of 8,470 B becomes 6,344 B, a 25.1% cut (`scripts/measure/inbox-listing-bytes.py`).
 fn trim_threads(answer: &mut Value) {
     let Some(o) = answer.as_object_mut() else { return };
-    o.remove("sessionId");
-    // Not a listing: a thread's own messages keep every sender they name, less what is null,
-    // off or said twice (`fromName` the same as `from`, `kind` as `class`, `read` after the read
-    // that marked it). A thread read was this tool's large answer (p95 34 KB in a day's calls).
+    // Not a listing: a thread's own messages keep every sender they name.
     if !o.contains_key("threads") {
-        for m in o.get_mut("messages").and_then(Value::as_array_mut).into_iter().flatten() {
-            let Some(m) = m.as_object_mut() else { continue };
-            if m.get("fromName") == m.get("from") {
-                m.remove("fromName");
-            }
-            if m.get("kind") == m.get("class") {
-                m.remove("kind");
-            }
-            m.retain(|k, v| match (k.as_str(), &*v) {
-                (_, Value::Null) => false,
-                ("surgeHeld", v) => v.as_bool() != Some(false),
-                ("read", v) => v.as_bool() != Some(true),
-                _ => true,
-            });
-            if let Some(sender) = m.get_mut("sender").and_then(Value::as_object_mut) {
-                sender.retain(|_, v| !v.is_null() && v != &json!(false));
-            }
-        }
         return;
     }
+    o.remove("sessionId");
     for row in o.get_mut("threads").and_then(Value::as_array_mut).into_iter().flatten() {
         let Some(row) = row.as_object_mut() else { continue };
         if row.get("key") == row.get("threadId") {
@@ -915,18 +886,13 @@ fn ls_result(all: &Value, args: &Value) -> Value {
             "… {more} more: raise limit (up to {LS_MAX_LIMIT}), narrow with query, or pass status (closed lists the closed ones)."
         ));
     }
-    let detail = args.get("detail").and_then(Value::as_bool).unwrap_or(false);
-    let extra: &[&str] = if detail { LS_DETAIL_FIELDS } else { &[] };
     let slim: Vec<Value> = rows
         .iter()
         .map(|s| {
             let row: serde_json::Map<String, Value> = LS_FIELDS
                 .iter()
-                .chain(extra)
                 .filter_map(|k| {
-                    s.get(*k)
-                        .filter(|v| !v.is_null() && v.as_str() != Some(""))
-                        .map(|v| ((*k).to_owned(), v.clone()))
+                    s.get(*k).filter(|v| !v.is_null()).map(|v| ((*k).to_owned(), v.clone()))
                 })
                 .collect();
             Value::Object(row)

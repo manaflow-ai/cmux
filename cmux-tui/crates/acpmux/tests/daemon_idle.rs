@@ -35,16 +35,6 @@ const MAX_SWITCHES_PER_WINDOW: u64 = 5;
 /// CPU allowed per process in its median window: 0.5% of one core.
 const MAX_CPU_PER_WINDOW: Duration = Duration::from_millis(50);
 const CHATS: usize = 2000;
-/// The one wake an idle daemon keeps, on a thread of its own so it is named here: the worker-lag
-/// canary's idle watch (`gauges::CANARY_THREAD`, linux comm names stop at 15 bytes), which reads
-/// the runtime's metrics every 4 s (`gauges::CANARY_IDLE_PERIOD`) and wakes no runtime worker
-/// while they all sleep. Without it a worker held by blocking work at idle goes unseen. Its
-/// switches are not counted; any other thread that runs in more than one window still fails.
-const CANARY_THREAD: &str = "lag-canary";
-/// The canary watch's wakes in one window, where its switches cannot be told apart (macOS
-/// counts switches per process only): one per 4 s, plus one for the window's edges.
-#[cfg(target_os = "macos")]
-const CANARY_WAKES_PER_WINDOW: u64 = WINDOW.as_secs() / 4 + 1;
 
 #[derive(Clone, Copy, Debug)]
 struct Usage {
@@ -215,28 +205,6 @@ fn children(pid: u32) -> Vec<u32> {
         .collect()
 }
 
-/// Switches of the canary watch thread between two marks.
-#[cfg(target_os = "linux")]
-fn canary_switches(
-    before: &std::collections::HashMap<u64, (String, u64)>,
-    after: &std::collections::HashMap<u64, (String, u64)>,
-) -> u64 {
-    after
-        .iter()
-        .filter(|(_, (name, _))| name == CANARY_THREAD)
-        .map(|(id, (_, now))| now.saturating_sub(before.get(id).map_or(0, |(_, was)| *was)))
-        .sum()
-}
-
-/// macOS counts a thread's CPU time, not its switches: the watch's known wakes.
-#[cfg(target_os = "macos")]
-fn canary_switches(
-    _before: &std::collections::HashMap<u64, (String, u64)>,
-    after: &std::collections::HashMap<u64, (String, u64)>,
-) -> u64 {
-    if after.values().any(|(name, _)| name == CANARY_THREAD) { CANARY_WAKES_PER_WINDOW } else { 0 }
-}
-
 #[test]
 fn acpmux_daemon_idle_has_no_periodic_wakeups() {
     let dir = scratch("daemon");
@@ -288,17 +256,9 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
         threads.push(thread_activity::thread_activity(pid));
     }
     let mut failures = Vec::new();
-    // The canary watch's own switches, per window, taken off the daemon's.
-    let canary: Vec<u64> =
-        threads.windows(2).map(|pair| canary_switches(&pair[0], &pair[1])).collect();
     for (at, (name, _)) in processes.iter().enumerate() {
-        let mut windows: Vec<Usage> =
+        let windows: Vec<Usage> =
             marks.windows(2).map(|pair| delta(pair[0][at], pair[1][at])).collect();
-        if at == 0 {
-            for (used, canary) in windows.iter_mut().zip(&canary) {
-                used.switches = used.switches.saturating_sub(*canary);
-            }
-        }
         // Not captured by libtest, so CI logs carry the numbers on success too.
         eprintln!("idle acpmux {name}: {windows:?} ({WINDOWS} windows of {WINDOW:?})");
         if woke(&windows) {
@@ -310,11 +270,7 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
     // the desktop bridge's 15 s setting reread ran in 2 of each 3 windows and
     // the peer cache's 30 s tick in 1 of 3, on any runtime worker, so neither
     // ran in every window nor on one thread.
-    let periodic: Vec<String> =
-        thread_activity::names_in_windows(&threads, MAX_WINDOWS_A_POOL_RUNS + 1)
-            .into_iter()
-            .filter(|name| !name.starts_with(&format!("{CANARY_THREAD} ")))
-            .collect();
+    let periodic = thread_activity::names_in_windows(&threads, MAX_WINDOWS_A_POOL_RUNS + 1);
     for name in &periodic {
         eprintln!("idle acpmux daemon thread pool woke in more than one window: {name}");
     }

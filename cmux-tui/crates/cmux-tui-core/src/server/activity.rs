@@ -20,12 +20,8 @@ use crate::resource::ResourceOperation;
 use crate::{AgentState, MuxEvent};
 
 pub(crate) const CAPABILITY: &str = "vm-activity-v1";
-/// Advertised with [`CAPABILITY`] by a daemon whose activity also carries the wake-to-first-echo marks
-/// (`last_person_attach_at_ms`, `echo_input_at_ms`, `echo_at_ms`): the Cloud agent's resume timing
-/// (cmux-host `cloud/wake_echo.rs`) reads them only from a daemon that advertises this. An older daemon
-/// sends neither the capability nor the fields, and the agent's wake event then names no attach or echo.
-pub(crate) const ECHO_CAPABILITY: &str = "vm-activity-echo-v1";
 const MIN_INTERVAL: Duration = Duration::from_secs(1);
+const MAX_SUBSCRIBERS: usize = 16;
 /// `set-client-info` kinds a person drives; automation connections never count.
 const PERSON_KINDS: [&str; 4] = ["tui", "web", "mac", "frontend"];
 
@@ -53,22 +49,6 @@ struct Shared {
     subscribed: AtomicBool,
     /// A key already asked the worker for an event that is not out yet; cleared by the worker under the lock.
     wake_pending: AtomicBool,
-    /// The wake-to-first-echo marks ([`ECHO_CAPABILITY`]), lock-free: a key and an output each touch one or two
-    /// atomics.
-    echo: EchoMarks,
-}
-
-/// When a person's client last attached, and the first echo after it: the first terminal output of the
-/// terminal a person's input went to, after that input. One pair per attach, so a later echo never
-/// replaces the first one the Cloud agent times a wake by. Unix milliseconds, 0 for none.
-#[derive(Default)]
-struct EchoMarks {
-    attach_ms: AtomicU64,
-    /// The terminal runtime id + 1 the newest unanswered input went to (0: none armed).
-    armed: AtomicU64,
-    armed_at_ms: AtomicU64,
-    input_ms: AtomicU64,
-    echo_ms: AtomicU64,
 }
 
 impl Shared {
@@ -122,46 +102,6 @@ impl ActivityStream {
         }
     }
 
-    /// A person's input went to terminal `runtime`: its next output is the echo, unless this attach already
-    /// has one. The newest input before the output is the one timed.
-    pub(crate) fn arm_echo(&self, runtime: u64) {
-        let echo = &self.shared.echo;
-        if echo.echo_ms.load(Ordering::Relaxed) != 0 {
-            return;
-        }
-        echo.armed_at_ms.store(now_ms(), Ordering::Relaxed);
-        echo.armed.store(runtime.wrapping_add(1), Ordering::Release);
-    }
-
-    /// Terminal `runtime` produced output: the echo of an armed input to it. One atomic load otherwise.
-    pub(crate) fn note_output(&self, runtime: u64) {
-        let echo = &self.shared.echo;
-        let armed = runtime.wrapping_add(1);
-        if echo.armed.load(Ordering::Acquire) != armed
-            || echo.armed.compare_exchange(armed, 0, Ordering::AcqRel, Ordering::Relaxed).is_err()
-        {
-            return;
-        }
-        echo.input_ms.store(echo.armed_at_ms.load(Ordering::Relaxed), Ordering::Relaxed);
-        echo.echo_ms.store(now_ms(), Ordering::Relaxed);
-        self.update(|_| {});
-    }
-
-    /// A person's client attached: a new attach, whose first echo is timed anew.
-    fn note_person_attach(&self) {
-        let echo = &self.shared.echo;
-        echo.armed.store(0, Ordering::Relaxed);
-        echo.input_ms.store(0, Ordering::Relaxed);
-        echo.echo_ms.store(0, Ordering::Relaxed);
-        echo.attach_ms.store(now_ms(), Ordering::Relaxed);
-    }
-
-    /// The echo marks as the stream sends them (tests).
-    #[cfg(test)]
-    pub(crate) fn echo_marks_for_test(&self) -> Value {
-        echo_json(&self.shared.echo)
-    }
-
     /// An agent hook commit or an agent state report.
     pub(crate) fn note_agent_action(&self) {
         self.update(|state| state.agent_action_ms = Some(now_ms()));
@@ -192,13 +132,7 @@ impl ActivityStream {
     pub(crate) fn observe(&self, event: &MuxEvent) {
         match event {
             MuxEvent::AgentChanged { .. } => self.note_agent_action(),
-            MuxEvent::ClientAttached { kind, .. } => {
-                if kind.as_deref().is_some_and(|k| PERSON_KINDS.contains(&k)) {
-                    self.note_person_attach();
-                }
-                self.update(|_| {});
-            }
-            MuxEvent::ClientDetached(_) => self.update(|_| {}),
+            MuxEvent::ClientAttached { .. } | MuxEvent::ClientDetached(_) => self.update(|_| {}),
             _ => {}
         }
     }
@@ -220,9 +154,14 @@ impl ActivityStream {
     ) -> anyhow::Result<Value> {
         let times = {
             let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
-            // Closed connections leave here (and at their disconnect, and at the next send).
-            // A subscriber is one map entry on the one shared worker, so their count is not capped.
+            // Closed connections leave before the cap counts (and at their
+            // disconnect, and at the next send).
             state.subscribers.retain(|_, w| w.is_open());
+            anyhow::ensure!(
+                state.subscribers.len() < MAX_SUBSCRIBERS
+                    || state.subscribers.contains_key(&client),
+                "too many activity subscribers"
+            );
             state.mux = Arc::downgrade(mux);
             state.subscribers.insert(client, writer.clone());
             self.shared.subscribed.store(true, Ordering::SeqCst);
@@ -237,7 +176,7 @@ impl ActivityStream {
             }
             (self.shared.user_input_ms(&state), state.agent_action_ms)
         };
-        Ok(json!({ "activity": snapshot(mux, times, &self.shared.echo) }))
+        Ok(json!({ "activity": snapshot(mux, times) }))
     }
 
     /// The connection ended: its subscription goes (the worker also drops
@@ -289,22 +228,8 @@ pub(super) fn note_resource_input(
     }
 }
 
-/// The echo marks' JSON: each is null until it happened.
-fn echo_json(echo: &EchoMarks) -> Value {
-    let at = |a: &AtomicU64| Some(a.load(Ordering::Relaxed)).filter(|ms| *ms != 0);
-    json!({
-        "last_person_attach_at_ms": at(&echo.attach_ms),
-        "echo_input_at_ms": at(&echo.input_ms),
-        "echo_at_ms": at(&echo.echo_ms),
-    })
-}
-
 /// Counts are read at emit time from their owners (client registry, agent roster).
-fn snapshot(
-    mux: &Mux,
-    (user_input_ms, agent_action_ms): (Option<u64>, Option<u64>),
-    echo: &EchoMarks,
-) -> Value {
+fn snapshot(mux: &Mux, (user_input_ms, agent_action_ms): (Option<u64>, Option<u64>)) -> Value {
     let attached_clients = {
         let state = mux.control_clients.state.lock().unwrap_or_else(PoisonError::into_inner);
         state
@@ -321,16 +246,12 @@ fn snapshot(
         .iter()
         .filter(|a| matches!(a.state, AgentState::Working | AgentState::Blocked))
         .count();
-    let mut out = json!({
+    json!({
         "attached_clients": attached_clients,
         "live_agents": live_agents,
         "last_user_input_at_ms": user_input_ms,
         "last_agent_action_at_ms": agent_action_ms,
-    });
-    if let (Some(out), Value::Object(marks)) = (out.as_object_mut(), echo_json(echo)) {
-        out.extend(marks);
-    }
-    out
+    })
 }
 
 type Due = (Vec<(u64, MessageWriter)>, (Option<u64>, Option<u64>), Weak<Mux>);
@@ -368,8 +289,7 @@ fn next_due(shared: &Shared) -> Option<Due> {
 fn run_worker(shared: Arc<Shared>) {
     while let Some((writers, times, mux)) = next_due(&shared) {
         let Some(mux) = mux.upgrade() else { break };
-        let event =
-            json!({ "event": "activity-changed", "activity": snapshot(&mux, times, &shared.echo) });
+        let event = json!({ "event": "activity-changed", "activity": snapshot(&mux, times) });
         for (client, writer) in writers {
             if !writer.is_open() || writer.send_control(&event).is_err() {
                 mux.activity.disconnect(client);

@@ -93,8 +93,6 @@ pub async fn deliver_attached(
         subagent: None,
         sender_token: None,
         wake_or_fail: false,
-        gather: false,
-        within: None,
     };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

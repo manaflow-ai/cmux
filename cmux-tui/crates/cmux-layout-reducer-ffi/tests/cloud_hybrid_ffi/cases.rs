@@ -177,19 +177,3 @@ fn a_computer_status_needs_its_session_and_reads_a_live_hybrid_show() {
     let (_, status) = call(c"cloud_computer_status", &failed);
     assert_eq!((&status["phase"], &status["home"]), (&json!("move_failed"), &json!("this_mac")));
 }
-
-#[test]
-fn the_balance_simulates_each_place_and_picks_one() {
-    let kept = json!({"folderBytes": 500_000_000u64, "headBytes": 5_000_000u64,
-                      "uploadBytesPerSec": 5_000_000u64, "wakeMs": 8_000, "keepRunning": true});
-    let (code, reply) = call(c"cloud_hybrid_balance", &kept);
-    assert_eq!(code, OK);
-    assert_eq!(
-        (reply["best"].clone(), reply["why"].clone()),
-        (json!("hybrid"), json!("answerHereWhileItWakes"))
-    );
-    assert_eq!(reply["places"].as_array().map(Vec::len), Some(4));
-    assert_eq!(reply["headFirstSavesMs"], 92_000);
-    assert_eq!(call(c"cloud_hybrid_balance", &json!({})).1["best"], "local");
-    assert_eq!(call(c"cloud_hybrid_balance", &json!({"folderBytes": "big"})).0, ERR_INVALID);
-}

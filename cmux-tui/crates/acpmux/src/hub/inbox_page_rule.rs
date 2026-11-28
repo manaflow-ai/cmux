@@ -148,7 +148,6 @@ impl Hub {
                     report: false,
                     waited: false,
                     at: now_ms(),
-                    within: None,
                     text: text.to_owned(),
                     details: None,
                     fire: false,

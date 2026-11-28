@@ -13,7 +13,7 @@
       "owner": "cloud:ConnectionDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "62b79e37d7eac00a"
+      "digest": "0f482a84cd13ea22"
     },
     "integration.connect": {
       "source": "cloud",

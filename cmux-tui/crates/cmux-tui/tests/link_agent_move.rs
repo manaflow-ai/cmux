@@ -295,9 +295,6 @@ enum Finish {
     /// The answer is lost while the finish still runs: the next receive-aborts answer "cannot
     /// say yet" (the real daemon's answer during a finish), then the chat lands.
     DropStillFinishing,
-    /// The machine's processes are killed before the chat lands: the daemon is back at once,
-    /// its acpmux a moment later, so the next receive-aborts answer `agent_transfer.unavailable`.
-    KilledRestarting,
 }
 
 struct Receive {
@@ -325,14 +322,8 @@ struct Target {
     takes_vm_kind: bool,
     /// The `vm_kind` of each receive and finish, in order.
     vm_kinds: Vec<Value>,
-    /// Serves `agent-transfer-credentials-v1` too.
-    takes_credentials: bool,
-    /// Every request's text, as the target read it.
-    requests: Vec<String>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
     finishing_asks: u32,
-    /// Receive-aborts still answered `agent_transfer.unavailable` while acpmux restarts.
-    restarting_asks: u32,
     /// Serves `agent-transfer-history-later-v1` and its acpmux can.
     later: bool,
     /// The stage each receive took, in order.
@@ -350,10 +341,7 @@ impl Target {
         if cmd == "agent-transfer-receive" || cmd == "agent-transfer-finish" {
             self.vm_kinds.push(request["vm_kind"].clone());
         }
-        self.requests.push(request.to_string());
         match cmd {
-            "identify" if self.takes_credentials => Reply::Data(json!({"capabilities":
-                ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1"]})),
             "identify" if self.later => Reply::Data(json!({"capabilities":
                 ["agent-transfer-v1", "agent-transfer-history-later-v1"]})),
             "agent-transfer-history-ready" => Reply::Data(json!({"history_later": self.later})),
@@ -430,13 +418,6 @@ impl Target {
                     return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
                 };
                 let (transfer, session) = (receive.transfer_id.clone(), receive.session_id.clone());
-                if self.restarting_asks > 0 {
-                    self.restarting_asks -= 1;
-                    return Reply::Error(
-                        "agent_transfer.unavailable",
-                        "this daemon has no acpmux or host to move chats with".into(),
-                    );
-                }
                 if self.finishing_asks > 0 {
                     self.finishing_asks -= 1;
                     if self.finishing_asks == 0 {
@@ -537,10 +518,6 @@ impl Target {
                 self.finishing_asks = 3;
                 return Reply::Drop;
             }
-            Finish::KilledRestarting => {
-                self.restarting_asks = 3;
-                return Reply::Drop;
-            }
             _ => {}
         }
         receive.finished = true;
@@ -629,12 +606,7 @@ impl World {
 
     /// `run_move` with `extra` flags.
     fn run_move_with(&self, extra: &[&str]) -> (i32, Value) {
-        self.run_move_stdin(extra, b"")
-    }
-
-    /// `run_move_with`, `stdin` on its stdin.
-    fn run_move_stdin(&self, extra: &[&str], stdin: &[u8]) -> (i32, Value) {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&self.from)
             .args(["--surface", &SURFACE.to_string(), "--to-socket"])
@@ -644,13 +616,8 @@ impl World {
             .args(extra)
             // Tail first only when a test asks for it.
             .env_remove("ACPMUX_MOVE_HISTORY_LATER")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
+            .output()
             .unwrap();
-        child.stdin.take().unwrap().write_all(stdin).unwrap();
-        let output = child.wait_with_output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = stdout.lines().collect();
         assert_eq!(
@@ -795,23 +762,6 @@ mod agent_move {
     }
 
     #[test]
-    fn a_target_killed_before_the_finish_is_waited_for_then_the_chat_is_given_back() {
-        // kill-mid-move drill `local-cloud before-finish kill-dst` (run 45389153532): the
-        // target's daemon came back at once but its acpmux did not, the receive-abort was
-        // answered `agent_transfer.unavailable` and the pump (and its rerun 264 ms later)
-        // said "cannot say": the chat stayed frozen here and its queued prompt never ran.
-        let world = World::new(Target { finish: Finish::KilledRestarting, ..Target::default() });
-        let (code, answer) = world.run_move();
-        assert_eq!(code, 1);
-        assert_eq!(answer["error_code"], json!("move_failed"), "{answer}");
-        assert_eq!(world.count("target:agent-transfer-receive-abort"), 4);
-        assert!(world.target.lock().unwrap().forgotten.contains("xfer_1"));
-        let source = world.source.lock().unwrap();
-        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here");
-        assert!(source.moving.is_none() && source.committed.is_none());
-    }
-
-    #[test]
     fn a_lost_finish_answer_for_a_chat_that_did_not_land_aborts_the_source() {
         let world = World::new(Target { finish: Finish::DropWithoutLanding, ..Target::default() });
         let (code, answer) = world.run_move();
@@ -906,73 +856,6 @@ mod agent_move {
         let (code, answer) = mac.run_move();
         assert_eq!(code, 0, "a target the caller says is a Mac needs no kind: {answer}");
         assert_eq!(mac.target.lock().unwrap().vm_kinds, [Value::Null, Value::Null]);
-    }
-
-    /// `--login-stdin`: the owner's login goes to the target with the finish alone, and never
-    /// reaches the answer line, stderr or the move's record. Without `--vm-kind owner`, or to a
-    /// target without `agent-transfer-credentials-v1`, or unreadable, the move stops before the
-    /// chat freezes with a reason that names the step.
-    #[test]
-    fn the_owners_login_goes_with_the_finish_alone_and_nowhere_else() {
-        const TOKEN: &str = "sk-ant-oat01-move-test-token";
-        let login = format!(r#"{{"env":{{"CLAUDE_CODE_OAUTH_TOKEN":"{TOKEN}"}}}}"#);
-        let world = World::new(Target { takes_credentials: true, ..Target::default() });
-        let (code, answer) =
-            world.run_move_stdin(&["--vm-kind", "owner", "--login-stdin"], login.as_bytes());
-        assert_eq!(code, 0, "{answer}");
-        assert!(!answer.to_string().contains(TOKEN), "{answer}");
-        {
-            let target = world.target.lock().unwrap();
-            let carrying: Vec<&String> =
-                target.requests.iter().filter(|request| request.contains(TOKEN)).collect();
-            assert_eq!(carrying.len(), 1, "{carrying:?}");
-            let finish: Value = serde_json::from_str(carrying[0]).unwrap();
-            assert_eq!(finish["cmd"], json!("agent-transfer-finish"));
-            assert_eq!(finish["credentials"], json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": TOKEN}}));
-        }
-        for entry in walk(&world.state) {
-            let text = std::fs::read(&entry).unwrap_or_default();
-            assert!(!String::from_utf8_lossy(&text).contains(TOKEN), "{}", entry.display());
-        }
-
-        let refusals: [(&[&str], Target, &str, Option<&str>); 3] = [
-            (
-                &["--login-stdin"],
-                Target { takes_credentials: true, ..Target::default() },
-                "agent_session.owner_only",
-                None,
-            ),
-            (
-                &["--vm-kind", "owner", "--login-stdin"],
-                Target { takes_vm_kind: true, ..Target::default() },
-                "machine_outdated",
-                Some("target"),
-            ),
-            (
-                &["--vm-kind", "team", "--login-stdin"],
-                Target { takes_credentials: true, ..Target::default() },
-                "agent_session.owner_only",
-                None,
-            ),
-        ];
-        for (flags, target, code_name, side) in refusals {
-            let world = World::new(target);
-            let (code, answer) = world.run_move_stdin(flags, login.as_bytes());
-            assert_eq!(code, 1, "{answer}");
-            assert_eq!(answer["error_code"], json!(code_name), "{answer}");
-            assert_eq!(answer["side"].as_str(), side, "{answer}");
-            assert!(answer["error"].as_str().unwrap().contains("agent login"), "{answer}");
-            assert!(!answer.to_string().contains(TOKEN), "{answer}");
-            assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
-        }
-        let world = World::new(Target { takes_credentials: true, ..Target::default() });
-        let bad = format!(r#"{{"env":"{TOKEN}"}}"#);
-        let (code, answer) =
-            world.run_move_stdin(&["--vm-kind", "owner", "--login-stdin"], bad.as_bytes());
-        assert_eq!(code, 1, "{answer}");
-        assert_eq!(answer["error_code"], json!("agent_session.login_unreadable"), "{answer}");
-        assert!(!answer.to_string().contains(TOKEN), "{answer}");
-        assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
     }
 
     /// `--to-pid`: the owner word belongs to the link process the caller read
@@ -1257,17 +1140,4 @@ mod agent_move {
             answer_on["phases"]
         );
     }
-}
-
-/// Every file under `dir`, recursively; none when it does not exist.
-fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
-    let mut files = Vec::new();
-    let mut todo = vec![dir.to_path_buf()];
-    while let Some(next) = todo.pop() {
-        for entry in std::fs::read_dir(&next).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.is_dir() { todo.push(path) } else { files.push(path) }
-        }
-    }
-    files
 }

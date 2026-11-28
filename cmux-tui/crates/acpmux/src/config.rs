@@ -1332,8 +1332,8 @@ pub struct SessionResourceConfig {
     pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `normal`, a terminal shell's
-    /// priority and disk tier (`cpu_class::default_for`).
+    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
+    /// Claude Code launcher or a Codex app-server (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1399,26 +1399,6 @@ impl Default for ArtifactsSyncConfig {
 }
 
 impl ArtifactsSyncConfig {
-    pub fn is_default(&self) -> bool {
-        self == &Self::default()
-    }
-}
-
-/// The fleet memory mount (`memory_mount.rs`): `~/.cmux/memory/{private,team}` kept in sync with
-/// the memory store on cmux-platform. On by default on a machine joined to cmux Cloud ("autocloud
-/// default on"); `"memory": {"sync": false}` turns it off.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct MemorySyncConfig {
-    /// Unset: on. `false`: the daemon never syncs (`acpmux memory sync` still does, by hand).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sync: Option<bool>,
-    /// The mount's root, `~/.cmux/memory` when unset.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dir: Option<PathBuf>,
-}
-
-impl MemorySyncConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
@@ -1568,8 +1548,6 @@ pub struct Config {
     /// Optional platform artifact and memory synchronization.
     #[serde(default, skip_serializing_if = "ArtifactsSyncConfig::is_default")]
     pub artifacts_sync: ArtifactsSyncConfig,
-    #[serde(default, skip_serializing_if = "MemorySyncConfig::is_default")]
-    pub memory: MemorySyncConfig,
     /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1713,12 +1691,6 @@ pub struct Config {
         deserialize_with = "crate::hub::auto_resume::delays_from_config"
     )]
     pub auto_resume_delays_ms: Option<Vec<u64>>,
-    /// `capacityFallbackAfter`: after this many capacity attempts on one cut prompt (HTTP 529,
-    /// "overloaded"), the next runs on a smaller model of the same harness, and the chat's own
-    /// model comes back once a turn there ends well (`hub/auto_resume/capacity_failover.rs`).
-    /// 0 never switches. Unset: Settings' `agents.autoRetry.capacityFallbackAfter`, default 1.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capacity_fallback_after: Option<u64>,
     /// `autoResumeDiskFreeBytes`: how much free space a chat a full disk cut waits for before
     /// it goes on (`hub/auto_resume/disk_wait.rs`). Default 16 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2085,7 +2057,7 @@ mod start_check;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
-pub use pool::{PoolConfig, spare_personal_enabled};
+pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
 mod auto_evacuate;

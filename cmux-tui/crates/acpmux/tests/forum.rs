@@ -796,44 +796,35 @@ async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
     path
 }
 
-/// An agent session's `cmux-forum` MCP server (`acpmux forum-mcp`) on `hub`'s socket.
-struct ForumMcp {
-    _child: tokio::process::Child,
-    stdin: tokio::process::ChildStdin,
-    lines: tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
-    socket: std::path::PathBuf,
-}
-
-impl ForumMcp {
-    async fn start(hub: &Arc<Hub>, id: &str) -> Self {
-        use tokio::io::AsyncBufReadExt;
-        let socket = listen(hub).await;
-        let scratch = std::env::temp_dir().join(format!("amx-forum-{}", std::process::id()));
-        let mut child = daemon_env::tokio_command(&scratch, daemon_env::Agents::Deny)
-            .arg("forum-mcp")
-            .env("ACPMUX_SOCKET", &socket)
-            .env("ACPMUX_SESSION_ID", id)
-            .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(id))
-            .env("ACPMUX_SESSION_TOKEN_SOCKET", &socket)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
-        let stdin = child.stdin.take().unwrap();
-        let lines = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
-        let mut mcp = ForumMcp { _child: child, stdin, lines, socket };
-        mcp.ask(1, "initialize", json!({"protocolVersion": "2025-06-18"})).await;
-        mcp
-    }
-
-    async fn ask(&mut self, id: i64, method: &str, params: Value) -> Value {
-        use tokio::io::AsyncWriteExt;
+/// The agent's `cmux-forum` MCP server posts, reads and acks as its session,
+/// proven by the caller token in its env, never by an argument.
+#[tokio::test]
+async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let id = app.new_session().await;
+    let socket = listen(&hub).await;
+    let scratch = std::env::temp_dir().join(format!("amx-forum-{}", std::process::id()));
+    let mut mcp = daemon_env::tokio_command(&scratch, daemon_env::Agents::Deny)
+        .arg("forum-mcp")
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_SESSION_ID", &id)
+        .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(&id))
+        .env("ACPMUX_SESSION_TOKEN_SOCKET", &socket)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut stdin = mcp.stdin.take().unwrap();
+    let mut lines = BufReader::new(mcp.stdout.take().unwrap()).lines();
+    let mut ask = async |id: i64, method: &str, params: Value| -> Value {
         let r = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        self.stdin.write_all(format!("{r}\n").as_bytes()).await.unwrap();
+        stdin.write_all(format!("{r}\n").as_bytes()).await.unwrap();
         loop {
-            let line = tokio::time::timeout(Duration::from_secs(30), self.lines.next_line())
+            let line = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
                 .await
                 .expect("forum-mcp timed out")
                 .unwrap()
@@ -843,278 +834,35 @@ impl ForumMcp {
                 return reply["result"].clone();
             }
         }
-    }
-
-    async fn tool(&mut self, id: i64, name: &str, arguments: Value) -> Value {
-        self.ask(id, "tools/call", json!({"name": name, "arguments": arguments})).await
-    }
-}
-
-impl Drop for ForumMcp {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.socket);
-    }
-}
-
-/// The agent's `cmux-forum` MCP server posts, reads and acks as its session,
-/// proven by the caller token in its env, never by an argument.
-#[tokio::test]
-async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
-    let hub = hub();
-    let mut app = Client::person(&hub).await;
-    let id = app.new_session().await;
-    let mut mcp = ForumMcp::start(&hub, &id).await;
-    let tools = mcp.ask(2, "tools/list", json!({})).await;
+    };
+    ask(1, "initialize", json!({"protocolVersion": "2025-06-18"})).await;
+    let tools = ask(2, "tools/list", json!({})).await;
     let names: Vec<&str> =
         tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["announce", "rules", "ack", "post", "reply", "search"], "{tools}");
+    assert_eq!(names, ["announce", "rules", "ack"], "{tools}");
 
     // An `account` argument does not make the agent a person.
-    let posted = mcp
-        .tool(
-            3,
-            "announce",
-            json!({"key": "merges", "body": "Merge with gh-merge-green.", "account": "leo"}),
-        )
-        .await;
+    let posted = ask(
+        3,
+        "tools/call",
+        json!({"name": "announce", "arguments": {"key": "merges", "body": "Merge with gh-merge-green.", "account": "leo"}}),
+    )
+    .await;
     assert_eq!(posted["isError"], false, "{posted}");
     let post = &posted["structuredContent"]["post"];
     assert_eq!(post["author"]["kind"], "agent", "{posted}");
     assert_eq!(post["author"]["sessionId"], id.as_str(), "{posted}");
 
-    let rules = mcp.tool(4, "rules", json!({})).await;
+    let rules = ask(4, "tools/call", json!({"name": "rules", "arguments": {}})).await;
     let text = rules["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("[merges]") && text.contains("gh-merge-green"), "{text}");
     assert!(text.contains("information"), "{text}");
 
     let post_id = post["id"].as_str().unwrap();
-    let acked = mcp.tool(5, "ack", json!({"postId": post_id})).await;
+    let acked =
+        ask(5, "tools/call", json!({"name": "ack", "arguments": {"postId": post_id}})).await;
     assert_eq!(acked["isError"], false, "{acked}");
     let rule = app.rule("merges").await.unwrap();
     assert_eq!(rule["acks"][0]["sessionId"], id.as_str(), "{rule}");
-}
-
-// The team's hosted forum (`hub/forum_hosted.rs`) behind a fake transport.
-
-const AGENT_KEY: &str = "cfk_test_0f1e2d3c4b5a69788796a5b4c3d2e1f0";
-
-/// The hosted forum, answering by route; every request it got.
-#[derive(Clone, Default)]
-struct FakeForum {
-    sent: Arc<std::sync::Mutex<Vec<cmux_forum_hosted::Request>>>,
-    /// The transport error every request after the token gets, if any.
-    fail: Option<String>,
-}
-
-fn reply(status: u16, body: Value) -> cmux_forum_hosted::Response {
-    cmux_forum_hosted::Response {
-        status,
-        headers: vec![("content-type".into(), "application/json".into())],
-        body: serde_json::to_vec(&body).unwrap(),
-    }
-}
-
-fn wire_thread(number: u64, title: &str, comments: u64) -> Value {
-    json!({
-        "number": number, "title": title, "body": "b", "state": "open", "labels": [],
-        "author": {"kind": "agent", "id": "a1", "name": "agent"}, "space": "general",
-        "comments": comments, "created_at": "2026-11-22T00:00:00Z",
-        "updated_at": "2026-11-22T00:00:00Z", "closed_at": null,
-        "html_url": format!("https://forum.example/t/{number}"),
-    })
-}
-
-impl cmux_forum_hosted::Transport for FakeForum {
-    async fn send(
-        &self,
-        request: cmux_forum_hosted::Request,
-    ) -> Result<cmux_forum_hosted::Response, cmux_forum_hosted::TransportError> {
-        use cmux_forum_hosted::Method;
-        self.sent.lock().unwrap().push(request.clone());
-        let path = request.path_and_query.split('?').next().unwrap_or_default().to_owned();
-        if path == "/v1/forum/token" {
-            return Ok(reply(200, json!({"token": "tok-1", "expires_in": 3600})));
-        }
-        if let Some(fail) = &self.fail {
-            return Err(cmux_forum_hosted::TransportError::new(fail.clone()));
-        }
-        let body: Value = request
-            .body
-            .as_deref()
-            .map(|b| serde_json::from_slice(b).unwrap())
-            .unwrap_or(Value::Null);
-        Ok(match (request.method, path.as_str()) {
-            (Method::Post, "/v1/forum/threads") => {
-                let mut t = wire_thread(7, body["title"].as_str().unwrap(), 0);
-                t["space"] = body["space"].clone();
-                t["labels"] = json!(
-                    body["labels"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|l| json!({"name": l}))
-                        .collect::<Vec<_>>()
-                );
-                reply(201, t)
-            }
-            (Method::Post, "/v1/forum/threads/7/comments") => {
-                reply(201, json!({"id": 42, "body": body["body"], "thread": 7}))
-            }
-            (Method::Get, "/v1/forum/threads/7") => reply(200, wire_thread(7, "Flaky builds", 1)),
-            (Method::Get, "/v1/forum/threads/8") => reply(200, wire_thread(8, "Build cache", 3)),
-            (Method::Get, "/v1/forum/search") => reply(
-                200,
-                json!({"hits": (1..=12).map(|n| json!({
-                    "number": if n == 1 { 7 } else if n == 2 { 8 } else { 100 + n },
-                    "title": format!("hit {n}"), "snippet": format!("about builds {n}"),
-                    "state": "open", "space": "general", "labels": [],
-                    "updated_at": "2026-11-22T00:00:00Z", "score": 1.0,
-                })).collect::<Vec<_>>()}),
-            ),
-            _ => reply(404, json!({"error": "no such thread"})),
-        })
-    }
-}
-
-fn hosted_hub(fake: &FakeForum) -> Arc<Hub> {
-    let hub = hub();
-    let forum = acpmux::hub::forum_hosted::HostedForum::new(
-        acpmux::hub::forum_hosted::AnyTransport::new(fake.clone()),
-        "team-a",
-        AGENT_KEY,
-    );
-    assert!(hub.set_forum_hosted(Some(forum)));
-    hub
-}
-
-fn text_json(result: &Value) -> Value {
-    let text = result["content"][0]["text"].as_str().unwrap();
-    serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
-}
-
-/// `post`, `reply` and `search` answer the card's JSON as their text, as the calling session.
-#[tokio::test]
-async fn the_forum_mcp_server_posts_replies_and_searches_the_hosted_forum() {
-    let fake = FakeForum::default();
-    let hub = hosted_hub(&fake);
-    let mut app = Client::person(&hub).await;
-    let id = app.new_session().await;
-    let mut mcp = ForumMcp::start(&hub, &id).await;
-
-    let posted = mcp
-        .tool(
-            2,
-            "post",
-            json!({"space": "builds", "title": "Flaky builds", "body": "Seen twice.",
-                   "kind": "question", "labels": ["ci"]}),
-        )
-        .await;
-    assert_eq!(posted["isError"], false, "{posted}");
-    assert_eq!(
-        text_json(&posted),
-        json!({"forum": "post", "thread": {"number": 7, "title": "Flaky builds", "space": "builds",
-               "state": "open", "comments": 0, "url": "https://forum.example/t/7"}}),
-    );
-    let sent = fake.sent.lock().unwrap().clone();
-    let create = sent.iter().find(|r| r.path_and_query == "/v1/forum/threads").unwrap();
-    let body: Value = serde_json::from_slice(create.body.as_deref().unwrap()).unwrap();
-    assert_eq!(body["labels"], json!(["question", "ci"]), "{body}");
-    assert_eq!(create.header("x-forum-session"), Some(id.as_str()));
-    assert_eq!(create.header("authorization"), Some("Bearer tok-1"));
-    let token = sent.iter().find(|r| r.path_and_query == "/v1/forum/token").unwrap();
-    assert_eq!(token.header("authorization"), Some(format!("Bearer {AGENT_KEY}").as_str()));
-
-    let replied = mcp.tool(3, "reply", json!({"thread": 7, "body": "Fixed on main."})).await;
-    assert_eq!(replied["isError"], false, "{replied}");
-    assert_eq!(
-        text_json(&replied),
-        json!({"forum": "reply", "thread": {"number": 7, "title": "Flaky builds", "space": "general",
-               "state": "open", "comments": 1, "url": "https://forum.example/t/7"},
-               "comment": {"id": 42}}),
-    );
-
-    let found = mcp.tool(4, "search", json!({"query": "builds", "space": "general"})).await;
-    assert_eq!(found["isError"], false, "{found}");
-    let found = text_json(&found);
-    assert_eq!(found["forum"], "search");
-    assert_eq!(found["query"], "builds");
-    let hits = found["hits"].as_array().unwrap();
-    assert_eq!(hits.len(), 10, "{found}");
-    assert_eq!(
-        hits[0],
-        json!({"number": 7, "title": "hit 1", "space": "general", "state": "open",
-               "comments": 1, "snippet": "about builds 1"}),
-    );
-    assert_eq!(hits[1]["comments"], 3, "{found}");
-    // A thread that could not be read counts no comments.
-    assert_eq!(hits[2]["comments"], 0, "{found}");
-    let sent = fake.sent.lock().unwrap().clone();
-    let search = sent.iter().find(|r| r.path_and_query.starts_with("/v1/forum/search")).unwrap();
-    assert!(search.path_and_query.contains("space=general"), "{search:?}");
-    // One exchange for the session's calls.
-    assert_eq!(sent.iter().filter(|r| r.path_and_query == "/v1/forum/token").count(), 1);
-}
-
-/// With no team or key, every hosted tool says how to set it up; the old tools still work.
-#[tokio::test]
-async fn the_hosted_tools_say_when_the_forum_is_not_set_up() {
-    let hub = hub();
-    assert!(hub.set_forum_hosted(None));
-    let mut app = Client::person(&hub).await;
-    let id = app.new_session().await;
-    let mut mcp = ForumMcp::start(&hub, &id).await;
-    for (n, (tool, args)) in [
-        ("post", json!({"space": "general", "title": "t", "body": "b"})),
-        ("reply", json!({"thread": 1, "body": "b"})),
-        ("search", json!({"query": "q"})),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let r = mcp.tool(10 + n as i64, tool, args).await;
-        assert_eq!(r["isError"], true, "{r}");
-        let text = r["content"][0]["text"].as_str().unwrap();
-        assert!(
-            text.contains(
-                "The hosted forum is not set up on this machine (set CMUX_FORUM_TEAM and CMUX_FORUM_KEY)."
-            ),
-            "{text}"
-        );
-    }
-    let rules = mcp.tool(20, "rules", json!({})).await;
-    assert_eq!(rules["isError"], false, "{rules}");
-}
-
-/// The agent key never shows in an error, a refusal's data, or the forum's Debug.
-#[tokio::test]
-async fn the_agent_key_never_shows_in_an_error() {
-    let fake = FakeForum {
-        fail: Some(format!("connect refused (sent {AGENT_KEY})")),
-        ..Default::default()
-    };
-    let shown = format!(
-        "{:?}",
-        acpmux::hub::forum_hosted::HostedForum::new(
-            acpmux::hub::forum_hosted::AnyTransport::new(fake.clone()),
-            "team-a",
-            AGENT_KEY,
-        )
-    );
-    assert!(!shown.contains(AGENT_KEY), "{shown}");
-    let hub = hosted_hub(&fake);
-    let mut app = Client::person(&hub).await;
-    let id = app.new_session().await;
-    let mut session = Client::as_session(&hub, &id).await;
-    for (m, params) in [
-        ("_acpmux/forum/post", json!({"space": "general", "title": "t", "body": "b"})),
-        ("_acpmux/forum/reply", json!({"thread": 7, "body": "b"})),
-        ("_acpmux/forum/search", json!({"query": "q"})),
-    ] {
-        let err = session.refused(m, params).await;
-        assert!(!err.to_string().contains(AGENT_KEY), "{m}: {err}");
-        assert!(err["message"].as_str().unwrap().contains("could not be reached"), "{m}: {err}");
-    }
-    // The app's connection has no session to post as.
-    let err = app.refused("_acpmux/forum/search", json!({"query": "q"})).await;
-    assert_eq!(err["data"]["reason"], "forum.caller_required", "{err}");
+    let _ = std::fs::remove_file(&socket);
 }

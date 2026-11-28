@@ -80,10 +80,6 @@ impl Hub {
             prompt_id: Some(format!("offer-result-{}", started.offer_id)),
             resend: true,
             provenance: Some(provenance),
-            // The suggested task's chat's message: an idle parent's turn gathers the ones after
-            // it, and a cold parent's waits for its batch (`cold_wake.rs`).
-            agent: Some(child.meta().name),
-            class: Some(crate::prompt_class::PromptClass::Result),
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": text})];

@@ -698,6 +698,3 @@ mod phone_link_bench;
 
 #[path = "full_screen_frames_parity_tests.rs"]
 mod full_screen_frames_parity;
-
-#[path = "output_to_paint_tests.rs"]
-mod output_to_paint;

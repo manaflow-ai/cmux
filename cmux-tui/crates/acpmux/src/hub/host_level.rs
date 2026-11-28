@@ -203,9 +203,7 @@ impl Hub {
     /// The idle period of `session`: [`MOVE_AFTER`] when its host moves (`idle.rs`
     /// `quiet_respawn` when it is marked to restart once quiet, `Session::respawn_when_quiet`),
     /// else `pool_pressure::SHED_IDLE` for background work while the sr2 pool sheds
-    /// (`pool_pressure.rs`), else `idle` bounded by the chat's next known event
-    /// (`idle_governor.rs`: at least 7 min with a background task that will report to it, 30 s
-    /// with a continuation due later than that).
+    /// (`pool_pressure.rs`), else `idle`.
     pub(super) fn idle_period(
         &self,
         session: &Session,
@@ -215,7 +213,7 @@ impl Hub {
             if self.pool_pressure_sleeps(session) {
                 super::pool_pressure::SHED_IDLE.min(idle)
             } else {
-                super::idle_governor::period_for(self.next_event(session), idle)
+                idle
             }
         } else if session.respawn_when_quiet.load(Ordering::Relaxed) {
             super::idle::quiet_respawn().min(idle)

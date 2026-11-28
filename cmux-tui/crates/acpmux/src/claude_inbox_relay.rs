@@ -53,6 +53,8 @@ const ATTACHED_FOR: Duration = Duration::from_secs(35);
 const RELAY_ANSWER: Duration = Duration::from_secs(10);
 /// Most deliveries one poll answers with.
 const BATCH: usize = 16;
+/// Most deliveries waiting for one session's relay.
+const MAX_PENDING: usize = 256;
 
 /// One delivery waiting for the relay.
 struct Job {
@@ -114,7 +116,9 @@ pub async fn deliver(pid: u32, socket: &Path, frames: &str) -> Option<Result<(),
             drop(all.remove(&pid));
             return None;
         }
-        // Any number wait: each is a sender's own delivery, waiting at most RELAY_ANSWER.
+        if entry.pending.len() >= MAX_PENDING {
+            return Some(Err("the session's inbox relay has too many messages waiting".into()));
+        }
         entry.pending.push_back(Job {
             id: id.clone(),
             socket: socket.to_path_buf(),
@@ -129,9 +133,9 @@ pub async fn deliver(pid: u32, socket: &Path, frames: &str) -> Option<Result<(),
             Some(Err("the session's inbox relay ended before it wrote the message".into()))
         }
         Err(_) => {
-            // Never written later, after the sender was told it failed and retried: a waiting
-            // job's answer is closed now, so `take` skips it with no scan here.
+            // Never written later, after the sender was told it failed and retried.
             if let Some(entry) = relays().get_mut(&pid) {
+                entry.pending.retain(|j| j.id != id);
                 entry.taken.remove(&id);
             }
             Some(Err("the session's inbox relay did not answer in time".into()))

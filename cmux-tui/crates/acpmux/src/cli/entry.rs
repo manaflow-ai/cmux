@@ -281,12 +281,6 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     }
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
-    // `events`, `log`, `logs`: a guess at `session tail`, run and named so the next call uses it.
-    let tail_alias = argv
-        .get(at)
-        .and_then(|a| a.to_str())
-        .filter(|a| aliases::TAIL.contains(a))
-        .map(str::to_owned);
     // clap keeps command names as `&'static str`; one per process.
     let name = PROGRAM.get_or_init(|| invocation.display_name.clone()).as_str();
     let build_grammar = |front_door| {
@@ -319,9 +313,6 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
         }
     };
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
-    if let Some(word) = &tail_alias {
-        eprintln!("{name}: `{word}` is `{name} session tail` (--last N, -f); running it");
-    }
     // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
     if let Some(Command::New(_)) = &cli.command
         && let Some((_, new)) = matches.subcommand()
@@ -415,10 +406,10 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             match crate::log_sink::Sink::start(out) {
                 Ok(sink) => {
                     sink.install();
-                    init_logs(logs.with_writer(sink).finish());
+                    logs.with_writer(sink).init();
                 }
                 Err(e) => {
-                    init_logs(logs.finish());
+                    logs.init();
                     tracing::warn!(
                         "no log writer thread, lines are written where they are logged: {e}"
                     );
@@ -602,13 +593,6 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
-        Some(Command::Memory(cmd)) => {
-            let json_out = cli.json;
-            match crate::cli::memory::run(cmd, json_out).await {
-                Ok(()) => Ok(()),
-                Err(e) => errors::exit_with(&e, json_out),
-            }
-        }
         Some(Command::Trigger(cmd)) => {
             let json_out = cli.json;
             match crate::cli::trigger::run(cmd, json_out).await {
@@ -719,17 +703,6 @@ fn command_index(argv: &[OsString]) -> usize {
         .unwrap_or(argv.len())
 }
 
-/// The daemon's subscriber, plus a Chrome trace (Perfetto) file when `CMUX_TRACE_FILE` is set
-/// (`perf_trace.rs`).
-fn init_logs<S>(logs: S)
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
-{
-    use tracing_subscriber::layer::SubscriberExt as _;
-    use tracing_subscriber::util::SubscriberInitExt as _;
-    logs.with(crate::perf_trace::from_env()).init();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -767,41 +740,6 @@ mod tests {
         }
         for word in ["", "unknown-command", "open-terminal-as-chat"] {
             assert!(!is_command(word), "{word}");
-        }
-    }
-
-    #[test]
-    fn an_agent_s_guess_at_a_session_s_events_runs_session_tail() {
-        use clap::Parser as _;
-        // The words an agent tried for interim-coord's events (Leo's screenshot, 2026-11-21):
-        // `events NAME --tail 25` and `log NAME`, both "unrecognized subcommand" before.
-        let parse = |args: &[&str]| {
-            let argv: Vec<OsString> =
-                std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
-            std::thread::Builder::new()
-                .stack_size(WORKER_STACK_BYTES)
-                .spawn(move || {
-                    let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{e}"));
-                    match cli.command.map(flatten) {
-                        Some(Command::Tail { session, last, follow, .. }) => {
-                            (session, last, follow)
-                        }
-                        _ => panic!("not tail"),
-                    }
-                })
-                .unwrap()
-                .join()
-                .unwrap()
-        };
-        assert_eq!(
-            parse(&["events", "interim-coord", "--tail", "25"]),
-            ("interim-coord".into(), 25, false)
-        );
-        assert_eq!(parse(&["log", "coord"]), ("coord".into(), 50, false));
-        assert_eq!(parse(&["logs", "coord", "-n", "5", "-f"]), ("coord".into(), 5, true));
-        assert_eq!(parse(&["session", "tail", "coord", "--tail", "7"]), ("coord".into(), 7, false));
-        for word in ["events", "log", "logs"] {
-            assert!(is_command(word), "{word}");
         }
     }
 

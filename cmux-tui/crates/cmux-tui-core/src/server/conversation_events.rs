@@ -137,7 +137,6 @@ pub(super) fn start(mux: Arc<Mux>, client: u64, writer: MessageWriter, start: Ev
     let (worker_mux, worker_writer) = (mux.clone(), writer.clone());
     let spawned = std::thread::Builder::new()
         .name("mux-resource-conversation-events".into())
-        .stack_size(crate::server::RESOURCE_WORKER_STACK_BYTES)
         .spawn(move || run(&worker_mux, client, &worker_writer, start));
     if spawned.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);

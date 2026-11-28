@@ -47,9 +47,7 @@
 //!   decision for no retry records `auto_resume_settled` `{turnId, why}`, so a peer that keeps
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
-//!   is the provider's whatever account asks, so the session waits where it is. After
-//!   `capacityFallbackAfter` capacity failures of one prompt (default 1), its attempts run on a
-//!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
+//!   is the provider's whatever account asks, so the session waits where it is.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
@@ -128,9 +126,6 @@ mod unread_steers;
 /// A turn the agent failed on its model goes again once, under the model's catalog id.
 mod model_reroute;
 
-/// A sustained overload goes on on a smaller model, and back once a turn there ends well.
-mod capacity_failover;
-
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -174,18 +169,10 @@ pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 /// it out?"). On 2026-11-23 18 lanes on one machine sat failed for 18 h: the 503s ran out of
 /// their four attempts (before #53115), and the 429s ran out at their fifth strike, one short of
 /// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
-/// lifts itself; a capacity wait is [`capacity_wait`]. A refused connection (`error` says
-/// `ECONNREFUSED`: the inference gateway is down, [`super::turn_errors::is_refused_connection`])
-/// is a transport error waited out the same way, with capacity's capped waits: its outage ends
-/// when the gateway listens again, which four attempts over 26 minutes may not see. Every other
-/// transport error keeps its configured attempts. Off (`[]`) stays off.
-pub(in crate::hub) fn waits_it_out(reason: RetryReason, error: &str, delays: &[u64]) -> bool {
-    let outage = match reason {
-        RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk => true,
-        RetryReason::Transport => super::turn_errors::is_refused_connection(error),
-        RetryReason::AgentExited | RetryReason::Context => false,
-    };
-    outage && !delays.is_empty()
+/// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
+pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
+    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk)
+        && !delays.is_empty()
 }
 
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
@@ -285,17 +272,8 @@ fn split_attempt(prompt_id: &str) -> (&str, usize) {
     (prompt_id, 0)
 }
 
-/// The text the agent gets for `session`'s cut turn; `reason` is the failure's
-/// [`super::turn_errors::resume_cause`]. It says when it was cut (its `lastTurn.endedAt`)
-/// and that the chat was paused until now: "You were paused because X at T; continue".
-pub(super) fn continue_text_for(session: &Session, error: &str, reason: &str) -> String {
-    let cut_at = session.meta().last_turn.as_ref().and_then(|t| t.get("endedAt")?.as_u64());
-    continue_text_at(error, reason, cut_at, super::now_ms())
-}
-
-/// [`continue_text_for`]'s words, with the cut's time and the resume's when `cut_at` (epoch ms)
-/// is known.
-fn continue_text_at(error: &str, reason: &str, cut_at: Option<u64>, now: u64) -> String {
+/// The text the agent gets; `reason` is the failure's [`super::turn_errors::resume_cause`].
+pub(super) fn continue_text(error: &str, reason: &str) -> String {
     let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
     let cause = match reason {
         "agent_exited" => "an agent process exit",
@@ -308,12 +286,8 @@ fn continue_text_at(error: &str, reason: &str, cut_at: Option<u64>, now: u64) ->
         "disk" => "the machine's disk filling up; acpmux waited until space was free again",
         _ => "an error",
     };
-    let when = cut_at.map_or_else(String::new, |at| {
-        let line = super::pause_state::resumes_line;
-        format!(" at {}; acpmux paused the chat until now ({})", line(Some(at)), line(Some(now)))
-    });
     format!(
-        "Your previous turn was cut off by {cause} ({error}){when}. Check what already \
+        "Your previous turn was cut off by {cause} ({error}). Check what already \
          finished (files, commands, messages), then continue from where it stopped. Do not \
          redo work that completed."
     )
@@ -576,12 +550,9 @@ pub(super) fn check_cut(
     session: &Session,
     after: Option<&str>,
     waiting: bool,
-    provenance: Option<&Value>,
 ) -> Result<(), RpcError> {
-    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided;
-    // a cold batch's compaction ahead of the batch (`cold_wake.rs`).
-    let rate_held = rate_compaction_runs(session)
-        || (after.is_some() && super::cold_wake::goes_ahead_of_batch(session, provenance));
+    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided.
+    let rate_held = rate_compaction_runs(session);
     match after {
         Some(cut) if waiting || !still_cut_by(session, cut, rate_held) => Err(superseded()),
         _ => Ok(()),
@@ -858,10 +829,10 @@ impl Hub {
             let delays = if context { compact_first::waits(&delays) } else { delays };
             // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
             let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
-            // A capacity outage, an account's rate limit or a refused connection is waited
-            // out, however long it lasts: never used up ([`waits_it_out`]).
+            // A capacity outage or an account's rate limit is waited out, however long it
+            // lasts: never used up ([`waits_it_out`]).
             let index = done.saturating_sub(moves);
-            let unbounded = waits_it_out(reason, &error, &delays);
+            let unbounded = waits_it_out(reason, &delays);
             let delay = if unbounded {
                 Some(capacity_wait(index, &delays, &session.id))
             } else {
@@ -942,9 +913,6 @@ impl Hub {
                 return;
             };
             if set {
-                // Its wait may shorten the chat's idle period (`idle_governor.rs`): the reaper
-                // takes the new deadline.
-                hub.idle_wake.notify_one();
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
             }
             let cut = CutTurn {
@@ -998,25 +966,6 @@ impl Hub {
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         is_pending(session.auto_resume.lock().as_ref())
-    }
-
-    /// Whether the chat's continuation waits for a deadline later than `beyond` from now, for a
-    /// reason its prompt alone answers (not the rate-limit hold, `rate_hold.rs` owns that, nor a
-    /// context compaction, which needs the harness): the chat may sleep meanwhile, its
-    /// continuation's prompt starts it again when due (`idle_governor.rs`).
-    pub(super) fn continuation_waits_far(
-        &self,
-        session: &Session,
-        beyond: std::time::Duration,
-    ) -> bool {
-        match session.auto_resume.lock().as_ref() {
-            Some(Mark::Waiting { retry: Some(r), .. }) => {
-                !matches!(r.reason, RetryReason::RateLimit | RetryReason::Context)
-                    && r.next_at != u64::MAX
-                    && r.next_at > super::now_ms().saturating_add(beyond.as_millis() as u64)
-            }
-            _ => false,
-        }
     }
 
     /// Whether no continuation is pending but one whose wait is the chat's rate-limit hold
@@ -1733,16 +1682,12 @@ impl Hub {
             skip("superseded");
             return;
         }
-        // A sustained overload: this attempt runs on a smaller model (`capacity_failover.rs`).
-        if reason == "capacity" {
-            self.fail_over_on_capacity(session, root, attempt).await;
-        }
         let held = self.held_by(session, root, cut_turn);
         // At a rate limit's reset, what queued meanwhile goes in as the one next turn, carrying
         // this continuation's words, instead of a turn of its own before it.
         if rate
             && cut.slash.is_none()
-            && self.rate_hold_due(session, &held, continue_text_for(session, cut.error, reason))
+            && self.rate_hold_due(session, &held, continue_text(cut.error, reason))
         {
             self.clear_fired(session, cut_turn, fired_gen);
             self.append_retry(session, "auto_resume_skipped", skipped("folded"));
@@ -1771,8 +1716,7 @@ impl Hub {
             ..PromptOptions::default()
         };
         // A cut `/compact` goes again as itself: the chat still needs compacting.
-        let mut text =
-            cut.slash.map_or_else(|| continue_text_for(session, cut.error, reason), str::to_owned);
+        let mut text = cut.slash.map_or_else(|| continue_text(cut.error, reason), str::to_owned);
         // A dead agent took the steers it had not read with it (`unread_steers.rs`). A live one
         // still holds them and runs them itself (`carried_turn.rs`).
         if reason == "agent_exited" {

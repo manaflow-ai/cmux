@@ -28,7 +28,6 @@ pub mod proxy;
 pub mod rng;
 pub mod runs;
 pub mod shaper;
-pub mod timer;
 pub mod trace;
 
 pub use rng::Rng;

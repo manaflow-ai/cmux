@@ -18,7 +18,6 @@
 //! cmux quit, and in safe mode.
 
 mod brief;
-pub mod checklist;
 pub mod community;
 mod diff;
 mod engine;

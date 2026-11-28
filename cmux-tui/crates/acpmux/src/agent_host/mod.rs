@@ -29,8 +29,6 @@ pub mod host {
 #[cfg(unix)]
 pub mod custody;
 pub mod link;
-#[cfg(all(test, unix))]
-mod persisted_format_tests;
 #[cfg(unix)]
 pub(crate) mod proc_table;
 pub mod program_wait;

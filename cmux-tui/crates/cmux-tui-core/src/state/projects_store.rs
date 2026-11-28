@@ -155,8 +155,6 @@ pub(crate) fn refusals() -> Refusals {
     let home = std::fs::canonicalize(&home)
         .map_or(home, |resolved| resolved.to_string_lossy().into_owned());
     let roots = [
-        // cmux NEXT's agent-home, and the one before it had its own folder.
-        "Library/Application Support/cmux-next/agent-home",
         "Library/Application Support/cmux/agent-home",
         ".claude",
         ".codex",

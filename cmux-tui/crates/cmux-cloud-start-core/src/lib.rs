@@ -6,7 +6,6 @@
 
 pub mod agent_check;
 pub mod ask;
-pub mod balance;
 pub mod capability;
 pub mod computer_status;
 pub mod hybrid;
@@ -20,8 +19,6 @@ pub mod machine_create;
 pub mod machine_repo;
 pub mod machine_route;
 pub mod moves;
-pub mod one_pane;
 pub mod sequence;
-pub mod spare_shapes;
 pub mod start;
 pub mod vm_kind;
