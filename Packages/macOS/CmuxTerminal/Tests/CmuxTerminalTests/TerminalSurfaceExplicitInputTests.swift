@@ -28,6 +28,24 @@ private func cmuxTestGhosttyInputEventCount() -> UInt32
 @_silgen_name("cmux_test_ghostty_input_event_kind")
 private func cmuxTestGhosttyInputEventKind(_ index: UInt32) -> Int32
 
+@_silgen_name("cmux_test_ghostty_surface_size_set")
+private func cmuxTestGhosttySurfaceSizeSet(_ cellWidthPx: UInt32, _ cellHeightPx: UInt32)
+
+@_silgen_name("cmux_test_ghostty_mouse_scroll_reset")
+private func cmuxTestGhosttyMouseScrollReset()
+
+@_silgen_name("cmux_test_ghostty_mouse_scroll_call_count")
+private func cmuxTestGhosttyMouseScrollCallCount() -> UInt32
+
+@_silgen_name("cmux_test_ghostty_mouse_scroll_last_x")
+private func cmuxTestGhosttyMouseScrollLastX() -> Double
+
+@_silgen_name("cmux_test_ghostty_mouse_scroll_last_y")
+private func cmuxTestGhosttyMouseScrollLastY() -> Double
+
+@_silgen_name("cmux_test_ghostty_mouse_scroll_last_mods")
+private func cmuxTestGhosttyMouseScrollLastMods() -> Int32
+
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceExplicitInputTests {
@@ -334,6 +352,31 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.nativeView.runtimeInputDeferralCallCount == 1)
         #expect(fixture.nativeView.deferredRuntimeInputs.isEmpty)
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/24404: a phone line sent as
+    /// a discrete wheel tick is multiplied by `mouse-scroll-multiplier.discrete`
+    /// (3 by default) inside libghostty, so an alt-screen program moved three
+    /// rows per line. A precision scroll in backing pixels is divided by the
+    /// cell height instead, so one line is one row.
+    @Test func mobileScrollSendsOneRowPerLineAsAPrecisionScroll() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        cmuxTestGhosttySurfaceSizeSet(14, 32)
+        cmuxTestGhosttyMouseScrollReset()
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            cmuxTestGhosttyMouseScrollReset()
+            cmuxTestGhosttySurfaceSizeSet(0, 0)
+        }
+
+        fixture.surface.mobileScroll(deltaLines: -2, col: 0, row: 0)
+
+        #expect(cmuxTestGhosttyMouseScrollCallCount() == 1)
+        #expect(cmuxTestGhosttyMouseScrollLastMods() == 1)
+        #expect(cmuxTestGhosttyMouseScrollLastX() == 0)
+        #expect(cmuxTestGhosttyMouseScrollLastY() == -2 * 32)
     }
 
     @Test func emptyMobileScrollDoesNotNotifyPaneHost() {

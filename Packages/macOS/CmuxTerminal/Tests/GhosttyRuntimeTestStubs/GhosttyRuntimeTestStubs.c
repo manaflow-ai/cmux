@@ -653,7 +653,27 @@ bool ghostty_surface_key(void *surface, cmux_test_ghostty_input_key_s key_event)
 }
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
-void ghostty_surface_mouse_scroll(void) {}
+static uint32_t cmux_test_mouse_scroll_call_count = 0;
+static double cmux_test_mouse_scroll_last_x = 0;
+static double cmux_test_mouse_scroll_last_y = 0;
+static int cmux_test_mouse_scroll_last_mods = 0;
+void ghostty_surface_mouse_scroll(void *surface, double x, double y, int mods) {
+    (void)surface;
+    cmux_test_mouse_scroll_call_count++;
+    cmux_test_mouse_scroll_last_x = x;
+    cmux_test_mouse_scroll_last_y = y;
+    cmux_test_mouse_scroll_last_mods = mods;
+}
+void cmux_test_ghostty_mouse_scroll_reset(void) {
+    cmux_test_mouse_scroll_call_count = 0;
+    cmux_test_mouse_scroll_last_x = 0;
+    cmux_test_mouse_scroll_last_y = 0;
+    cmux_test_mouse_scroll_last_mods = 0;
+}
+uint32_t cmux_test_ghostty_mouse_scroll_call_count(void) { return cmux_test_mouse_scroll_call_count; }
+double cmux_test_ghostty_mouse_scroll_last_x(void) { return cmux_test_mouse_scroll_last_x; }
+double cmux_test_ghostty_mouse_scroll_last_y(void) { return cmux_test_mouse_scroll_last_y; }
+int cmux_test_ghostty_mouse_scroll_last_mods(void) { return cmux_test_mouse_scroll_last_mods; }
 bool ghostty_surface_needs_confirm_quit(void *surface) {
     (void)surface;
     return cmux_test_needs_confirm_quit;
@@ -796,7 +816,20 @@ bool ghostty_surface_rebuild_renderer(void *surface) {
     return cmux_test_renderer_realized_result;
 }
 void ghostty_surface_set_size(void) {}
-void ghostty_surface_size(void) {}
+static uint32_t cmux_test_surface_cell_width_px = 0;
+static uint32_t cmux_test_surface_cell_height_px = 0;
+void cmux_test_ghostty_surface_size_set(uint32_t cell_width_px, uint32_t cell_height_px) {
+    cmux_test_surface_cell_width_px = cell_width_px;
+    cmux_test_surface_cell_height_px = cell_height_px;
+}
+cmux_test_ghostty_surface_size_s ghostty_surface_size(void *surface) {
+    (void)surface;
+    cmux_test_ghostty_surface_size_s size;
+    memset(&size, 0, sizeof(size));
+    size.cell_width_px = cmux_test_surface_cell_width_px;
+    size.cell_height_px = cmux_test_surface_cell_height_px;
+    return size;
+}
 void ghostty_surface_text(void) {
     if (cmux_test_input_event_count_value < 32) {
         cmux_test_input_event_kinds[cmux_test_input_event_count_value++] = 1;
