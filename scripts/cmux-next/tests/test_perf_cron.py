@@ -1430,13 +1430,19 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
         runs = cron.linux_bench_runs("/r", "infinite-items")
-        self.assertEqual(list(runs), ["build", "suite", "all-live"])  # the build runs first, under its own cap
+        self.assertEqual(list(runs), ["build", "suite", "all-live", "glibc-build", "glibc"])  # each build first, under its own cap
+        for name in ("build", "suite", "all-live"):
+            self.assertIn("musl=1", runs[name][0])  # the shipped flavor: musl, acpmux on mimalloc
+        for name in ("glibc-build", "glibc"):
+            self.assertNotIn("musl=1", runs[name][0])
+        self.assertIn("--row-arm=glibc", runs["glibc"][0])
+        self.assertEqual(cron.part_for_row("webui.infinite_items.glibc.n1000.memory_vs_empty@linux"), "infinite-items")
         live, _, _ = runs["all-live"]
         self.assertIn("--lazy-start=off", live)  # the all-live arm, beside the product (lazy start on) suite
         self.assertIn("--row-arm=all_live", live)
         self.assertIn("counts=1000", live)
         self.assertEqual(cron.part_for_row("webui.infinite_items.all_live.n1000.memory_vs_empty@linux"), "infinite-items")
-        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only", "musl=1"])
         argv, cwd, _ = runs["suite"]
         self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
         self.assertIn("pages=0", argv)
@@ -1449,7 +1455,7 @@ class WebUiTests(unittest.TestCase):
     def test_the_linux_job_cap_covers_every_run_of_the_part(self):
         # 2026-11-17: the fixed 40-minute job cap cancelled infinite-items' build-only run three ticks running, so its
         # job left no result and the part ended yielded_out.
-        self.assertEqual(cron.linux_job_minutes("infinite-items"), 100)  # build, suite, all-live
+        self.assertEqual(cron.linux_job_minutes("infinite-items"), 160)  # build, suite, all-live, glibc-build, glibc
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
         self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
         # web-ui-god's paired rounds build the pane once, stop starting at GOD_PAIRED_DEADLINE_S, the last may run one

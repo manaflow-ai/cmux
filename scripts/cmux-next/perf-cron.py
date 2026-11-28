@@ -1416,11 +1416,18 @@ def linux_bench_runs(root, part="diff-viewer"):
         # all-live: the same 1,000 items with lazy start off (every shell started at once), in a run of its own after
         # the product arm, its rows named infinite_items.all_live.nN.* (--row-arm) beside the product's
         # infinite_items.nN.*: NOW shows what lazy start saves next to what it costs (practices gap c155dd8eab85).
+        # musl=1: every arm measures the binaries Linux users run, the musl flavor cmux-tui-build-package.yml ships
+        # (acpmux on mimalloc, cmux-tui on musl's malloc), not the runner's glibc build. glibc: the glibc build the
+        # board measured before, its rows named infinite_items.glibc.nN.* (built last, in a run of its own) so the
+        # old series stays comparable.
         script = os.path.join(root, INFINITE_ITEMS)
-        return {"build": (["bash", script, "build-only"], root or ".", {}),
-                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {}),
-                "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--lazy-start=off",
-                              "--row-arm=all_live"], root or ".", {})}
+        return {"build": (["bash", script, "build-only", "musl=1"], root or ".", {}),
+                "suite": (["bash", script, "pages=0", "days=1", "--window=5", "musl=1"], root or ".", {}),
+                "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "musl=1",
+                              "--lazy-start=off", "--row-arm=all_live"], root or ".", {}),
+                "glibc-build": (["bash", script, "build-only"], root or ".", {}),
+                "glibc": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--row-arm=glibc"],
+                          root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
