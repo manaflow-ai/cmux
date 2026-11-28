@@ -52,6 +52,7 @@
           "backend/apps/api/",
           "scripts/ci/protocol_skew_check.py",
           "scripts/ci/settings_catalog_keys.py",
+        "scripts/ci/check_huge_files.py",
           "docs/ci/cmux-next-workflow-notes/",
           "docs/ci/nightly-workflow-notes/",
           "scripts/ci/ci_process_tree.py",
