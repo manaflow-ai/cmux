@@ -241,6 +241,16 @@ struct PageFactory {
                 }
             }, defaultImage: { [weak services] in services?.settings.map { CloudNewWorkspaceSetting().defaultImage(in: $0.snapshot.root) } }) // rebuilt when stale
         provider.environments = environments
+        provider.vault = SettingsVault(
+            available: { [weak services] in services.map { !$0.registry.disabledFeatures.contains(.cloud) && $0.cloud.mayCallCloud } ?? false },
+            send: { [weak services] action, params in
+                guard let services, let connection = services.machines.local.connection,
+                      let platform = services.cloud.configuration.artifactsAPIBaseURL() else { throw DaemonError.notConnected }
+                let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
+                let token = try await services.cloud.installIdentity.accessToken(team: team).accessToken
+                return try await connection.request(VaultEnvRequest(action: action, params: params, platformOrigin: platform.absoluteString,
+                                                                    accessToken: token), timeout: .seconds(30))
+            })
         provider.allotment = CloudAllotmentPage(
             available: { [weak cloud, weak settings] in settings?.snapshot.teamCompute == true && cloud?.auth.isSignedIn == true },
             get: { [weak cloud] in try JSONEncoder().encode(await cloud?.appOps("cloud.allotment.get", .object([:]), nil, .script)) })
