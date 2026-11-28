@@ -282,6 +282,28 @@ class ForPathsRunTest(unittest.TestCase):
         self.assertIn('"seconds": 0.25', got.stdout)
         self.assertIn('"measured": "bench"', got.stdout)
 
+    @staticmethod
+    def counted(run: str, budget_work: float = 100.0) -> str:
+        return f'[[area]]\nname = "t"\npaths = ["zz-run"]\nrun = ["""{run}"""]\nbudget_work = {budget_work}\n'
+
+    def test_counted_work_over_its_budget_fails(self):
+        got = self.run_cli(self.counted("echo bench_work=250 bytes_per_row", 100))
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("bytes_per_row", got.stderr)
+        self.assertIn("over its 100 bytes_per_row budget", got.stderr)
+
+    def test_counted_work_under_its_budget_passes_after_one_run(self):
+        got = self.run_cli(self.counted("echo bench_work=60 bytes_per_row", 100), "--repeats", "3", "--json")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn('"seconds": 60.0', got.stdout)
+        self.assertIn('"measured": "bytes_per_row"', got.stdout)
+        self.assertIn('"repeats_s": [\n        60.0\n      ]', got.stdout)
+
+    def test_counted_work_that_prints_no_count_warns_and_passes(self):
+        got = self.run_cli(self.counted("echo ok"))
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertIn("fail open", got.stderr)
+
     def test_missing_bench_passes(self):
         got = self.run_cli(self.area("no-such-bench-tool-zz --scale 10"))
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)

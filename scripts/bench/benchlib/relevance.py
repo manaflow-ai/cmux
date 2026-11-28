@@ -98,6 +98,7 @@ class Rule:
     budget: str = ""
     run: tuple[str, ...] = ()
     budget_s: float | None = None
+    budget_work: float | None = None
     situations: tuple[str, ...] = ()
     generated: bool = False
     ignore: tuple[tuple[bool, str], ...] = ()
@@ -164,8 +165,13 @@ def parse(text: str) -> list[Rule]:
             if budget_s is not None and (isinstance(budget_s, bool) or not isinstance(budget_s, (int, float))
                                          or budget_s <= 0):
                 raise MapError(f"relevance map: [[{kind}]] {name}: `budget_s` is a positive number ({budget_s!r})")
+            budget_work = entry.get("budget_work")
+            if budget_work is not None and (isinstance(budget_work, bool) or not isinstance(budget_work, (int, float))
+                                            or budget_work <= 0):
+                raise MapError(f"relevance map: [[{kind}]] {name}: `budget_work` is a positive number ({budget_work!r})")
             rules.append(Rule(kind=kind, name=name, globs=tuple(globs), order=len(rules),
                               run=tuple(run), budget_s=float(budget_s) if budget_s is not None else None,
+                              budget_work=float(budget_work) if budget_work is not None else None,
                               benches=tuple(entry.get("benches", ())), tests=tuple(entry.get("tests", ())),
                               template=entry.get("template", ""), budget=entry.get("budget", ""),
                               situations=tuple(entry.get("situations", ())), generated=kind == "unit", raw=entry))
@@ -285,12 +291,14 @@ def _area_entry(same: list[Rule]) -> dict:
     the tightest budget_s. The first entry alone dropped the second's `run` (Model picker search ran no bench)."""
     first = same[0]
     budgets = [r.budget_s for r in same if r.budget_s is not None]
+    works = [r.budget_work for r in same if r.budget_work is not None]
     return {"name": first.name, "kind": first.kind,
             "benches": list(dict.fromkeys(b for r in same for b in r.benches)),
             "tests": list(dict.fromkeys(t for r in same for t in r.tests)),
             "budget": next((r.budget for r in same if r.budget), ""),
             "run": list(dict.fromkeys(c for r in same for c in r.run)),
-            "budget_s": min(budgets) if budgets else None, "paths": []}
+            "budget_s": min(budgets) if budgets else None,
+            "budget_work": min(works) if works else None, "paths": []}
 
 
 def plan(index: Index, paths: list[str]) -> dict:
@@ -335,6 +343,10 @@ def plan(index: Index, paths: list[str]) -> dict:
 
 # A bench may print its own measurement; it beats wall time (which counts process start and the TOML load).
 MEASURED = re.compile(r"^bench_seconds=([0-9]+(?:\.[0-9]+)?)\s*$", re.M)
+# Counted work, not time (Leo, 2026-11-27: "proving correctness and perf in fast fail open ways"): a bench that counts
+# what it does (bytes sent per sidebar row, calls per frame) prints `bench_work=<n> <unit>`; an area's `budget_work`
+# is the most it may count. Work is deterministic, so one run decides: no repeats, no baseline, no noise.
+MEASURED_WORK = re.compile(r"^bench_work=([0-9]+(?:\.[0-9]+)?)\s+(\S+)\s*$", re.M)
 OVER, OK, MISSING, ERROR, TIMEOUT = "over-budget", "ok", "missing", "error", "timeout"
 # Every repeat more than baselines.THRESHOLD over the area's nightly baseline (baselines.judge).
 REGRESSED = "regressed"
@@ -345,15 +357,19 @@ def runs_for(plan_: dict) -> list[dict]:
     out: dict[str, dict] = {}
     for a in plan_["areas"]:
         for cmd in a.get("run", ()):
-            r = out.setdefault(cmd, {"cmd": cmd, "areas": [], "budget_s": None})
+            r = out.setdefault(cmd, {"cmd": cmd, "areas": [], "budget_s": None, "budget_work": None})
             r["areas"].append(a["name"])
+            if a.get("budget_work") is not None:
+                r["budget_work"] = a["budget_work"] if r["budget_work"] is None else min(r["budget_work"],
+                                                                                            a["budget_work"])
             if a.get("budget_s") is not None:
                 r["budget_s"] = a["budget_s"] if r["budget_s"] is None else min(r["budget_s"], a["budget_s"])
     return list(out.values())
 
 
-def _measure(cmd: str, timeout: float, root: Path) -> tuple[str, float | None, str, str]:
-    """One run of a bench command: (status, seconds, how it was measured, detail)."""
+def _measure(cmd: str, timeout: float, root: Path, work: bool = False) -> tuple[str, float | None, str, str]:
+    """One run of a bench command: (status, seconds or counted work, how it was measured, detail). `work`: the command
+    counts (`bench_work=<n> <unit>`); how is then the unit, and a command that prints no count is an error (warns)."""
     t = time.perf_counter()
     try:
         res = subprocess.run(["bash", "-c", cmd], cwd=root, capture_output=True, text=True, timeout=timeout)
@@ -367,6 +383,11 @@ def _measure(cmd: str, timeout: float, root: Path) -> tuple[str, float | None, s
         return MISSING, None, "", tail[0][:200]
     if res.returncode != 0:
         return ERROR, None, "", f"exit {res.returncode}: {tail[0][:200]}"
+    if work:
+        counted = MEASURED_WORK.findall(res.stdout)
+        if not counted:
+            return ERROR, None, "", "no `bench_work=<n> <unit>` line in the output"
+        return OK, float(counted[-1][0]), counted[-1][1], ""
     found = MEASURED.findall(res.stdout)
     return OK, (float(found[-1]) if found else wall), ("bench" if found else "wall"), ""
 
@@ -375,13 +396,14 @@ def run_one(run: dict, timeout: float, root: Path = ROOT, repeats: int = 1) -> d
     """Run one bench command `repeats` times (stopping at the first run that does not measure). Only a measured
     result over its budget is OVER, judged on the median; a missing tool, an error or a timeout under no budget is
     a warning (fail open). `repeats_s` keeps every measurement for the baseline rule (baselines.judge)."""
-    budget = run["budget_s"]
+    work = run.get("budget_work") is not None
+    budget = run["budget_work"] if work else run["budget_s"]
     reps: list[float] = []
     how = ""
-    for _ in range(max(1, repeats)):
-        status, seconds, how_, detail = _measure(run["cmd"], timeout, root)
+    for _ in range(1 if work else max(1, repeats)):
+        status, seconds, how_, detail = _measure(run["cmd"], timeout, root, work)
         if status == TIMEOUT:
-            status = OVER if budget is not None and seconds > budget else TIMEOUT
+            status = OVER if budget is not None and not work and seconds > budget else TIMEOUT
             return {**run, "status": status, "seconds": round(seconds, 4), "repeats_s": reps, "detail": detail}
         if status != OK:
             return {**run, "status": status, "seconds": None, "repeats_s": reps, "detail": detail}
@@ -402,7 +424,8 @@ def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT, repeats: i
     from . import baselines
     for r in results:
         value, area = baselines.lookup(baseline_docs, r["areas"], r["cmd"])
-        verdict = baselines.judge(r.get("repeats_s") or [], value) if r["status"] in (OK, OVER) else \
+        verdict = baselines.judge(r.get("repeats_s") or [], value) \
+            if r["status"] in (OK, OVER) and r.get("budget_work") is None else \
             baselines.NO_MEASURE
         r.update(baseline_s=value, baseline_area=area or None, verdict=verdict)
         if verdict == baselines.REGRESSED and r["status"] == OK:
