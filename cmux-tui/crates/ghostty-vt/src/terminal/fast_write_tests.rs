@@ -171,3 +171,55 @@ fn plain_and_colored_frames_match_the_reference_at_every_cut() {
         assert_eq!(fast.vt_replay_bytes().ok(), reference.vt_replay_bytes().ok(), "{frame_len}");
     }
 }
+
+/// `step_if_unchanged` agrees with the normalizer on every byte from every
+/// code point state: it steps exactly the bytes the normalizer copies, to
+/// the same state, and refuses the ones it replaces.
+#[test]
+fn the_unchanged_step_matches_the_normalizer_on_every_byte() {
+    use super::super::vt_boundary::C1Normalizer;
+    for remaining in 0..=3u8 {
+        for byte in 0..=u8::MAX {
+            let mut stepped = C1Normalizer { utf8_remaining: remaining };
+            let mut normalized = C1Normalizer { utf8_remaining: remaining };
+            let unchanged = normalized.normalize_reference(&[byte]).as_ref() == [byte];
+            assert_eq!(stepped.step_if_unchanged(byte), unchanged, "{remaining} {byte:#04x}");
+            if unchanged {
+                assert_eq!(
+                    stepped.utf8_remaining, normalized.utf8_remaining,
+                    "{remaining} {byte:#04x}"
+                );
+            } else {
+                assert_eq!(stepped.utf8_remaining, remaining, "{remaining} {byte:#04x}");
+            }
+        }
+    }
+}
+
+/// Frames cut inside an SGR's parameters or a code point resume the
+/// neutral scan after finishing the cut sequence, and still match the
+/// reference byte for byte.
+#[test]
+fn frames_that_start_inside_a_cut_sequence_match_the_reference() {
+    let mut bytes = Vec::new();
+    for line in 0..200 {
+        bytes.extend_from_slice(format!("\x1b[38;5;{}mword{line} ", line % 256).as_bytes());
+        bytes.extend_from_slice("日本→🙂".as_bytes());
+        bytes.extend_from_slice(b"\x1b[0m\r\n");
+    }
+    for frame_len in [3, 5, 7, 11, 13, 64, 65, 127] {
+        let mut fast = Terminal::new(30, 6, 4096, Callbacks::default()).unwrap();
+        let mut reference = Terminal::new(30, 6, 4096, Callbacks::default()).unwrap();
+        for (index, frame) in bytes.chunks(frame_len).enumerate() {
+            let accepted = fast.vt_write_with_normalized(frame).into_owned();
+            let expected = reference.vt_write_with_normalized_reference(frame).into_owned();
+            assert_eq!(accepted, expected, "len {frame_len} frame {index}");
+            assert_eq!(state(&fast), state(&reference), "len {frame_len} frame {index}");
+        }
+        assert_eq!(
+            fast.vt_replay_bytes().ok(),
+            reference.vt_replay_bytes().ok(),
+            "len {frame_len}"
+        );
+    }
+}

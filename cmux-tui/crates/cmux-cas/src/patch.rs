@@ -11,7 +11,10 @@
 //! - `d/<manifest id>.json`: the [`List`] of those patches with their lengths, so a client asks
 //!   only for patches that exist.
 //!
-//! Names are content ids, so every object is write-once. A patch is never trusted: the client
+//! Patch names are content ids, so every patch is write-once. The list is named by its manifest,
+//! not its bytes: its patches depend on the bases a run held, so a later run of the same tree can
+//! write another list. The first one stays (the publish workflow keeps it on a write-once
+//! conflict); it names only patches its run wrote, so it stays a true hint. A patch is never trusted: the client
 //! decodes it against the base file it holds and keeps the result only when it hashes to `to`;
 //! the list is a hint that can waste a request but never changes a byte. Pairing (same path,
 //! else the same path with its build hash taken out) is the publisher's alone, so it can change
