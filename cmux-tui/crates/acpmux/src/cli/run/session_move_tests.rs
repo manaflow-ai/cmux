@@ -64,12 +64,30 @@ fn the_targets_answer_is_taken_only_as_plain_absolute_paths() {
 
 #[test]
 fn a_named_target_must_be_an_ssh_peer() {
-    let peers = json!({"peers": [{"name": "gcp-1", "url": "ssh://gcp-1"}, {"name": "web", "url": "wss://x"}]});
+    let peers = json!({"peers": [{"name": "gcp-1", "url": "ssh://gcp-1"}, {"name": "-oProxy", "url": "wss://x"}]});
     assert!(Targets::new("gcp-1", &peers).is_ok());
     assert!(Targets::new("GCP-1", &peers).is_ok(), "peer names match case-blind");
-    let e = Targets::new("web", &peers).err().unwrap().to_string();
-    assert!(e.contains("not an ssh peer"), "{e}");
+    let e = Targets::new("-oProxy", &peers).err().unwrap().to_string();
+    assert!(e.contains("reachable over ssh"), "{e}");
+    let e = Targets::new("nowhere", &peers).err().unwrap().to_string();
+    assert!(e.contains("reachable over ssh"), "{e}");
     assert!(Targets::new("auto", &peers).is_ok());
+}
+
+/// A hub peer (no url: lane VMs on every machine) is reached over ssh by its name, the way the
+/// fleet's origins reach them; an `ssh://` url still wins, and a name ssh would read as an
+/// option never becomes a destination.
+#[test]
+fn a_hub_peer_is_reached_over_ssh_by_its_name() {
+    let hub = json!({"name": "lane-vm-5", "via": "hub", "connected": true});
+    assert_eq!(move_ssh(&hub).as_deref(), Some("lane-vm-5"));
+    let ssh = json!({"name": "mini", "url": "ssh://cmux@mini-3:2222"});
+    assert_eq!(move_ssh(&ssh).as_deref(), Some("cmux@mini-3"));
+    assert_eq!(move_ssh(&json!({"name": "-oProxyCommand=x", "via": "hub"})), None);
+    assert_eq!(move_ssh(&json!({"name": "a b", "via": "hub"})), None);
+    let peers = json!({"peers": [hub, {"name": "lane-vm-1", "via": "hub"}]});
+    assert!(Targets::new("lane-vm-1", &peers).is_ok());
+    assert_eq!(peer_ssh(&peers, "LANE-VM-5").as_deref(), Some("lane-vm-5"));
 }
 
 fn about_ok(free_gb: Option<u64>) -> RemoteDaemon {
