@@ -1414,7 +1414,7 @@ pub fn capacity_retry_after(error: &str) -> Option<Duration> {
     // exhausted pool waits even unnamed.
     let wait = cmux_upstream_error::retry_after(error);
     let exhausted = error.to_ascii_lowercase().contains("no non-exhausted");
-    if !(exhausted || (cmux_upstream_error::is_capacity(error) && wait.is_some())) {
+    if !(exhausted || cmux_upstream_error::is_capacity(error) && wait.is_some()) {
         return None;
     }
     Some(wait.unwrap_or(CAPACITY_DEFAULT_WAIT))
