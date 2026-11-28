@@ -7,12 +7,18 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ContextRing } from "../src/agent-session/acpmux/ComposerPickers";
-import { ContextSection } from "../src/agent-session/acpmux/session-info/ContextSection";
-import { contextBreakdown } from "../src/agent-session/acpmux/session-info/contextSectionModel";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { COMPACT_PROMPT, compactThrough } from "../src/agent-session/acpmux/conversation/turnActions";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { ContextRing } = await importWithDom(() => import("../src/agent-session/acpmux/ComposerPickers"));
+const { ContextSection } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/ContextSection"));
+const { contextBreakdown } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/contextSectionModel"),
+);
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { COMPACT_PROMPT, compactThrough } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turnActions"),
+);
 
 const BREAKDOWN = {
   categories: [

@@ -170,7 +170,7 @@ Worker was deployed before its database migration; the message names it), `membe
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?, machineId?, siblingDeviceIds?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,machineId?,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`). `machineId` (added 2026-10-21, "Machine id" above; every Mac list, `hello` and `presence` carries it, and omits the key for a Mac that has none) is a Mac's only: 32 lowercase hex digits, else `400`; omitted keeps the stored one. `siblingDeviceIds` (with `machineId`, at most 16 UUIDs) are the device ids of other cmux builds found on the same Mac (their `device-id` files): each that is a Mac of the caller with no machine id yet gets this one, so a deleted build's record is listed as that computer's; another owner's device, a phone or a Mac that reported its own machine id is never changed |
 | `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
-| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 30 s while its active team has an online Mac; while it has none, every 4 s for a minute, then doubling back to 30 s; a request that fails backs off 8, 16, 32, then 60 s and never counts as "no Mac online"; a presence frame or network change looks at once but keeps the backoff, wakes in a row spaced 4, 8, 16, then 30 s apart; `MacDiscoveryPoll`) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
@@ -1213,6 +1213,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   JSON never starts with `0x00`, and the lengths say where the envelope ends
   among the frames and bound its inflate (hostd `link_deflate.rs`, phone
   `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+
+  **acpmux compression (`zstd-stream-v1`, added 2026-11-24, backward compatible).**
+  A phone that also sends `"compressions":"zstd-stream-v1,deflate"` (a JSON array
+  of names reads the same) gets every message from a Mac that lists
+  `zstd-stream-v1` (Capabilities), any size, through one zstd stream kept for
+  the channel's life: level 3, a 1 MiB window (window log 20), no checksum, no
+  dictionary, flushed after each message. Each message is one envelope:
+  `0x01`, the text length (u32 big-endian), the zstd length (u32 big-endian),
+  then the flushed zstd bytes. JSON never starts with `0x01`. The envelopes
+  decode only in order, each after every earlier one on the channel; the
+  phone's decoder refuses a window over 1 MiB, a text over 64 MiB and any
+  envelope that does not decode to exactly its text length, and a refusal
+  loses the context, so the phone closes the channel and opens a new one
+  (hostd `link_zstd.rs`, codec cmux-mobile-link `zstd_stream.rs`, phone
+  cmux-mobile-link-ffi `ZstdStreamDecoder`). A Mac before it reads only
+  `compression` and sends deflate envelopes or text; a phone that sends no
+  `compressions` gets those as before. Chat events are mostly under deflate's
+  16 KiB floor and crossed as text; through the stream they cost about 15 % of
+  their raw bytes (real acpmux session events, 2026-11-24).
+
+  Keeping context across messages is WebSocket permessage-deflate's context
+  takeover: a message that repeats something sent earlier on the channel comes
+  out smaller, so its size can hint that it repeats earlier content. Only the
+  link's endpoints see the plaintext; an observer of the WireGuard tunnel sees
+  encrypted datagram sizes, which deflate already made content-dependent per
+  message, and the phone never sends attacker-chosen text into the Mac's
+  stream (it compresses only the Mac's messages to the phone). See SECURITY.md.
   The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
   newest page, and the phone is ready with it; the rest comes from
   `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
@@ -1782,6 +1809,8 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `phone-page-v1` | hostd `version` | (2026-11-24) The host routes agents' `browser.page.*` calls to a tab the phone shows itself (`phone-page`, the phone opens it; RFD 0089). |
 | `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
 | `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
+| `zstd-stream-v1` | hostd `version` | (2026-11-24) An `acpmux` channel opened with `args.compressions` listing `zstd-stream-v1` carries every message through one zstd stream kept for the channel's life (`0x01` envelopes, PROTOCOL.md "acpmux compression"). |
+| `api-describe-v1` | hostd `version` | (2026-11-27) The host serves `api`: every method a phone may call on this Mac with its JSON Schemas (`list`, `describe`, `llms`), so a phone checks what this Mac answers instead of its version (cmux-mobile-api). |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |

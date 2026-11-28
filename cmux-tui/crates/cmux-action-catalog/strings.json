@@ -23439,6 +23439,29 @@
     "vi": "Đổi tên phiên tác tử…",
     "zh-Hans": "重命名代理会话…",
     "zh-Hant": "重新命名代理工作階段…"
+   },
+   "action.agentPane.openLastTurnChanges": {
+    "ar": "فتح تغييرات الدور الأخير",
+    "bs": "Otvori promjene zadnjeg poteza",
+    "da": "Åbn sidste turs ændringer",
+    "de": "Änderungen des letzten Zugs öffnen",
+    "en": "Open Last Turn's Changes",
+    "es": "Abrir cambios del último turno",
+    "fr": "Ouvrir les modifications du dernier tour",
+    "it": "Apri le modifiche dell’ultimo turno",
+    "ja": "最後のターンの変更を開く",
+    "km": "បើកការផ្លាស់ប្ដូរនៃវេនចុងក្រោយ",
+    "ko": "마지막 턴의 변경 사항 열기",
+    "nb": "Åpne endringene fra siste tur",
+    "pl": "Otwórz zmiany z ostatniej tury",
+    "pt-BR": "Abrir alterações do último turno",
+    "ru": "Открыть изменения последнего хода",
+    "th": "เปิดการเปลี่ยนแปลงของรอบล่าสุด",
+    "tr": "Son turun değişikliklerini aç",
+    "uk": "Відкрити зміни останнього ходу",
+    "vi": "Mở thay đổi của lượt gần nhất",
+    "zh-Hans": "打开上一轮的更改",
+    "zh-Hant": "開啟上一輪的變更"
    }
   },
   "AgentChatMenu": {

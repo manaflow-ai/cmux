@@ -933,6 +933,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pull_request_action",
+      "params": {
+        "$ref": "#/types/PullRequestActionParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -1548,7 +1556,19 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/last",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_resources",
       "params": true,
       "result": true
     },
@@ -2891,6 +2911,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watchdog_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/heap_profile",
       "params": true,
       "result": true
@@ -3521,6 +3547,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
@@ -5415,6 +5442,10 @@
       "additionalProperties": false,
       "description": "`_acpmux/here`.",
       "properties": {
+        "includeSync": {
+          "description": "Include acknowledgement state for peers this daemon has exchanged chat state with.",
+          "type": "boolean"
+        },
         "scope": {
           "description": "Only who shows this chat or workspace; agents match by session id.",
           "type": [
@@ -5433,6 +5464,16 @@
             "$ref": "#/types/HereMember"
           },
           "type": "array"
+        },
+        "sync": {
+          "description": "Absent unless requested. Empty means no peer has exchanged yet, not globally synced.",
+          "items": {
+            "$ref": "#/types/HereSyncPeer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5448,6 +5489,34 @@
         "away"
       ],
       "type": "string"
+    },
+    "HereSyncPeer": {
+      "description": "A peer's last acknowledged chat-state vector, separate from its current connectivity.",
+      "properties": {
+        "acknowledged": {
+          "description": "Both vectors were equal at this read. A disconnected peer can still have new offline edits.",
+          "type": "boolean"
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "peer": {
+          "type": "string"
+        },
+        "unacknowledgedEdits": {
+          "description": "Local edit sequences not covered by the peer's last acknowledgement; not a chunk count.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "acknowledged",
+        "connected",
+        "peer",
+        "unacknowledgedEdits"
+      ],
+      "type": "object"
     },
     "InboxThreadParams": {
       "additionalProperties": false,
@@ -7279,6 +7348,19 @@
       "description": "`_acpmux/protocol` takes no params.",
       "type": "object"
     },
+    "PullRequestActionParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "action": true,
+        "headSha": true,
+        "sessionId": true,
+        "url": true
+      },
+      "type": "object"
+    },
     "PurgedSession": {
       "description": "A purged session: only its id is left.",
       "properties": {
@@ -8601,6 +8683,9 @@
             "null"
           ]
         },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
+        },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
           "items": {
@@ -9580,6 +9665,9 @@
             "integer",
             "null"
           ]
+        },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",

@@ -1506,6 +1506,9 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
         return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
     }
+    if let Some(ask) = msg.get(super::agent_home_pull::REQUEST_KEY) {
+        return Some(Ask::AgentHomePull(super::agent_home_pull::check_ask(ask)));
+    }
     if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
         return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
     }

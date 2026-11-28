@@ -91,7 +91,7 @@ on:
         required: true
         type: string
       layers:
-        description: "The plan's layers (web, rust, customize; comma-separated)"
+        description: "The plan's layers (app, web, rust, customize; comma-separated; app: a fleet app build of the head)"
         required: true
         type: string
       event_at:
@@ -141,6 +141,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 10 minutes for the plan, 2 for the dispatch's rate-limit wait (GH_BUDGET_WAIT_MAX_SECONDS), plus its retries.
     timeout-minutes: 15
+    env:
+      GH_HTTP_DEADLINE_S: "840"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
@@ -315,6 +317,20 @@ jobs:
             exit 0
           fi
           python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
+          # The router (pr-router.yml) posts cmux/ui-proof success at once for a head that changes nothing a user
+          # sees, and the plan's web layer is wider than that list (any webviews/ path, e.g. webviews/scripts/
+          # intro-walk*.mjs on cmux#64036): its look answered a gate that was already settled, then could not run and
+          # posted failure over the success. No look for a head the gate calls UI-free (same paths as the router).
+          if grep -q '^eligible=true' "$GITHUB_OUTPUT" && [[ "$MERGED" != true ]]; then
+            fork_point="$(git merge-base "origin/$BASE_REF" "$HEAD_SHA" 2>/dev/null || true)"
+            if [[ -n "$fork_point" ]]; then
+              mapfile -t touched < <(git diff --no-renames --name-only "$fork_point" "$HEAD_SHA" 2>/dev/null)
+              if [[ ${#touched[@]} -gt 0 && "$(python3 scripts/ci/ui_proof_verdict.py affects "${touched[@]}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["need"])')" == "" ]]; then
+                echo "eligible=false" >> "$GITHUB_OUTPUT"
+                echo "hot verify plan: ${HEAD_SHA:0:12} touches nothing cmux/ui-proof calls visual; no look" | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          fi
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
       # CI_POOL_FIRST: the dispatch goes out on a CI pool App first (each its own installation hour), then cmux-bot,
       # then the other pools, then github.token (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES).
@@ -408,6 +424,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 2 for a stalled checkout, 2 for its (again), the read and its rate-limit waits.
     timeout-minutes: 8
+    env:
+      GH_HTTP_DEADLINE_S: "420"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       pull-requests: read
@@ -520,6 +538,8 @@ jobs:
     if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.publish_web == 'true') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+    env:
+      GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       actions: write
       contents: read
@@ -768,11 +788,12 @@ jobs:
     environment: pr-media
     # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);
     # pull-requests: write edits or posts the one comment; actions: write starts one more look and finds a
-    # gallery run on the head.
+    # gallery run on the head; statuses: write posts cmux/ui-proof's failure for a look that could not run.
     permissions:
       contents: write
       pull-requests: write
       actions: write
+      statuses: write
     steps:
       # A reused pool workspace breaks this sparse checkout (see the plan job).
       - name: Drop a reused workspace's repository
@@ -921,8 +942,9 @@ jobs:
           set -euo pipefail
           python3 scripts/cmux-next/hot-verify-ci.py result --pr "$PR" --head "$HEAD_SHA" > "$RUNNER_TEMP/result.out"
           url="$(sed -n 's/^url=//p' "$RUNNER_TEMP/result.out")"
-          echo "hot verify: the fleet's look: $(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out")" | tee -a "$GITHUB_STEP_SUMMARY"
-          { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; } >> "$GITHUB_OUTPUT"
+          reason="$(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out" | head -n 1 | tr -d '\r')"
+          echo "hot verify: the fleet's look: $reason" | tee -a "$GITHUB_STEP_SUMMARY"
+          { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; echo "reason=$reason"; } >> "$GITHUB_OUTPUT"
       # The fleet step's out.tar, from the fleet artifact store's signed link (the controller's look_result): data
       # from a fleet worker, unpacked and checked below before anything is published.
       - name: Download the look's out.tar
@@ -975,6 +997,7 @@ jobs:
       # held for one API call. It goes out on the pools first, then the job's cmux-bot spare (actions: write, minted
       # above), then github.token, and waits at most 2 minutes once all are spent (#59431, goal ci-min-per-pr-30).
       - name: Dispatch one more look
+        id: again
         if: ${{ steps.check.outputs.ok == 'true' && (steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && inputs.attempt != '1' }}
         env:
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
@@ -1093,7 +1116,15 @@ jobs:
         env:
           GH_BUDGET_WAIT_MAX_SECONDS: 120
           GH_TOKEN: ${{ github.token }}
-          POST_TOKEN: ${{ env.CI_POOL_GH_TOKEN }}
+          # The record is posted as a bot App the gate trusts (proof_record.py DEFAULT_BOTS), each in turn. cmux-bot
+          # first: on 2026-11-28 (cmux#62400) the pool's token alone was refused, "Resource not accessible by
+          # integration (addComment)", since the pool Apps hold pull_requests: read only; continue-on-error read it as
+          # success and cmux/ui-proof sat pending on a look that had run. All refused: cmux/ui-proof failure, saying so.
+          POST_TOKENS: ${{ steps.cmux-bot-token.outputs.token }} ${{ env.CI_POOL_GH_TOKEN }} ${{ env.CI_POOL_GH_TOKEN_SPARES }}
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.head }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           OUT: ${{ steps.stage.outputs.out }}
@@ -1111,10 +1142,40 @@ jobs:
             --head "$HEAD_SHA" ${pushed[@]+"${pushed[@]}"} > /dev/null || rc=$?
           [[ "$rc" -le 1 ]] || echo "::warning title=hot verify::ui_proof_verdict.py record exited $rc"
           [[ -s "$OUT/proof-record.md" ]] || { echo "::warning title=hot verify::no proof record was built"; exit 0; }
-          if [[ -z "${POST_TOKEN:-}" ]]; then
-            echo "::warning title=hot verify::no pool app token: a record from github-actions[bot] is not trusted by cmux/ui-proof; none posted"
-            exit 0
-          fi
-          GH_TOKEN="$POST_TOKEN" gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/proof-record.md" || exit 1
-          python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import ui_proof_verdict as v; print(v.rerun_gate(*sys.argv[1:]))' \
-            "$GITHUB_REPOSITORY" "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 scripts/ci/ui_proof_verdict.py post-record --file "$OUT/proof-record.md" --pr "$PR" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      # A look that made no record left cmux/ui-proof pending with nothing coming to answer it: on 2026-11-27
+      # cmux#61289, #61543 and #61546 sat pending 4 h+ while each look was cancelled ("no fleet Mac took the look
+      # within 3h0m0s"), started once more and cancelled or late again, and no status said so. Leo, 2026-11-27: "we
+      # need to be fixing reds as they come instead of just waving them off". Now every result run whose look gave
+      # no record posts cmux/ui-proof failure with the look's reason (a later passing record reruns the gate, which
+      # turns it to success; a gate rerun with no record keeps it). A merge look has no gate to answer.
+      - name: Post cmux/ui-proof for a look that could not run
+        if: ${{ always() && steps.check.outputs.ok == 'true' && inputs.kind != 'merge' && (steps.result.outcome == 'failure' || steps.result.outputs.tar == 'false' || steps.stage.outcome == 'failure' || steps.stage.outputs.again == 'true' || steps.stage.outputs.nothing == 'true' || steps.stage.outputs.needs_build == 'true') }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          # github.token holds statuses: write here, but it 403s once the repo's shared hour is spent: on 2026-11-28
+          # every failure post of the result runs ("no fleet Mac took the look within 3h0m0s": #63536, #63257,
+          # #63593, #38624, #62740, #63639, #62075, #63669, #63367) was refused three rounds running and the status
+          # stayed pending for the sweep's 6 h. The sweep's pool secrets post it (ui-proof-stale-sweep.yml), so they
+          # follow github.token (ui_proof_verdict.py post_status tries each token in turn).
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.head }}
+          PR: ${{ inputs.pr }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT_OUTCOME: ${{ steps.result.outcome }}
+          REASON: ${{ steps.result.outputs.reason }}
+          TAR: ${{ steps.result.outputs.tar }}
+          STAGE_OUTCOME: ${{ steps.stage.outcome }}
+          NO_RECEIPT: ${{ steps.stage.outputs.again }}
+          NOTHING: ${{ steps.stage.outputs.nothing }}
+          NEEDS_BUILD: ${{ steps.stage.outputs.needs_build }}
+          AGAIN: ${{ steps.again.outcome }}
+        run: |
+          set -uo pipefail
+          why="$(python3 scripts/ci/ui_proof_verdict.py look-reason)"
+          again=()
+          [[ "$AGAIN" == success ]] && again=(--again)
+          python3 scripts/ci/ui_proof_verdict.py look-failed --pr "$PR" --reason "$why" ${again[@]+"${again[@]}"} | tee -a "$GITHUB_STEP_SUMMARY"

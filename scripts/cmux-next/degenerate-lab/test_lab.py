@@ -167,5 +167,36 @@ class Jobs(unittest.TestCase):
             self.assertTrue((t / "out" / "summary.md").exists())
 
 
+class PrivateTmp(unittest.TestCase):
+    """The TMPDIR the store takes: a workspace under another user's home moves it to /tmp (run 46117643851)."""
+
+    def test_own_folder_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "out"
+            got = lab.private_tmp(out)
+            if lab.ancestor_refused(got) is None and got == out / "tmp":
+                self.assertEqual(got.stat().st_mode & 0o777, 0o700)
+
+    def test_foreign_owner_moves_to_tmp(self):
+        real = lab.os.getuid
+        lab.os.getuid = lambda: real() + 4242
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.assertIn("owned by uid", lab.ancestor_refused(Path(d)) or "")
+        finally:
+            lab.os.getuid = real
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            orig = lab.ancestor_refused
+            lab.ancestor_refused = lambda p: calls.append(p) or "owned by uid 1"
+            try:
+                got = lab.private_tmp(Path(d) / "out")
+            finally:
+                lab.ancestor_refused = orig
+            self.assertEqual(got.parent, Path("/tmp"))
+            self.assertEqual(got.stat().st_mode & 0o777, 0o700)
+            got.rmdir()
+
+
 if __name__ == "__main__":
     unittest.main()
