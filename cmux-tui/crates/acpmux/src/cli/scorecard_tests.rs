@@ -59,6 +59,12 @@ fn scorecard_replay_text_names_each_violation() {
     assert!(t.contains("invariant 5 cacheAgrees at seq 9: collapsed"), "{t}");
     assert!(t.contains("nope: no such session"), "{t}");
     assert!(t.contains("1, 3 not yet"), "{t}");
+    let all = json!({"sessions": [], "missing": [], "violations": 0, "notYet": [],
+        "checked": [{"invariant": 1}, {"invariant": 2}, {"invariant": 3}, {"invariant": 4},
+            {"invariant": 5}]});
+    let t = replay_text(&all);
+    assert!(t.contains("invariants 1, 2, 3, 4, 5 checked\n"), "{t}");
+    assert!(!t.contains("not yet"), "{t}");
 }
 
 #[test]

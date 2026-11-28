@@ -1,5 +1,5 @@
 //! `cmux-vmd-guest`: the agent inside each microVM. Listens on vsock port 52 and serves ping,
-//! exec, read-file and write-file, one framed request per connection (see `cmux_vmd::proto`).
+//! exec, read-file, write-file and set-clock, one framed request per connection (see `cmux_vmd::proto`).
 //!
 //! At start it applies the `cmux.ip6=ADDR/LEN,GW` and `cmux.dns=IP` kernel parameters the host
 //! sets (IPv4 comes from the kernel's own `ip=`). Run it as root from the image's init.
@@ -121,7 +121,34 @@ mod linux {
             GuestRequest::Exec { program, args, env, cwd, stdin, timeout_ms } => {
                 exec(program, args, env, cwd, stdin, timeout_ms)
             }
+            GuestRequest::SetClock { unix_ns } => match set_clock(unix_ns) {
+                Ok(stepped_ns) => GuestResponse::Clock { stepped_ns },
+                Err(e) => err(format!("set the clock: {e}")),
+            },
         }
+    }
+
+    /// Steps `CLOCK_REALTIME` to `unix_ns`. A step, not a slew: the restored guest is behind by
+    /// the whole time it was saved, and the step is what fires every `TFD_TIMER_CANCEL_ON_SET`
+    /// waiter (cmux-host's clock-set wake). Returns how far the clock moved.
+    fn set_clock(unix_ns: u64) -> io::Result<i64> {
+        let mut was: libc::timespec = unsafe { std::mem::zeroed() };
+        // SAFETY: clock_gettime writes one timespec into `was`.
+        if unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &raw mut was) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let was_ns = u64::try_from(was.tv_sec).unwrap_or(0) * 1_000_000_000
+            + u64::try_from(was.tv_nsec).unwrap_or(0);
+        let to = libc::timespec {
+            tv_sec: libc::time_t::try_from(unix_ns / 1_000_000_000)
+                .map_err(|_| io::Error::other("time out of range"))?,
+            tv_nsec: (unix_ns % 1_000_000_000) as libc::c_long,
+        };
+        // SAFETY: clock_settime reads one fully initialised timespec.
+        if unsafe { libc::clock_settime(libc::CLOCK_REALTIME, &raw const to) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(cmux_vmd::proto::clock_step_ns(was_ns, unix_ns))
     }
 
     /// Write through a temp file made with the final mode (a 0600 secret is never readable by

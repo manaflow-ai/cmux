@@ -777,8 +777,14 @@ pub mod method {
     /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
     pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// A session's last replies, built where its log is (`server/requests/last.rs`): one
+    /// answer for `acpmux last`, never a page of its turn per round trip.
+    pub const MUX_LAST: &str = "_acpmux/last";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
+    /// CPU time and memory of one chat's agent process tree, read on request
+    /// (`server/requests/session_resources.rs`): the app's hover cards' Memory.
+    pub const MUX_SESSION_RESOURCES: &str = "_acpmux/session_resources";
     /// Read-only pages and find for a terminal pane's exact provider session.
     pub const MUX_CHAT_TRANSCRIPT_PAGE: &str = "_acpmux/chat_transcript_page";
     pub const MUX_CHAT_TRANSCRIPT_FIND: &str = "_acpmux/chat_transcript_find";
@@ -842,6 +848,8 @@ pub mod method {
     pub const MUX_AGENT_HOME_RESOLVE: &str = "_acpmux/agent_home_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
+    /// Person-facing PR chip reads, scoped to the session's checked-out branch.
+    pub const MUX_PULL_REQUEST_ACTION: &str = "_acpmux/pull_request_action";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.
@@ -1108,6 +1116,10 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// Parked waits (`parked_wait.rs`): a chat's own tool call hands its wait to the platform,
+    /// `{sessionId, toolCallId, wakeAt}`, and takes it back, `{sessionId, toolCallId}`.
+    pub const MUX_WAIT_PARK: &str = "_acpmux/wait/park";
+    pub const MUX_WAIT_UNPARK: &str = "_acpmux/wait/unpark";
     /// A session move's wait handoff (`server/bg_rearm.rs`, `rearm.rs`), versioned:
     /// `{version: 1, sessionId, waits: [Wait]}` starts each wait again here with its remaining
     /// deadline, `{version: 1, sessionId, release: [id]}` stops those of the chat's tasks that are

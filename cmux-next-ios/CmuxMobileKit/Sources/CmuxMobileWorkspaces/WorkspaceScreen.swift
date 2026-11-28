@@ -375,7 +375,16 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
             // Not from the terminal's key bar (R4-1): its keys scroll and its
             // joystick drags sideways.
             let window = view.window
-            return !NavigationPopExclusion.shared.excludes(NavigationPopExclusion.startPoint(of: recognizer, in: window), in: window)
+            let start = NavigationPopExclusion.startPoint(of: recognizer, in: window)
+            if NavigationPopExclusion.shared.excludes(start, in: window) { return false }
+            // This delegate replaces UIKit's own for the full-width content pop, so it
+            // also keeps it off views with their own sideways drag: the composer's text
+            // (a caret drag, a long draft), a wide terminal or code view, a web page.
+            if #available(iOS 26.0, *), recognizer === navigationController?.interactiveContentPopGestureRecognizer,
+               NavigationPopExclusion.startsOnOwnDrag(start, in: window) {
+                return false
+            }
+            return true
         }
     }
 }
@@ -403,10 +412,10 @@ struct WorkspaceGridHeader: View {
             .buttonStyle(.cmuxPressGlass)
             .glassEffect(.regular.interactive(), in: .circle)
             .accessibilityLabel("Workspaces")
-            // The title takes the room between Back and the filter: centered over the grid it ran
-            // under the filter ("2 of 3 t…" in the simulator's grid shot).
+            // The title takes the room between equal Back and More slots, keeping it centered.
             VStack(spacing: 1) {
                 Text(source.workspace?.title ?? "").font(.headline)
+                    .accessibilityIdentifier("workspace.grid.title")
                 // The Mac's name gives way first: the tab count says when panes are hidden.
                 HStack(spacing: 0) {
                     Text(macName).truncationMode(.tail)
@@ -416,9 +425,8 @@ struct WorkspaceGridHeader: View {
             }
             .lineLimit(1)
             .frame(maxWidth: .infinity)
-            // The pane filter, beside TabsKit's More (drawn by the grid at the trailing edge).
-            PaneFilterControl(setting: source.paneFilter, result: source.paneFilterResult)
             Color.clear.frame(width: metrics.overviewTopControl, height: 1)
+                .allowsHitTesting(false)
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)
