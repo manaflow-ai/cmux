@@ -71,8 +71,8 @@ struct PaletteFooterKeycapShots {
         context.imageInterpolation = .none
         (appearance == .aqua ? NSColor(white: 0.97, alpha: 1) : NSColor(white: 0.13, alpha: 1)).setFill()
         NSRect(x: 0, y: 0, width: w, height: h).fill()
-        let source = NSRect(x: crop.minX * scale, y: crop.minY * scale, width: crop.width * scale, height: crop.height * scale)
-        rep.draw(in: NSRect(x: 0, y: 0, width: w, height: h), from: source, operation: .sourceOver, fraction: 1,
+        // `from` is in the rep's own coordinates: points (rep.size is the footer's), not its pixels.
+        rep.draw(in: NSRect(x: 0, y: 0, width: w, height: h), from: crop, operation: .sourceOver, fraction: 1,
                  respectFlipped: false, hints: [.interpolation: NSImageInterpolation.none.rawValue])
         NSColor.systemRed.withAlphaComponent(0.8).setFill()
         NSRect(x: 0, y: (footer.bounds.midY - crop.minY) * scale * zoom - 1, width: CGFloat(w), height: 2).fill()
