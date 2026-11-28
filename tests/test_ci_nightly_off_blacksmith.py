@@ -37,9 +37,9 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
                       "pick-nightly-build-runner", "prepare-nightly-variant-primary",
                       "prepare-nightly-variant",
                       "find-nightly-next-recovery")
-# Of those, the ones on our persistent Linux pool. The other two read the routing App key, so they stay on the
-# nightly-only minis.
-CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+# Of those, the ones on our persistent Linux pool. The other three read the routing App key or the helper lookup
+# token, so they stay on the nightly-only minis.
+CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "published-build")
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 # RFD 0021 route by need: the essential ones take the nightly's reserved label on attempt 1 (no PR job can ask

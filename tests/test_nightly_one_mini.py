@@ -50,7 +50,7 @@ SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-night
            # carries both it and glaeda-nightly-mini, so the two as one array would never start.
            "nightly-next-deltas"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
-LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf", "published-build",
                    "check-nightly-webviews", "early-nightly-webviews"}

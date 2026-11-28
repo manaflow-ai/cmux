@@ -53,7 +53,7 @@ HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # The light jobs that hold no routing key run on our Linux pool, one label for every own-branch Linux job.
 CMUX_LINUX = 'cmux-linux'
-CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
+CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client',
                    'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
                    'published-build', 'check-nightly-app-store-shelf', 'check-nightly-webviews',
                    'early-nightly-webviews')
@@ -64,7 +64,10 @@ CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-c
 # ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github', 'keep-published-dsyms', 'published-in', 'wake-nightly-next-tick',
-                      'dispatch-published-in')
+                      'dispatch-published-in',
+                      # #62726: a manual note restore on the literal one-job JIT VM
+                      # (test_nightly_owned_minis_only.HOSTED_RESTORE_JOBS).
+                      'restore-historical-notes')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -107,8 +110,13 @@ OWNED_SECRET_JOBS = {
     'await-release-surface-ack': "retired (if: false); its environment is the release-surface ack, on the nightly-only pool",
     'promote-nightly-next': 'a main dispatch the signer refuses; ends on the nightly slot (test_no_signing_job_reads_an_owned_runner_variable)',
     'promote-nightly-next-acked': "retired (if: false) twin of promote-nightly-next, same route",
-    'refresh-compilation-cache': 'cache-writer credentials on main only; a nightly-only Mac build',
-    'refresh-test-compilation-cache': 'cache-writer credentials on main only; its matrix pool is the nightly-only Mac pool',
+    'refresh-compilation-caches': "the call into nightly-compilation-cache.yml (cache-writer R2 keys, attestations); "
+                                  "its runs-on input is the nightly-only Mac pool",
+    'resolve-nightly-ghostty-cli-helper': "reads NIGHTLY_HELPER_LOOKUP_TOKEN (#60803) in ci-routing-agent; decide's "
+                                          "nightly-only route, so the token never reaches cmux-linux",
+    'build-nightly-deltas': "the CI pool tokens (ci-routing-agent) for its artifact reads; the nightly-only Mac pool",
+    'visual-gate-nightly': "ci-cache-writer on main only, for the GhosttyKit R2 read; route-visual-gate-nightly's "
+                           "pick, an owned visual-gate mini",
     'build-nightly-app': 'cache, CEF and Sentry credentials for the build itself; the nightly-only Mac pool',
     'build-sign-notarize-nightly': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'recover-nightly-next-notarization': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
@@ -660,8 +668,10 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertTrue(reason.strip())
         # The hosted half keeps its reasons in one place.
-        from test_nightly_owned_minis_only import HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS
-        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_DISPATCH_JOBS))
+        from test_nightly_owned_minis_only import (HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_RESTORE_JOBS,
+                                                   HOSTED_TAIL_JOBS)
+        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_DISPATCH_JOBS)
+                         | set(HOSTED_RESTORE_JOBS))
 
     def test_a_new_secret_job_is_named_until_classified(self):
         """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""
