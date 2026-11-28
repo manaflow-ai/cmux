@@ -68,7 +68,7 @@ pub(crate) fn tools() -> Value {
         },
         {
             "name": "move_chat",
-            "description": "Move this chat between Local (this Mac), Cloud (runs in cmux Cloud and stays there) and AutoCloud (here while the Mac is up, in the Cloud while it sleeps). You may move your own chat off the Mac (to cloud or auto) only while the person's AutoCloud setting is on; bringing it back to local always needs the person. A move you may not make changes nothing and returns status needs_person with the command the person runs (cmux chat move ID --on PLACE): tell them, do not retry. Say why in reason.",
+            "description": "Move this chat between Local (this Mac), Cloud (runs in cmux Cloud and stays there) and AutoCloud (here while the Mac is up, in the Cloud while it sleeps). You may move your own chat off the Mac (to cloud or auto) only while the person's AutoCloud setting is on, and back to local at any time, also from the Cloud machine it runs on (it arrives on the Mac as auto). A move you may not make changes nothing and returns status needs_person with the command the person runs (cmux chat move ID --on PLACE): tell them, do not retry. Say why in reason.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

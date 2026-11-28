@@ -29,7 +29,7 @@ const NEXT: &str = "acpmux machine doctor";
 /// verdict and this daemon's turns, without the formula, the sessions' names
 /// (`top`) or `warning` (it names the host, which a Web or peer caller does
 /// not get).
-const PRESSURE_KEYS: [&str; 10] = [
+const PRESSURE_KEYS: [&str; 13] = [
     "ok",
     "over",
     "load1",
@@ -39,6 +39,11 @@ const PRESSURE_KEYS: [&str; 10] = [
     "pressure",
     "available_ram_fraction",
     "swap_mb_per_min",
+    // CPU busy now and its ten-minute p50 (the meter's ring): lane-place's measured
+    // lane cap reads `cpu_p50_pct` from the link (`measured_lane_cap`).
+    "cpu_busy_pct",
+    "cpu_p50_pct",
+    "cpu_window_s",
     "local_turns",
 ];
 
@@ -61,9 +66,9 @@ pub(crate) async fn host_health_with(
         "arch": std::env::consts::ARCH,
         // What kind of device this is (`cmux-device-kind`: `mac-mini`, `linux-server`), so every
         // view of a machine draws its own glyph; read once per process.
-        "device": cmux_device_kind::this_device().kind.as_str(),
+        "device": cmux_device_kind::shown_kind().as_str(),
         // The SF Symbol that kind draws, so a native view names it without a table of its own.
-        "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
+        "deviceSymbol": cmux_device_kind::shown_kind().symbol(),
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,
@@ -83,7 +88,7 @@ pub(crate) async fn host_health_with(
     if let Some(age) = pressure_age_ms() {
         v.set("pressureAgeMs", json!(age));
     }
-    let fraction = pressure["available_ram_fraction"].as_f64();
+    let fraction = pressure.get("available_ram_fraction").and_then(Value::as_f64);
     if let Some(total) = ram_total() {
         let mut ram = json!({"totalBytes": total});
         if let Some(f) = fraction {
@@ -237,7 +242,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
         "liveSessions",
     ] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
-            row[key] = v.clone();
+            row.set(key, v.clone());
         }
     }
     let peer = hub.connected_peers().into_iter().find(|p| p.name == name);
@@ -258,7 +263,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row.set("latencyMs", json!(started.elapsed().as_millis() as u64));
             if let Some(fields) = health.as_object() {
                 for (k, v) in fields {
-                    row[k.as_str()] = v.clone();
+                    row.set(k.as_str(), v.clone());
                 }
             }
             row.set("name", json!(name));
