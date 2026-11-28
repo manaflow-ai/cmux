@@ -43,12 +43,10 @@ final class ExternalOpenController {
 
     init(services: AppServices) {
         self.services = services
-        // Cloud auth's own matcher, so every callback form it accepts
-        // (host or path) reaches sign-in, never `link.open`.
+        // Cloud auth's own matcher, so every callback form it accepts (host or path) reaches sign-in, never `link.open`.
         let auth = services.cloud.auth
         router = ExternalOpenRouter(linkScheme: services.linkScheme, isAuthCallback: { auth.isCallback($0) })
-        // Files whose chat was not made go again on their own, not only with the next door's.
-        chatAttach.retry = { [weak self] urls, claimed in self?.attachToChat(urls, from: claimed) }
+        chatAttach.retry = { [weak self] urls, claimed in self?.attachToChat(urls, from: claimed) } // files whose chat was not made go again
     }
 
     /// Returns false for a URL cmux does not open (the caller refuses it).
