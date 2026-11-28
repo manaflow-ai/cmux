@@ -23,6 +23,8 @@ whole-table scan, kept as the oracle the property test compares against.
 """
 from __future__ import annotations
 
+import json
+import posixpath
 import random
 import re
 import statistics
@@ -179,6 +181,10 @@ class Index:
         self.rules = rules
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
+        # Counted work, for the flat-at-10x test (a count, not a clock, so a loaded host cannot fail it):
+        # `probes` is glob patterns tried by match(); `compiles` is globs compiled into a bucket.
+        self.probes = 0
+        self.compiles = 0
         self.situation_by_name: dict[str, list[Rule]] = {}
         # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
         # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
@@ -197,6 +203,7 @@ class Index:
         if got is None:
             got = [(r, re.compile(pattern_of(g)), spec) for r, g, spec in self.buckets.get(key, ())]
             self._compiled[key] = got
+            self.compiles += len(got)
         return got
 
     def candidates(self, path: str):
@@ -215,6 +222,7 @@ class Index:
         situations: dict[str, Rule] = {}
         steps: dict[str, Rule] = {}
         for rule, pattern, spec in self.candidates(path):
+            self.probes += 1
             if not pattern.match(path):
                 continue
             if rule.kind == "situation":
@@ -322,8 +330,7 @@ def plan(index: Index, paths: list[str]) -> dict:
                      "situations": sorted({s.name for s in sit_rules}),
                      "default": None if h.mapped else h.default_area})
     benches = sorted({b for a in areas.values() for b in a["benches"]})
-    tests = list(dict.fromkeys([t for a in areas.values() for t in a["tests"]]
-                               + [t for t in (self_test(h.path) for h in hits) if t]))
+    tests = list(dict.fromkeys(t for h in hits for t in _path_tests(h, areas)))
     defaults = sorted({index.match(p).default_area for p in unmapped})
     ci_steps = sorted({s.name for h in hits for s in h.steps})
     return {"schema": "cmux-bench/for-paths/v1", "paths": rows, "areas": list(areas.values()), "benches": benches,
@@ -458,6 +465,20 @@ def coverage(index: Index, changes: list[list[str]]) -> dict:
             "top_unchecked": sorted(unchecked.items(), key=lambda kv: -kv[1])[:25]}
 
 
+def _path_tests(h: Hit, areas: dict[str, dict]) -> list[str]:
+    """The narrowest tests that cover one path: a changed test file runs itself; else its [[area]]'s tests when the
+    area names any (hand-tuned, so it wins over the generated unit's whole-target command); else its unit's. Both
+    at once sent an updater change to `swift test --filter CmuxNextAppTests`, the whole app test target, beside the
+    update tests the area named (cmux#63214's files)."""
+    own = self_test(h.path)
+    if own:
+        return [own]
+    area = areas.get(h.area.name)["tests"] if h.area is not None else []
+    if area:
+        return area
+    return areas.get(h.unit.name)["tests"] if h.unit is not None else []
+
+
 SELF_TESTS = (re.compile(r"(?:.*/)?tests?/test_[^/]*\.py\Z"), re.compile(r".*\.test\.tsx?\Z"),
               re.compile(r".*/Tests/[^/]+/.*\.swift\Z"))
 
@@ -468,6 +489,10 @@ def self_test(path: str) -> str | None:
         return f"python3 -I {path}"
     if SELF_TESTS[1].match(path) and path.startswith("webviews/"):
         return f"bash scripts/ci/run-webviews-tests.sh {path.removeprefix('webviews/')}"
+    if SELF_TESTS[2].match(path):
+        pkg, _, rest = path.partition("/Tests/")
+        if (ROOT / pkg / "Package.swift").is_file():
+            return f"swift test --package-path {pkg} --filter {Path(rest).stem}"
     return None
 
 
@@ -512,8 +537,86 @@ def _crate_name(root: Path, crate_dir: str) -> str:
         return crate_dir.rsplit("/", 1)[-1]
 
 
+def _crate_deps(root: Path, crate_dir: str) -> set[str]:
+    """The package names a crate's Cargo.toml depends on: normal, dev and build, any target, renames resolved."""
+    try:
+        doc = tomllib.loads((root / crate_dir / "Cargo.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return set()
+    out: set[str] = set()
+    for table in [doc, *(doc.get("target") or {}).values()]:
+        for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+            for name, spec in (table.get(key) or {}).items():
+                out.add(spec.get("package", name) if isinstance(spec, dict) else name)
+    return out
+
+
+def reverse_dependents(root: Path, crate_dirs: list[str]) -> dict[str, list[str]]:
+    """crate name -> the crates that depend on it directly (a change to it can break them), across workspaces.
+
+    Direct only: a crate's own tests plus its direct dependents' tests catch the API and format breaks the
+    folder layout misses (cmux-history's Visit field broke cmux-tui-core; a new cmux-action-catalog action
+    broke cmux-palette-eval and cmux-layout-reducer), and the widest crate (cmux-process) adds 32, not 200.
+    Across workspaces: cmux-app-ffi is its own workspace and path-depends on cmux-tui's crates."""
+    crates = {_crate_name(root, d): _crate_deps(root, d) for d in crate_dirs}
+    return {name: sorted(c for c, deps in crates.items() if name in deps and c != name) for name in crates}
+
+
+def _toml(path: Path) -> dict:
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def cargo_workspace(root: Path, crate_dir: str) -> str:
+    """The folder whose Cargo.toml is the crate's workspace root, the way cargo finds it: the crate's own
+    [workspace]; else its package.workspace key; else the nearest ancestor with a [workspace] that lists it as a
+    member (and does not exclude it); else the crate alone. cmux-app-ffi and the crates it lists
+    (cmux-launch-shell, ...) are their own workspace inside cmux-tui/, so `--manifest-path cmux-tui/Cargo.toml
+    -p cmux-app-ffi` names no package."""
+    crate_dir = posixpath.normpath(crate_dir)
+    doc = _toml(root / crate_dir / "Cargo.toml")
+    if "workspace" in doc:
+        return crate_dir
+    key = (doc.get("package") or {}).get("workspace")
+    if isinstance(key, str):
+        return posixpath.normpath(posixpath.join(crate_dir, key))
+    parts = crate_dir.split("/")
+    for depth in range(len(parts) - 1, 0, -1):
+        ws = "/".join(parts[:depth])
+        ws_doc = (_toml(root / ws / "Cargo.toml") or {}).get("workspace")
+        if ws_doc is None:
+            continue
+        rel_dir = "/".join(parts[depth:])
+        excluded = any(rel_dir == posixpath.normpath(e) or rel_dir.startswith(posixpath.normpath(e) + "/")
+                       for e in ws_doc.get("exclude", []))
+        members = {posixpath.normpath(m.rstrip("/")) for pat in ws_doc.get("members", [])
+                   for m in ([pat] if not any(ch in pat for ch in "*?[")
+                             else [str(x.relative_to(root / ws)) for x in (root / ws).glob(pat)])}
+        return ws if rel_dir in members and not excluded else crate_dir
+    return crate_dir
+
+
+def cargo_test_commands(root: Path, crate_dirs: list[str]) -> list[str]:
+    """One `cargo test --manifest-path WS/Cargo.toml -p A -p B` per workspace the crates belong to."""
+    by_ws: dict[str, list[str]] = {}
+    for d in crate_dirs:
+        by_ws.setdefault(cargo_workspace(root, d), []).append(_crate_name(root, d))
+    return [f"cargo test --manifest-path {ws}/Cargo.toml " + " ".join(f"-p {c}" for c in names)
+            for ws, names in by_ws.items()]
+
+
+TOOLING_TREES = ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend", "workers", "evals", "examples",
+                 "first-party-apps", ".github", "plans", "skills", "release-notes", "design", "experiments",
+                 "Native", "ci", "persisted-formats", "Packages")
+
+
 def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[dict]:
-    """One unit per testable folder of the repo layout, with the command that tests just that folder."""
+    """One unit per testable folder of the repo layout, with the command that tests just that folder.
+
+    A Rust crate's unit also runs the tests of the crates that depend on it directly, so a unit follows the
+    import graph, not only the folder."""
     files = files if files is not None else _tracked(root)
     dirs: set[str] = set()
     for f in files:
@@ -521,17 +624,26 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         for depth in range(1, min(len(parts), 6)):
             dirs.add("/".join(parts[:depth]))
     units: list[dict] = []
+    crate_dirs = [d for d in sorted(dirs) if len(d.split("/")) >= 2 and d.split("/")[-2] == "crates"
+                  and (root / d / "Cargo.toml").is_file()]
+    rdeps = reverse_dependents(root, crate_dirs)
+    crate_dir_of = {_crate_name(root, d): d for d in crate_dirs}
 
-    def add(name: str, path: str, tests: list[str] | None = None):
-        units.append({"name": name, "paths": [path + "/**"], "tests": tests or []})
+    def add(name: str, path: str, tests: list[str] | None = None, dependents: list[str] | None = None):
+        units.append({"name": name, "paths": [path + "/**"], "tests": tests or [], "dependents": dependents or []})
+
+    # Top-level tests/*.py and friends: each is its own test (self_test), and the folder is mapped, not default.
+    if any(f.startswith("tests/") and f.count("/") == 1 for f in files):
+        units.append({"name": "tests:(top level)", "paths": ["tests/*"], "tests": [], "dependents": []})
 
     for d in sorted(dirs):
         parts = d.split("/")
         # Rust crates: cmux-tui/crates/X, cmux-next-ios/rust/crates/X, any */crates/X with a Cargo.toml.
         if len(parts) >= 2 and parts[-2] == "crates" and (root / d / "Cargo.toml").is_file():
-            workspace = "/".join(parts[:-2])
             crate = _crate_name(root, d)
-            add(f"rust:{crate}", d, [f"cargo test --manifest-path {workspace}/Cargo.toml -p {crate}"])
+            deps = rdeps.get(crate, [])
+            tests = cargo_test_commands(root, [d]) + cargo_test_commands(root, [crate_dir_of[c] for c in deps])
+            add(f"rust:{crate}", d, tests, deps)
         # Swift packages: <pkg>/Sources/<Module> and <pkg>/Tests/<Target> with a Package.swift beside them.
         elif len(parts) >= 3 and parts[-2] in ("Sources", "Tests") and (root / "/".join(parts[:-2]) / "Package.swift").is_file():
             pkg = "/".join(parts[:-2])
@@ -543,16 +655,34 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         elif len(parts) == 3 and parts[:2] == ["webviews", "src"] and (root / d).is_dir():
             add(f"web:{parts[2]}", d, [f"bash scripts/ci/run-webviews-tests.sh src/{parts[2]}"])
         # Second-level folders of the tooling trees.
-        elif len(parts) == 2 and parts[0] in ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend",
-                                              "workers", "evals", "examples", "first-party-apps", ".github",
-                                              "plans", "skills", "release-notes", "design", "experiments",
-                                              "Native", "ci", "persisted-formats") and (root / d).is_dir():
+        elif len(parts) == 2 and parts[0] in TOOLING_TREES and (root / d).is_dir():
             add(f"{parts[0].lstrip('.')}:{parts[1]}", d)
         # Rust workspace roots and language bindings.
         elif len(parts) == 2 and parts[0] == "cmux-tui" and (root / d).is_dir() and parts[1] != "crates":
             add(f"cmux-tui:{parts[1]}", d)
         elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"] and (root / d).is_dir():
             add(f"binding:{parts[2]}", d)
+        # Package roots: a folder with its own manifest owns everything under it that no narrower unit takes
+        # (Package.swift, Package.resolved, CEFShim/, Plugins/, Demo/, go.mod, ...), so a manifest or resources
+        # change runs that package's tests instead of falling back to its top-level folder.
+        elif (root / d / "Package.swift").is_file():
+            add(f"swiftpkg:{d}", d, [f"swift test --package-path {d}"] if (root / d / "Tests").is_dir() else [])
+        elif (root / d / "go.mod").is_file():
+            add(f"go:{d}", d, [f"cd {d} && go test ./..."])
+        elif (root / d / "Cargo.toml").is_file() and "crates" not in parts:
+            doc = _toml(root / d / "Cargo.toml")
+            add(f"cargo:{d}", d, [f"cargo test --manifest-path {d}/Cargo.toml"] if "package" in doc else [])
+        elif (root / d / "package.json").is_file() and "node_modules" not in parts:
+            try:
+                scripts_ = json.loads((root / d / "package.json").read_text(encoding="utf-8")).get("scripts") or {}
+            except (OSError, ValueError, AttributeError):
+                scripts_ = {}
+            add(f"node:{d}", d, [f"npm test --prefix {d}"] if "test" in scripts_ else [])
+    # Files directly in a tooling tree (scripts/foo.py, docs/x.md): the tree's top level, not its default.
+    for tree in TOOLING_TREES:
+        if any(f.startswith(tree + "/") and f.count("/") == 1 for f in files) and tree != "tests":
+            units.append({"name": f"{tree.lstrip('.')}:(top level)", "paths": [tree + "/*"], "tests": [],
+                          "dependents": []})
     return units
 
 
@@ -566,6 +696,8 @@ def render_units(units: list[dict]) -> str:
         out.append("paths = [" + ", ".join(q(p) for p in u["paths"]) + "]")
         if u["tests"]:
             out.append("tests = [" + ", ".join(q(t) for t in u["tests"]) + "]")
+        if u.get("dependents"):
+            out.append("dependents = [" + ", ".join(q(t) for t in u["dependents"]) + "]")
         out.append("")
     return "\n".join(out)
 
