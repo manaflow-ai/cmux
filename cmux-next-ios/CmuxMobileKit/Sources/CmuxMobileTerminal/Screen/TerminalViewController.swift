@@ -1430,7 +1430,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let held = tuiGridHold.heldRows
         let shown = appliedHostRows ?? model.session.remoteRows
         let pending = resizeSettle.pending?.rows == tuiRows || (claimedTUIRows == tuiRows && shown != tuiRows)
-        tuiGridHold.replayed(rows: shown, page: tuiRows, claimPending: model.isTUI && pending)
+        tuiGridHold.replayed(rows: shown, page: tuiRows, claimPending: model.isTUI && !model.session.preservesHostGrid && pending)
         if tuiGridHold.heldRows == nil {
             tuiGridHoldExpiry?.cancel()
             tuiGridHoldExpiry = nil
@@ -1526,6 +1526,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
+        if model.session.preservesHostGrid {
+            // Remember the viewport without expecting a Mac resize or its replay.
+            // An equal grid is still the Mac's, including after rotation.
+            model.session.resize(columns: size.columns, rows: size.rows)
+            return
+        }
         #if DEBUG
         // Counted so a typing test can show a keystroke sends the Mac no resize (ComposerTypingLagUITests).
         InputLatencyTrace.shared?.sample("terminal_resize_sent", ms: 0)
@@ -3146,7 +3152,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // insets; never the soft keyboard) is held: a new width (a rotation)
         // shows the page's grid, letterboxed or shifted to the cursor as it
         // is, until the Mac redraws.
-        if newTUIRows != tuiRows, model.isTUI, tuiRows > 0, columns == gridColumns {
+        if newTUIRows != tuiRows, model.isTUI, !model.session.preservesHostGrid, tuiRows > 0, columns == gridColumns {
             tuiGridHold.rowsChanged(from: tuiRows, to: newTUIRows, shownRows: appliedHostRows ?? model.session.remoteRows)
             armGridHoldExpiry()
         }
@@ -5483,6 +5489,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
 
     /// The Mac's grid is the phone's own, as sent or still on its way.
     var hostGridIsPhonesOwn: Bool {
+        guard !model.session.preservesHostGrid else { return false }
         guard let columns = appliedHostColumns ?? model.session.remoteColumns, let rows = feedHostRows else { return true }
         let grid = TerminalResizeSettle.Size(columns: columns, rows: rows)
         // The grid before the last send is the phone's only while no other
