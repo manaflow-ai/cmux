@@ -1,0 +1,374 @@
+name: nightly channel
+
+# Signs and publishes one person's own cmux NEXT build (plans/cmux-next/nightly-channel.md).
+#
+# scripts/cmux-next/nightly-channel.sh build dispatches cmux-next.yml on the
+# person's pushed branch with dev_daily=true and nightly_channel=NAME. That run
+# compiles the branch's Release app with the channel's identity
+# (.github/nightly-channels.json) and no secrets but the Chromium engine's
+# read-only key, then dispatches this workflow on nightly-next with its run id.
+# Here, on nightly-next's reviewed scripts only:
+#
+#   sign     checks that the source run is a finished channel compile started
+#            by one of the channel's actors, stamps the identity, feed and build
+#            number, signs with Developer ID (and the cmux NIGHTLY profile),
+#            signs the archive with the cmux NEXT Sparkle key. It runs no code
+#            from the app. Not notarized, like cmux NEXT DEV: Sparkle installs
+#            the update without quarantine.
+#   verify   no secrets: checks the signed app, including the diff sidecar.
+#   publish  uploads only the archive verify tested, then the channel's
+#            appcast, to <feed_base>/<channel>/ on files-next.cmux.com.
+#
+# The app follows the channel through updates.test_feed (nightly-channel.sh use)
+# and goes back with the sidebar's Use Real Feed or nightly-channel.sh off. The
+# build number is run-derived, so the next real nightly is newer than any
+# channel build.
+#
+# Run on branch nightly-next; release-next, which holds the cmux NEXT Sparkle
+# key and the feed's R2 token, deploys only to that branch. GitHub registers a
+# dispatch workflow only from the default branch, so this file is on main too;
+# a run there does nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: The cmux-next.yml channel compile run whose app to publish
+        required: true
+        type: string
+      channel:
+        description: The channel (.github/nightly-channels.json) that run compiled
+        required: true
+        type: string
+
+run-name: nightly channel ${{ inputs.channel }} · publish ${{ inputs.source_run_id }}
+
+permissions: {}
+
+jobs:
+  sign:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next'
+    name: Sign the channel build
+    environment: release-next
+    # One build per channel at a time; a newer request waits, never cancels.
+    concurrency:
+      group: nightly-channel-sign-${{ inputs.channel }}
+      cancel-in-progress: false
+    # A literal ephemeral label: this job holds the Developer ID and Sparkle keys.
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      build: ${{ steps.stamp.outputs.build }}
+      archive: ${{ steps.package.outputs.archive }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+      source_sha: ${{ steps.source.outputs.sha }}
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      CHANNEL: ${{ inputs.channel }}
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      # SUPublicEDKey of the cmux-next track (nightly.yml); the key below must derive it.
+      NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
+    steps:
+      # nightly-next's own scripts and channel list; nothing from the source branch.
+      - name: Checkout trusted signing scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check the source run
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "error: source run id '$SOURCE_RUN_ID' is not a number" >&2; exit 1; }
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          sha="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["head_sha"])' "$RUNNER_TEMP/source-run.json")"
+          python3 scripts/ci/nightly_channel.py check-source --channel "$CHANNEL" \
+            --run "$RUNNER_TEMP/source-run.json" --sha "$sha" --repo "$GH_REPO"
+          python3 scripts/ci/nightly_channel.py identity "$CHANNEL" --github-output "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Download the exact unsigned app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/channel/source"
+          gh run download "$SOURCE_RUN_ID" --repo "$GH_REPO" \
+            --name "nightly-channel-unsigned-${CHANNEL}-${SOURCE_SHA}" --dir "$RUNNER_TEMP/channel/source"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Every value Sparkle, LaunchServices and the keychain read is set here
+      # from nightly-next's channel list, whatever the branch compiled.
+      - name: Stamp the channel identity, feed and build
+        id: stamp
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          APP_NAME: ${{ steps.source.outputs.app_name }}
+          BUNDLE_ID: ${{ steps.source.outputs.bundle_id }}
+          URL_SCHEME: ${{ steps.source.outputs.url_scheme }}
+          RETURN_FEED: ${{ steps.source.outputs.return_feed }}
+          IDENTITY: ${{ steps.source.outputs.identity }}
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          archive="$(find "$RUNNER_TEMP/channel/source" -type f -name '*.zip' -print -quit)"
+          test -f "$archive"
+          root="$RUNNER_TEMP/channel/unpacked"
+          mkdir -p "$root"
+          /usr/bin/ditto -x -k "$archive" "$root"
+          app="$(find "$root" -maxdepth 2 -type d -name "$APP_NAME.app" -print -quit)"
+          test -d "$app"
+          # The key that signs the appcast must be the one the app pins.
+          derived="$(TRACK=nightly-next ./scripts/ci/nightly-sparkle-key.sh | swift scripts/derive_sparkle_public_key.swift --stdin)"
+          [[ "$derived" == "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" ]] || { echo "error: SPARKLE_NEXT_PRIVATE_KEY does not derive the cmux-next public key" >&2; exit 1; }
+          build="${GITHUB_RUN_ID}$(printf '%02d' "$GITHUB_RUN_ATTEMPT")"
+          info="$app/Contents/Info.plist"
+          pb() { /usr/libexec/PlistBuddy -c "$1" "$info"; }
+          put() { pb "Delete :$1" >/dev/null 2>&1 || true; pb "Add :$1 string $2"; }
+          put CFBundleIdentifier "$BUNDLE_ID"
+          put CFBundleName "$APP_NAME"
+          put CFBundleDisplayName "$APP_NAME"
+          put SUFeedURL "$RETURN_FEED"
+          put SUPublicEDKey "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY"
+          put CFBundleVersion "$build"
+          version="$(python3 scripts/ci/nightly_version.py marketing --track nightly-next \
+            --project-version "$(pb 'Print :CFBundleShortVersionString')" --build "$build" \
+            --next-base "$(python3 scripts/ci/nightly_version.py next-base)")"
+          put CFBundleShortVersionString "$version"
+          put CMUXCommit "$SOURCE_SHA"
+          url_type_name="$(pb 'Print :CFBundleURLTypes:1:CFBundleURLName')"
+          [[ "$url_type_name" == *.auth ]] || { echo "CFBundleURLTypes[1] is not the auth URL type: $url_type_name" >&2; exit 1; }
+          pb "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 $URL_SCHEME"
+          # cmux NIGHTLY signs in through its default scheme; cmux NEXT names its own.
+          pb "Delete :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME" >/dev/null 2>&1 || true
+          if [[ "$IDENTITY" != nightly ]]; then
+            pb "Add :LSEnvironment dict" >/dev/null 2>&1 || true
+            pb "Add :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME string $URL_SCHEME"
+          fi
+          { echo "app=$app"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
+          echo "channel $CHANNEL build $build ($version) of $SOURCE_SHA as $BUNDLE_ID"
+
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        # The app comes from an unreviewed branch: none of its code runs while
+        # this keychain exists (signing defers the sidecar handshake; verify
+        # runs it without secrets).
+        run: ./scripts/ci/signing-keychain.sh create --keychain nightly-channel.keychain
+
+      - name: Sign the app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
+          APP_PATH: ${{ steps.stamp.outputs.app }}
+          BUNDLE_ID: ${{ steps.source.outputs.bundle_id }}
+          ENTITLEMENTS: ${{ steps.source.outputs.entitlements }}
+          PROVISIONING_PROFILE: ${{ steps.source.outputs.provisioning_profile }}
+          CMUX_SIGN_SKIP_NUCLEO_FFI: "1"
+        run: |
+          set -euo pipefail
+          [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "Missing APPLE_SIGNING_IDENTITY" >&2; exit 1; }
+          team_id=7WLXT3NR37
+          rm -f "$APP_PATH/Contents/embedded.provisionprofile"
+          if [[ "$PROVISIONING_PROFILE" == true ]]; then
+            # The cmux NIGHTLY Developer ID profile for this exact App ID, as
+            # scripts/ci/nightly-next-legacy-identity.sh embeds it.
+            [[ -n "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" ]] || { echo "Missing APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" >&2; exit 1; }
+            profile="$RUNNER_TEMP/channel.provisionprofile"
+            echo "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$profile"
+            security cms -D -i "$profile" > "$RUNNER_TEMP/profile.plist"
+            profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$RUNNER_TEMP/profile.plist")"
+            [[ "$profile_app_id" == "$team_id.$BUNDLE_ID" ]] || { echo "profile targets $profile_app_id, not $team_id.$BUNDLE_ID" >&2; exit 1; }
+            cp "$profile" "$APP_PATH/Contents/embedded.provisionprofile"
+            rm -f "$profile" "$RUNNER_TEMP/profile.plist"
+          fi
+          ./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$APPLE_SIGNING_IDENTITY"
+          if [[ "$PROVISIONING_PROFILE" == true ]]; then
+            # The keychain sign-in survives only with the same App ID and keychain group.
+            codesign -d --entitlements :- "$APP_PATH" 2>/dev/null > "$RUNNER_TEMP/signed.plist"
+            [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$RUNNER_TEMP/signed.plist")" == "$team_id.$BUNDLE_ID" ]] \
+              || { echo "signed app has the wrong application-identifier" >&2; exit 1; }
+            [[ "$(/usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' "$RUNNER_TEMP/signed.plist")" == "$team_id.$BUNDLE_ID" ]] \
+              || { echo "signed app has the wrong keychain access group" >&2; exit 1; }
+          fi
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Delete the signing keychain
+        if: always()
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain nightly-channel.keychain \
+            || security delete-keychain nightly-channel.keychain >/dev/null 2>&1 || true
+
+      - name: Package the app and sign the appcast
+        id: package
+        env:
+          APP_PATH: ${{ steps.stamp.outputs.app }}
+          BUILD: ${{ steps.stamp.outputs.build }}
+          FEED_BASE: ${{ steps.source.outputs.feed_base }}
+          SPARKLE_CHANNEL: ${{ steps.source.outputs.sparkle_channel }}
+          TRACK: nightly-next
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          archive="cmux-channel-${CHANNEL}-${BUILD}.zip"
+          mkdir -p signed-handoff
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "signed-handoff/$archive"
+          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$APP_PATH")"
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+          export SPARKLE_MINIMUM_SYSTEM_VERSION SPARKLE_PRIVATE_KEY
+          # One full archive, no deltas: a channel moves one Mac to one build.
+          DOWNLOAD_URL_PREFIX="$FEED_BASE/" RELEASE_NOTES_URL="https://github.com/$GITHUB_REPOSITORY/commit/$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "$APP_PATH/Contents/Info.plist")" \
+            ./scripts/sparkle_generate_appcast.sh "signed-handoff/$archive" "channel-$CHANNEL" signed-handoff/appcast-arm64.xml
+          python3 scripts/ci/nightly_channel.py check-appcast --channel "$CHANNEL" \
+            --appcast signed-handoff/appcast-arm64.xml --build "$BUILD" --archive "$archive"
+          (cd signed-handoff && shasum -a 256 "$archive" appcast-arm64.xml > SHA256SUMS)
+          sha="$(cd signed-handoff && shasum -a 256 "$archive" | awk '{print $1}')"
+          { echo "archive=$archive"; echo "sha256=$sha"; } >> "$GITHUB_OUTPUT"
+          cat signed-handoff/appcast-arm64.xml
+
+      - name: Upload the signed app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-channel-signed
+          path: signed-handoff/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+  verify:
+    name: Verify the signed channel build
+    # No environment and no secrets: this job runs the app's diff sidecar.
+    needs: sign
+    runs-on: macos-26
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      tested: ${{ steps.verify.outputs.tested }}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CHANNEL: ${{ inputs.channel }}
+      ARCHIVE: ${{ needs.sign.outputs.archive }}
+      SIGNED_SHA256: ${{ needs.sign.outputs.sha256 }}
+      BUILD: ${{ needs.sign.outputs.build }}
+    steps:
+      - name: Checkout trusted verification scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the signed app
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-channel-signed
+          path: signed-handoff
+
+      - name: Verify the signed app
+        id: verify
+        run: |
+          set -euo pipefail
+          (cd signed-handoff && shasum -a 256 -c SHA256SUMS)
+          [[ "$(cd signed-handoff && shasum -a 256 "$ARCHIVE" | awk '{print $1}')" == "$SIGNED_SHA256" ]] \
+            || { echo "the archive is not the one sign produced" >&2; exit 1; }
+          identity="$(python3 scripts/ci/nightly_channel.py identity "$CHANNEL")"
+          field() { awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' <<<"$identity"; }
+          mkdir -p signed
+          /usr/bin/ditto -x -k "signed-handoff/$ARCHIVE" signed
+          app="signed/$(field app_name).app"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
+          plist="$app/Contents/Info.plist"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" == "$(field bundle_id)" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$BUILD" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$plist")" == "$(field return_feed)" ]]
+          ./scripts/verify-app-bundle-channel-metadata.sh "$app" "$(field identity)"
+          ./scripts/verify-diff-sidecar-artifact.sh \
+            "$app/Contents/Resources/bin/cmux-diff-sidecar" \
+            --archs "$(lipo -archs "$app/Contents/MacOS/cmux")" \
+            --require-signed
+          echo "tested=$SIGNED_SHA256" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish the channel feed
+    needs: [sign, verify]
+    if: needs.verify.outputs.tested != '' && needs.verify.outputs.tested == needs.sign.outputs.sha256
+    # The feed's R2 token; runs no code from the app.
+    environment: release-next
+    concurrency:
+      group: nightly-channel-publish-${{ inputs.channel }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      ARCHIVE: ${{ needs.sign.outputs.archive }}
+      TESTED_SHA256: ${{ needs.verify.outputs.tested }}
+      BUILD: ${{ needs.sign.outputs.build }}
+      SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
+    steps:
+      - name: Checkout trusted upload scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download the signed app
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-channel-signed
+          path: signed-handoff
+
+      - name: Publish the archive, then the appcast
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          (cd signed-handoff && shasum -a 256 -c SHA256SUMS)
+          [[ "$(cd signed-handoff && shasum -a 256 "$ARCHIVE" | awk '{print $1}')" == "$TESTED_SHA256" ]] \
+            || { echo "the archive is not the one verify tested" >&2; exit 1; }
+          python3 scripts/ci/nightly_channel.py check-appcast --channel "$CHANNEL" \
+            --appcast signed-handoff/appcast-arm64.xml --build "$BUILD" --archive "$ARCHIVE"
+          identity="$(python3 scripts/ci/nightly_channel.py identity "$CHANNEL")"
+          field() { awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' <<<"$identity"; }
+          bucket="$(field r2_bucket)"
+          prefix="$(field r2_prefix)"
+          upload() {  # <file> <key> <content-type> <cache-control>
+            NIGHTLY_NEXT_R2_BUCKET="$bucket" NIGHTLY_NEXT_R2_PREFIX="$prefix" \
+              python3 scripts/ci/nightly-next-guard.py r2-key "$bucket" "$2"
+            python3 scripts/ci/upload-r2-object.py --file "$1" --endpoint-url "$R2_ENDPOINT" \
+              --bucket "$bucket" --key "$2" --content-type "$3" --cache-control "$4"
+          }
+          upload "signed-handoff/$ARCHIVE" "$prefix$ARCHIVE" application/zip "public, max-age=31536000, immutable"
+          # The appcast goes live only after its archive is downloadable.
+          curl -fsSIL --retry 5 --retry-all-errors --retry-delay 5 -o /dev/null "$(field feed_base)/$ARCHIVE"
+          upload signed-handoff/appcast-arm64.xml "${prefix}appcast-arm64.xml" application/xml "no-cache, no-store, must-revalidate"
+          {
+            echo "### Channel $CHANNEL: build $BUILD of $SOURCE_SHA"
+            echo ""
+            echo "- feed: $(field feed_url)"
+            echo "- follow it: scripts/cmux-next/nightly-channel.sh use $CHANNEL"
+          } >> "$GITHUB_STEP_SUMMARY"

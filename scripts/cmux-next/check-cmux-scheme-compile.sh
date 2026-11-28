@@ -69,7 +69,12 @@ build() {
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
   [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
-  CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 \
+  # A nightly channel build (CMUX_SCHEME_COMPILE_EMBED_CEF=1, cmux-next.yml)
+  # ships to a person's real app, so it embeds the Chromium engine its job
+  # fetched; every other caller compiles without it.
+  local skip_cef=1
+  [[ "${CMUX_SCHEME_COMPILE_EMBED_CEF:-0}" == 1 ]] && skip_cef=0
+  CMUX_NEXT_SKIP_CEF="$skip_cef" CMUX_SKIP_ZIG_BUILD=1 \
     "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild "${xcode_args[@]}" \
     build 2>&1 | tee "$log"

@@ -1,0 +1,34 @@
+{
+  "//": "Per-person cmux NEXT update channels (plans/cmux-next/nightly-channel.md). cmux-next.yml compiles a pushed branch with the channel's identity, nightly-channel.yml signs that app on nightly-next and publishes <feed_base>/<channel>/appcast-arm64.xml, and the app follows the feed through updates.test_feed (scripts/cmux-next/nightly-channel.sh). Only a channel's actors may build it; the signer reads nightly-next's own copy of this file. scripts/ci/nightly_channel.py validates it.",
+  "schema": 1,
+  "feed_base": "https://files-next.cmux.com/nightly-next/channels",
+  "r2_bucket": "cmux-nightly-next",
+  "r2_prefix": "nightly-next/channels/",
+  "sparkle_channel": "cmux-next",
+  "identities": {
+    "nightly": {
+      "//": "cmux NIGHTLY: installs from before cmux NEXT, signed as scripts/ci/nightly-next-legacy-identity.sh does.",
+      "bundle_id": "com.cmuxterm.app.nightly",
+      "app_name": "cmux NIGHTLY",
+      "url_scheme": "cmux-nightly",
+      "entitlements": "cmux.nightly.entitlements",
+      "provisioning_profile": true,
+      "return_feed": "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+    },
+    "next": {
+      "//": "cmux NEXT (nightly.yml decide, track nightly-next): no provisioning profile.",
+      "bundle_id": "com.cmuxterm.app.nightly.cmux-next",
+      "app_name": "cmux NEXT",
+      "url_scheme": "cmux-next",
+      "entitlements": "cmux.next-dev.entitlements",
+      "provisioning_profile": false,
+      "return_feed": "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+    }
+  },
+  "channels": {
+    "leo": {
+      "identity": "nightly",
+      "actors": ["teamleaderleo"]
+    }
+  }
+}

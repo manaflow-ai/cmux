@@ -451,9 +451,13 @@ on:
         description: "Expected feat-cmux-next SHA for the scheduled dev channel"
         required: false
         default: ""
+      nightly_channel:
+        description: "With dev_daily: compile this branch's Release app for a person's update channel (.github/nightly-channels.json) instead of cmux NEXT DEV; nightly-channel.yml signs and publishes it"
+        required: false
+        default: ""
 
 run-name: >-
-  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || format('cmux-next · {0}', github.sha) }}
+  ${{ inputs.dev_daily == true && inputs.nightly_channel != '' && format('cmux NEXT channel {0} · {1}', inputs.nightly_channel, inputs.dev_daily_sha || github.sha) || inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || format('cmux-next · {0}', github.sha) }}
 
 permissions:
   contents: read
@@ -612,6 +616,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          NIGHTLY_CHANNEL: ${{ inputs.nightly_channel }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -634,10 +639,16 @@ jobs:
             # starts moves github.sha: fail without building, and the next tick
             # asks for the new tip. No snapshot ref: creating a ref at a
             # feat-cmux-next commit needs the workflows permission (HTTP 403).
-            [[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {
-              echo "error: dev_daily runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
-              exit 1
-            }
+            # A channel compile (nightly_channel) builds the branch its person
+            # pushed; the scheduled DEV daily builds only feat-cmux-next.
+            if [[ -n "$NIGHTLY_CHANNEL" ]]; then
+              python3 scripts/ci/nightly_channel.py identity "$NIGHTLY_CHANNEL" >/dev/null
+            else
+              [[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {
+                echo "error: dev_daily runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
+                exit 1
+              }
+            fi
             if [[ -n "$SAME_TREE_SHA" ]]; then
               [[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]] || {
                 echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
@@ -676,7 +687,11 @@ jobs:
               echo '| daemon | false |'
               echo '| full | false |'
               echo
-              echo '- scheduled dev-daily dispatch: the exact feat-cmux-next SHA builds the Release cmux NEXT DEV artifact in the scheme job.'
+              if [[ -n "$NIGHTLY_CHANNEL" ]]; then
+                echo "- channel $NIGHTLY_CHANNEL dispatch: the exact $GITHUB_REF SHA builds the channel's Release app in the scheme job."
+              else
+                echo '- scheduled dev-daily dispatch: the exact feat-cmux-next SHA builds the Release cmux NEXT DEV artifact in the scheme job.'
+              fi
             } >> "$GITHUB_STEP_SUMMARY"
           else
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
@@ -3307,9 +3322,37 @@ jobs:
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
       # replace the existing PR artifact.
+      # A channel build replaces a person's installed app, so it carries the
+      # Chromium engine like every nightly. The read-only key is the one
+      # ci-macos.yml gives same-repository runs; a channel run is always one
+      # (workflow_dispatch). Without the engine the build fails rather than
+      # ship an app with no browser.
+      - name: Fetch the Chromium engine for a channel build
+        id: channel-cef
+        if: github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && inputs.nightly_channel != ''
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+        run: |
+          set -euo pipefail
+          cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-cef.sh)"
+          [[ -n "$cef_dir" ]] || { echo "error: the Chromium engine is not readable here" >&2; exit 1; }
+          echo "Chromium engine at $cef_dir"
+          echo "CMUX_SCHEME_COMPILE_EMBED_CEF=1" >> "$GITHUB_ENV"
+          if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]] \
+            && host="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-remote-browser-host.sh)" && [[ -n "$host" ]]; then
+            echo "remote browser host at $host"
+            echo "CMUX_NEXT_SKIP_RB_HOST=0" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=No remote browser host::the pinned remote browser host was not readable; the channel build has none"
+            echo "CMUX_NEXT_SKIP_RB_HOST=1" >> "$GITHUB_ENV"
+          fi
+
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && (github.ref == 'refs/heads/feat-cmux-next' || inputs.nightly_channel != '') && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
@@ -3318,22 +3361,38 @@ jobs:
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
+          # A channel compile takes its app identity from .github/nightly-channels.json
+          # (the signer checks it again against nightly-next's copy) and its own
+          # artifact name, so the DEV daily publisher never sees it.
+          NIGHTLY_CHANNEL: ${{ inputs.dev_daily == true && inputs.nightly_channel || '' }}
         run: |
           set -euo pipefail
+          artifact_name="cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}"
+          if [[ -n "$NIGHTLY_CHANNEL" ]]; then
+            identity="$(python3 scripts/ci/nightly_channel.py identity "$NIGHTLY_CHANNEL")"
+            field() { awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' <<<"$identity"; }
+            CMUX_NEXT_PRODUCT_NAME="$(field app_name)"
+            CMUX_NEXT_BUNDLE_ID="$(field bundle_id)"
+            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS="$(field entitlements)"
+            CMUX_NEXT_AUTH_CALLBACK_SCHEME="$(field url_scheme)"
+            export CMUX_NEXT_PRODUCT_NAME CMUX_NEXT_BUNDLE_ID CMUX_NEXT_CODE_SIGN_ENTITLEMENTS CMUX_NEXT_AUTH_CALLBACK_SCHEME
+            artifact_name="nightly-channel-unsigned-${NIGHTLY_CHANNEL}-${DEV_DAILY_SHA}"
+          fi
           release_derived_data="$(scripts/cmux-next/release-derived-data-path.sh dev-daily-release Release)"
           scripts/cmux-next/check-cmux-scheme-compile.sh "$release_derived_data"
-          app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
+          app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name "$CMUX_NEXT_PRODUCT_NAME.app" -print -quit)"
           test -d "$app"
           scripts/cmux-next/check-app-personalities.sh "$app"
-          archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
+          archive="$RUNNER_TEMP/${artifact_name}.app.zip"
           /usr/bin/ditto -c -k --keepParent "$app" "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
 
       - name: Upload the cmux NEXT DEV Release app
         if: steps.compile-cmux-next-dev-release.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-next-dev-daily-unsigned-${{ inputs.dev_daily_sha || github.sha }}
+          name: ${{ steps.compile-cmux-next-dev-release.outputs.artifact_name }}
           path: ${{ steps.compile-cmux-next-dev-release.outputs.archive }}
           if-no-files-found: error
           retention-days: 2
@@ -3504,7 +3563,7 @@ jobs:
   # or failed handoff.
   request-cmux-next-dev-publish:
     needs: cmux-scheme-compile
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && inputs.nightly_channel == '' && needs.cmux-scheme-compile.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: Request cmux NEXT DEV publication
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -3564,6 +3623,31 @@ jobs:
           set -euo pipefail
           gh workflow run cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"
           echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID"
+
+  # A channel compile hands its exact app to nightly-channel.yml on nightly-next,
+  # the only ref whose release-next secrets hold the cmux NEXT Sparkle key. That
+  # run executes nightly-next's reviewed scripts and treats this app as data.
+  request-nightly-channel-publish:
+    needs: cmux-scheme-compile
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && inputs.nightly_channel != '' && needs.cmux-scheme-compile.result == 'success' && github.repository == 'manaflow-ai/cmux' }}
+    name: Request nightly channel publication
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch the exact source run to the channel publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          CHANNEL: ${{ inputs.nightly_channel }}
+        run: |
+          set -euo pipefail
+          gh workflow run nightly-channel.yml --repo "$GH_REPO" --ref nightly-next \
+            -f "source_run_id=$SOURCE_RUN_ID" -f "channel=$CHANNEL"
+          echo "Requested channel $CHANNEL publication for source run $SOURCE_RUN_ID"
 
   # The checks job's red sub-checks join the PR's red-checks line (pr-red-checks-comment.yml), each
   # compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.
