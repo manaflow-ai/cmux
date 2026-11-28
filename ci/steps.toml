@@ -1272,6 +1272,73 @@ run = '''
 scripts/ci/new_red_only.sh "FFI caller ratchet" -- python3 -I scripts/cmux-next/ffi_caller_ratchet.py
 '''
 
+# Three more ratchets that ran only on the feat-cmux-next tip and went red there after their changes merged green
+# (fix_causes.py, base reds of 11-21..11-28): the spawn-owner ratchet (cmux-next-guards.yml; spawn-owner-baseline.tsv
+# fixed forward 5 times), No new SwiftUI and UI text budget (cmux-next.yml checks; their allowlists fixed forward 2
+# times each). Each takes 10-15 s on a loaded 8 vCPU lane host (load 17-30). land_gate, so a pull request whose diff
+# touches what they scan runs them; the base each compares its list with is the merge commit's first parent, as the
+# tip run compares with the push's before. The crash ratchet (155 s) and crash-class (125 s) are left to the batch.
+[step.next-spawn-owner-ratchet]
+job = "linux"
+timeout = 300
+title = "Only the process owners spawn (cmux-tui)"
+about = "check-spawn-owner.py: no new raw process spawn outside cmux-process and cmux-scope, and the baseline only shrinks (the cmux-next-guards.yml step of the same name), red only when this change adds it"
+land_gate = true
+inputs = [
+  "cmux-tui/crates/**/*.rs",
+  "cmux-tui/crates/**/Cargo.toml",
+  "scripts/cmux-next/check-spawn-owner.py",
+  "scripts/cmux-next/baseline_renames.py",
+  "scripts/cmux-next/spawn-owner-baseline.tsv",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "Spawn-owner ratchet" -- python3 -I scripts/cmux-next/check-spawn-owner.py . --base-ref "$base"
+'''
+
+[step.next-no-swiftui]
+job = "linux"
+timeout = 300
+title = "No new SwiftUI (macOS UI is AppKit)"
+about = "check-no-swiftui.py: no new SwiftUI import under Packages/macOS, and the allowlist only shrinks (the cmux-next.yml checks step of the same name), red only when this change adds it"
+land_gate = true
+inputs = [
+  "Packages/macOS/**/*.swift",
+  "scripts/cmux-next/check-no-swiftui.py",
+  "scripts/cmux-next/no-swiftui-allowlist.txt",
+  "scripts/cmux-next/no-swiftui-restored.tsv",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "No new SwiftUI" -- python3 -I scripts/cmux-next/check-no-swiftui.py --base "$base" .
+'''
+
+[step.next-ui-text-budget]
+job = "linux"
+timeout = 300
+title = "UI text says only what you can act on"
+about = "check-ui-text-budget.py: no UI string over its word budget, and the allowlist only shrinks (the cmux-next.yml checks step of the same name), red only when this change adds it"
+land_gate = true
+# check-ui-text-budget.py's TABLE_ROOTS (string tables) and SCHEMA_GLOB (settings summaries and help).
+inputs = [
+  "webviews/src/**/*.xcstrings",
+  "Packages/**/*.xcstrings",
+  "cmux-next-ios/**/*.xcstrings",
+  "schemas/settings/source/*.json",
+  "scripts/cmux-next/check-ui-text-budget.py",
+  "scripts/cmux-next/ui-text-budget-allowlist.tsv",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "UI text budget" -- python3 -I scripts/cmux-next/check-ui-text-budget.py --base "$base" .
+'''
+
 [step.next-base-red-classifier]
 job = "linux"
 timeout = 300
@@ -3004,6 +3071,31 @@ rm -f "$log"
 exit "$status"
 '''
 
+# The routing half of tests/test_ci_daemon_pr_member_steps.py on its own, so a pull request that adds a member file
+# no cmux-next-acpmux/-tui-core/-tui input matches fails here. Those steps hold the same check, but a file in a new
+# directory routes none of them under --pr-scope, and a landing head's nightly gate skips them (no nightly, no
+# land_gate): cmux#38507 added acpmux/src/server/pull_request_actions/ and reddened base. `**` inputs are fine on a
+# land_gate step; the check reads git ls-files and cargo metadata, about 15 s, no build.
+[step.daemon-member-routes]
+job = "linux"
+land_gate = true
+timeout = 300
+title = "Every big daemon member's file routes its PR step"
+about = "test_ci_daemon_pr_member_steps.py: every tracked file of acpmux, cmux-tui-core and cmux-tui (and the fixtures their cmux_next_ tests read) matches an input of that member's pull-request step, red only when this change adds it"
+inputs = [
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/cmux-tui-core/**",
+  "cmux-tui/crates/cmux-tui/**",
+  "ci/steps.toml",
+  "scripts/ci/ci_steps.py",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "tests/test_ci_daemon_pr_member_steps.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Daemon member routes" -- python3 -I tests/test_ci_daemon_pr_member_steps.py DaemonPrMemberSteps.test_every_file_of_the_member_and_its_fixtures_routes_it DaemonPrMemberSteps.test_the_fixture_scan_finds_the_known_reads
+'''
+
 # The cmux_next_ daemon tests of the gate's three big members, each on the pull request that touches it. Their path
 # dependencies are most of the workspace (114 to 168 members), so routing them by every file that can break them would
 # run them on nearly every cmux-tui pull request; these steps route by the member's own files and the fixtures its
@@ -3328,6 +3420,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/*",
   "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/tests/*",
   "cmux-tui/crates/cmux-tui-core/src/tool_packs/*",
+  "cmux-tui/crates/cmux-tui-core/src/tree_wire/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions/*",
