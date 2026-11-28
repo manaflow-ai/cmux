@@ -79,6 +79,12 @@ import Testing
         var chief = launch
         chief.chiefSession = "cmux-chief-c39c6f72"
         #expect(chief.environment(inherited: [:])["CMUX_MOBILE_CHIEF_SESSION"] == "cmux-chief-c39c6f72")
+        // The app's acpmux home, where hostd stats agent tabs' logs; never inherited.
+        #expect(environment["CMUX_MOBILE_ACPMUX_HOME"] == nil)
+        #expect(launch.environment(inherited: ["CMUX_MOBILE_ACPMUX_HOME": "/x"])["CMUX_MOBILE_ACPMUX_HOME"] == nil)
+        var withHome = launch
+        withHome.acpmuxHome = "/Users/me/.acpmux"
+        #expect(withHome.environment(inherited: [:])["CMUX_MOBILE_ACPMUX_HOME"] == "/Users/me/.acpmux")
     }
 
     /// Test rigs: several hidden tagged apps on one mini each set their own
