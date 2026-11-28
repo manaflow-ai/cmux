@@ -10,7 +10,7 @@ import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineSt
 import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt,
+import { startMarks, claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt,
   journeyTextPrompt,
   journeyTextReply, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
 import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
@@ -19,7 +19,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -863,11 +863,35 @@ describe("cloud journey: leaked machine sweep", () => {
     ])).toEqual(["vm_short", "vm_short_cold", "vm_long_old", "vm_glued"]);
   });
 
-  test("never a --keep run's plain name, another name or a tag that is not a time", () => {
+  test("a --keep run's machine is the sweep's once failed past LONG_JOURNEY_MS, or idle past KEPT_JOURNEY_MS (589544f1's rollback)", () => {
+    expect(KEPT_JOURNEY_MS).toBe(7 * 24 * 3_600_000);
+    // 2026-11-28 00:17Z: the production agent test account held these two, 4/5 of its team's cap with the other members'.
+    const at = Date.UTC(2026, 10, 28, 0, 17, 0);
+    const leaked = { id: "vm_5c394603ba9c2b33e108", name: "cloud journey jr-mw8lvrpa", status: "failed", last_active_at: at };
+    const lease = { id: "vm_784c3bce74a49b4cb062", name: "lease-lease_z0_5c66c087", status: "paused", last_active_at: at - 298 * 3_600_000 };
+    expect(ids([leaked, lease], at)).toEqual(["vm_5c394603ba9c2b33e108"]);
+    const day = tagAt(now - 24 * 3_600_000), pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000), young = tagAt(now - LONG_JOURNEY_MS + 60_000);
+    const week = tagAt(now - KEPT_JOURNEY_MS - 60_000), inWeek = tagAt(now - KEPT_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "failed_old", name: `cloud journey ${pastLong}`, status: "failed" },
+      { id: "failed_gw", name: `cloud journey ${pastLong} gateway`, status: "failed", last_active_at: now },
+      { id: "failed_young", name: `cloud journey ${young}`, status: "failed" },
+      { id: "paused_day", name: `cloud journey ${day}`, status: "paused" },
+      { id: "paused_in_week", name: `cloud journey ${inWeek}`, status: "paused" },
+      { id: "paused_week", name: `cloud journey ${week}`, status: "paused" },
+      { id: "running_week_active", name: `cloud journey ${week}`, status: "running", last_active_at: now - 60_000 },
+      { id: "running_week_idle", name: `cloud journey ${week} gateway`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+      { id: "deleting", name: `cloud journey ${week}`, status: "deleting" },
+      { id: "glued", name: `cloud journey ${week}x`, status: "failed" },
+      { id: "person", name: `my cloud journey ${week}`, status: "failed" },
+    ])).toEqual(["failed_old", "failed_gw", "paused_week", "running_week_idle"]);
+  });
+
+  test("never a young --keep run's name, another name or a tag that is not a time", () => {
     const old = tagAt(now - 48 * 3600_000);
     expect(ids([
       { id: "vm_kept", name: `cloud journey ${old}`, status: "paused" },
-      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "failed" },
+      { id: "vm_kept_gw", name: `cloud journey ${tagAt(now - 5 * 3600_000)} gateway`, status: "failed" },
       { id: "vm_dev", name: "dev machine", status: "paused" },
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
@@ -3690,6 +3714,16 @@ open(out, 'w').write(json.dumps(seen))
     expect(seen[2].params._meta.acpmux.promptId).toMatch(/^[0-9a-f-]{36}$/);
     // The send's W3C trace id rides the prompt (cmux#55505 perf_trace.rs reads params._meta.traceId).
     expect(seen[2].params._meta.traceId).toBe("0af7651916cd43dd8448eb211c80319c");
+  });
+  test("the start prints its own marks, in order, which startMarks reads as start_ parts", { timeout: 30_000 }, () => {
+    const { r } = runPrompted(true);
+    const marks = startMarks(r.stdout);
+    expect(Object.keys(marks)).toEqual(["start_connected", "start_initialized", "start_session_new", "start_prompt_accepted"]);
+    const v = Object.values(marks);
+    for (let i = 1; i < v.length; i++) expect(v[i]).toBeGreaterThanOrEqual(v[i - 1]);
+  });
+  test("startMarks keeps the first of a retried mark and ignores other lines", () => {
+    expect(startMarks("@@mark connected 5\n@@retry x\n@@mark connected 2100\n@@mark session_new 9000\nnoise @@mark x 1\n")).toEqual({ start_connected: 5, start_session_new: 9000 });
   });
   test("a trace id that is not 32 lowercase hex never reaches the program", () => {
     const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", "hi", "x'; rm -rf /; '");
