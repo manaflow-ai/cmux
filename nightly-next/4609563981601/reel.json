@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "build": "4609563981601",
+  "notes": "notes/4609563981601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 62398,
+      "title": "webviews: a live line with nothing after its prompt names its wait, never a bare Thinking for good",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/62398/hv-96efcf4bc116-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 63047,
+      "title": "acpmux: a broker read the GraphQL pool refuses runs over REST when core has calls",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/63047/hv-9e3a9aca910d-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 63050,
+      "title": "ci_receipt: a lane push with no receipt tells the controller why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62742,
+      "title": "cmux-next checks: fix the web bundle key inputs and web coalesce reds on base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 61774,
+      "title": "Sidebar: draw a pinned workspace's status on its tile in place, with no list layout",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62811,
+      "title": "#59858: sent images keep their shape and draw sharp",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63195,
+      "title": "ios verify: an unjustified screen change over 1% fails the proof",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
