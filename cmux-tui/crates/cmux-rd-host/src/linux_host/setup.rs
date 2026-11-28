@@ -204,28 +204,28 @@ pub fn display_unit(xvfb: &Path, display: u32) -> String {
     )
 }
 
-/// The user unit of the desktop session on the virtual display: a window manager and a
-/// terminal, so a viewer sees a desktop to work in, never an empty root window that draws
-/// nothing (Leo, 2026-11-18: "i should be able to see into any connected mac or linux machine").
+/// The user unit of the desktop session on the virtual display: a window manager, and (its own
+/// unit, [`TERMINAL_UNIT`]) a terminal when the display shows nothing else, so a viewer sees a
+/// desktop to work in, never an empty root window that draws nothing (Leo, 2026-11-18: "i
+/// should be able to see into any connected mac or linux machine").
 pub const SESSION_UNIT: &str = "cmux-screen-session.service";
+/// The session's terminal, started by [`ensure_virtual_display`] only while no app shows a
+/// window there: started with the session unconditionally it opened over the app already on the
+/// display (an agent's browser) and took the clicks aimed at it (cmuxterm-hq
+/// goals/computer-use-click-lands.md: every take-over click missed, under a `cmux@cmux: ~` xterm).
+pub const TERMINAL_UNIT: &str = "cmux-screen-terminal.service";
 /// The X class of the session's own terminal: [`display_in_use`] does not count it as an app.
 pub const SESSION_TERMINAL_CLASS: &str = "CmuxDesktop";
 
 /// `cmux-screen-session.service` for display `:display`: `wm` (an absolute path, e.g.
-/// openbox-session) and, when there is one, a terminal of class [`SESSION_TERMINAL_CLASS`]. It
-/// starts and stops with the display (`PartOf=`), so an idle display still stops.
-pub fn session_unit(wm: &Path, terminal: Option<&Path>, display: u32) -> String {
-    let terminal = terminal.map_or(String::new(), |t| {
-        format!(
-            "ExecStartPost=/bin/sh -c 'sleep 1; setsid {} -class {SESSION_TERMINAL_CLASS} -geometry 160x48+40+40 -e \"$${{SHELL:-/bin/bash}}\" -l >/dev/null 2>&1 &'\n",
-            t.display()
-        )
-    });
+/// openbox-session). It starts and stops with the display (`PartOf=`), so an idle display still
+/// stops.
+pub fn session_unit(wm: &Path, display: u32) -> String {
     format!(
         "# cmux desktop session: written by `cmux-rd linux-host enable` beside the virtual display,\n\
-         # so a viewer sees a window manager and a terminal (src/linux_host/setup.rs).\n\
+         # so a viewer sees a window manager (src/linux_host/setup.rs).\n\
          [Unit]\n\
-         Description=cmux desktop session on :{display} (window manager and terminal)\n\
+         Description=cmux desktop session on :{display} (window manager)\n\
          PartOf={DISPLAY_UNIT}\n\
          After={DISPLAY_UNIT}\n\
          \n\
@@ -234,13 +234,34 @@ pub fn session_unit(wm: &Path, terminal: Option<&Path>, display: u32) -> String 
          Environment=DISPLAY=:{display}\n\
          ExecStartPre=/bin/sh -c 'for i in $$(seq 1 100); do [ -S /tmp/.X11-unix/X{display} ] && exit 0; sleep 0.1; done; exit 1'\n\
          ExecStart={}\n\
-         {terminal}\
          Restart=on-failure\n\
          RestartSec=2\n\
          \n\
          [Install]\n\
          WantedBy={DISPLAY_UNIT}\n",
         wm.display()
+    )
+}
+
+/// `cmux-screen-terminal.service` for display `:display`: `terminal` with class
+/// [`SESSION_TERMINAL_CLASS`] and a login shell. Not enabled: [`ensure_virtual_display`] starts
+/// it when the display has no app window; it stops with the display, and a closed terminal stays
+/// closed until the display shows nothing again.
+pub fn terminal_unit(terminal: &Path, display: u32) -> String {
+    format!(
+        "# cmux desktop session's terminal: written by `cmux-rd linux-host enable`, started by the\n\
+         # host only while no app shows a window on :{display} (src/linux_host/setup.rs).\n\
+         [Unit]\n\
+         Description=cmux desktop terminal on :{display}\n\
+         PartOf={DISPLAY_UNIT}\n\
+         After={SESSION_UNIT}\n\
+         \n\
+         [Service]\n\
+         Type=simple\n\
+         Environment=DISPLAY=:{display}\n\
+         ExecStartPre=/bin/sleep 1\n\
+         ExecStart=/bin/sh -c 'exec {} -class {SESSION_TERMINAL_CLASS} -geometry 160x48+40+40 -e \"$${{SHELL:-/bin/bash}}\" -l'\n",
+        terminal.display()
     )
 }
 
@@ -325,9 +346,17 @@ pub fn ensure_virtual_display(display: u32) -> Res<String> {
         }
     }
     // The desktop on it (a display started before the session unit existed has none yet).
-    if user_unit_dir().is_ok_and(|dir| dir.join(SESSION_UNIT).exists()) {
+    let dir = user_unit_dir().ok();
+    if dir.as_ref().is_some_and(|dir| dir.join(SESSION_UNIT).exists()) {
         if let Err(e) = systemctl(&["start", SESSION_UNIT]) {
             eprintln!("linux-host: the desktop session did not start: {e}");
+        }
+    }
+    // Its terminal only on a display that shows nothing else: over an app it would take the
+    // person's and the agent's clicks aimed at that app.
+    if dir.is_some_and(|dir| dir.join(TERMINAL_UNIT).exists()) && !display_in_use(display) {
+        if let Err(e) = systemctl(&["start", TERMINAL_UNIT]) {
+            eprintln!("linux-host: the desktop terminal did not start: {e}");
         }
     }
     Ok(format!(":{display}"))
@@ -454,14 +483,23 @@ pub fn set_up_virtual_display() -> Res<u32> {
     };
     write_if_changed(&unit, &display_unit(&xvfb, display))?;
     let session = dir.join(SESSION_UNIT);
+    let terminal_path = dir.join(TERMINAL_UNIT);
     match on_path("openbox-session").or_else(|| on_path("openbox")) {
         Some(wm) => {
-            let terminal = on_path("xterm").or_else(|| on_path("x-terminal-emulator"));
-            write_if_changed(&session, &session_unit(&wm, terminal.as_deref(), display))?;
+            write_if_changed(&session, &session_unit(&wm, display))?;
+            match on_path("xterm").or_else(|| on_path("x-terminal-emulator")) {
+                Some(terminal) => {
+                    write_if_changed(&terminal_path, &terminal_unit(&terminal, display))?
+                }
+                None => {
+                    let _ = std::fs::remove_file(&terminal_path);
+                }
+            }
         }
         None => {
             println!("{NO_DESKTOP}");
             let _ = std::fs::remove_file(&session);
+            let _ = std::fs::remove_file(&terminal_path);
         }
     }
     write_if_changed(
