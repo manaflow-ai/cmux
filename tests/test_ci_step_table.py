@@ -343,9 +343,12 @@ class NightlyGateTest(unittest.TestCase):
         self.assertEqual(hooks.run, "python3 tests/test_web_lint_prepush.py")
         self.assertNotIn("test_web_lint_prepush.py", types.run)
         self.assertIn("bun run typecheck", types.run)
+        # The real-push fixture suite exhausted 360 s alongside the routed checks (run 46167738798).
+        # Keep it out of their shared pool, as the other integration suites already are.
+        self.assertTrue(hooks.alone)
+        self.assertFalse(types.alone)
         for step in (hooks, types):
             self.assertTrue(step.blocks)
-            self.assertFalse(step.alone)
             self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
             self.assertEqual(step.needs, ("bun", "node"))
         self.assertEqual(hooks.inputs, types.inputs)

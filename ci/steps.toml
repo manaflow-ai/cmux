@@ -2852,6 +2852,10 @@ bun run typecheck
 [step.web-lint-hook-tests]
 job = "linux"
 tier = "push"
+# The shared routed pool exhausted its 360 s (run 46167738798). In one-CPU contention,
+# shared fixtures timed out at 180 s; isolated fixtures passed in 110 s (run 46172262835).
+# Finish the other steps before starting its own budget.
+alone = true
 timeout = 360
 title = "Web lint hook tests"
 about = "the pre-push web lint hook's integration tests pass independently of whole-tree typechecking"
