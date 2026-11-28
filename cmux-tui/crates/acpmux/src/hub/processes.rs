@@ -495,7 +495,9 @@ impl ProcessTable {
     /// up, so the chat lists the call once.
     pub(super) fn daemon_moved_change(&self, id: &str) -> Option<Process> {
         let mut process = self.find_id(id).filter(|p| p.daemon_task)?.clone();
-        if process.state != ProcessState::Running {
+        // Running, or `lost` by a listing here before the move re-armed it (this machine has no
+        // record of a task that ran on the other one).
+        if !matches!(process.state, ProcessState::Running | ProcessState::Lost) {
             return None;
         }
         process.state = ProcessState::Killed;
@@ -1538,6 +1540,24 @@ impl Hub {
     /// daemon has not yet).
     pub(super) fn running_processes(&self, session: &Session) -> usize {
         self.process_table(session).running.len()
+    }
+
+    /// The session's running background processes as a move would interrupt them
+    /// (`move_interrupts.rs`): `(command, description, cwd, started_at, preview port)`.
+    pub(super) fn running_for_move(
+        &self,
+        session: &Session,
+    ) -> Vec<(String, Option<String>, String, u64, Option<u16>)> {
+        let table = self.process_table(session);
+        table
+            .running
+            .iter()
+            .filter_map(|&at| table.processes.get(at))
+            .map(|p| {
+                let port = p.preview.as_ref().map(|v| v.port);
+                (p.command.clone(), p.description.clone(), p.cwd.clone(), p.started_at, port)
+            })
+            .collect()
     }
 
     /// How many of the session's background processes run, from a table this
