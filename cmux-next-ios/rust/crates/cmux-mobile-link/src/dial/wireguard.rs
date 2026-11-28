@@ -2074,6 +2074,8 @@ impl HybridUnderlay {
         if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardInitiation {
             return;
         }
+        // A rig counts these against the answers below (flap rig, ask-7a463b923d).
+        tracing::debug!("WireGuard sends a handshake initiation");
         self.handshake_repeat = Some(HandshakeRepeat {
             datagram: Bytes::copy_from_slice(datagram),
             class,
@@ -2082,6 +2084,14 @@ impl HybridUnderlay {
         });
         // The receive task polls the timer: have it register this one.
         self.wake_receiver();
+    }
+
+    /// The pending initiation was answered (anything authenticated arrived):
+    /// stop repeating it, and log it for a rig counting answers lost.
+    fn note_answered(&mut self) {
+        if let Some(repeat) = self.handshake_repeat.take() {
+            tracing::debug!(repeats = repeat.sent, "WireGuard hears its handshake initiation answered");
+        }
     }
 
     /// Send the unanswered handshake initiation again now, the peer having
@@ -2774,7 +2784,7 @@ impl Underlay for HybridUnderlay {
     fn authenticated(&mut self, origin: Origin) {
         let now = Instant::now();
         if self.assist_heard(origin, now) {
-            self.handshake_repeat = None;
+            self.note_answered();
             return;
         }
         let carrier = match origin.path {
@@ -2786,7 +2796,7 @@ impl Underlay for HybridUnderlay {
         };
         let Some(addr) = origin.addr else { return };
         // The peer answered (or sent anything authenticated): the path works.
-        self.handshake_repeat = None;
+        self.note_answered();
         self.relay_initiations_after = None;
         if !self.reached {
             self.reached = true;
