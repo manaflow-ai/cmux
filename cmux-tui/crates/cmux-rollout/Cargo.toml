@@ -1,0 +1,18 @@
+[package]
+name = "cmux-rollout"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Staged rollout of a channel build (hq RFD 0224): which hosts take a build at a channel's rollout.pct, the same answer on every run"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -77,6 +77,15 @@ pub struct Payload {
     pub published_at: u64,
     pub expires_at: u64,
     pub targets: BTreeMap<String, BTreeMap<String, Binary>>,
+    /// Builds no machine keeps (RFD 0224's kill switch): commits or cmux-tui / hook
+    /// SHA-256s. A machine on one takes the channel's build even when it is older, and
+    /// whatever `rollout` says. Missing on older files: none.
+    #[serde(default)]
+    pub revoked: Vec<String>,
+    /// The share of machines that take the build (`hash(host id, commit) mod 100 < pct`).
+    /// Missing on older files: every machine.
+    #[serde(default)]
+    pub rollout: cmux_rollout::Rollout,
 }
 
 impl Payload {
@@ -168,6 +177,17 @@ pub fn verify(body: &[u8], keys: &[(String, [u8; 32])], now: u64) -> Result<Payl
     }
     if payload.expires_at <= now {
         return Err(format!("the channel file expired at {} (now {now})", payload.expires_at));
+    }
+    payload.rollout.checked().map_err(|e| format!("the payload's {e}"))?;
+    for entry in &payload.revoked {
+        if !lower_hex(entry, 40) && !lower_hex(entry, 64) {
+            return Err(format!("the payload revokes {entry:?}, not a commit or a SHA-256"));
+        }
+        let own = *entry == payload.commit
+            || payload.targets.values().flat_map(|set| set.values()).any(|b| b.sha256 == *entry);
+        if own {
+            return Err(format!("the payload revokes its own build ({entry})"));
+        }
     }
     Ok(payload)
 }

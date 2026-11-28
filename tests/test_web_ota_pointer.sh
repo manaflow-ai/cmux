@@ -62,6 +62,21 @@ python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json
   --commit 1111111111111111111111111111111111111111 --committed-at 100 --out "$TMP/x" --cas "$TMP/bad-cas.json" 2>/dev/null \
   && fail "a bad cas manifest id was accepted"
 
+# --rollout-pct stages the pointer (RFD 0224): the payload names `rollout {pct}`, which the
+# app's reader buckets by (cmux-app-ffi web_updates.rs); left out, no field (every app); out of
+# range, refused.
+python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json" --channel every-merge \
+  --commit 1111111111111111111111111111111111111111 --committed-at 100 --out "$TMP/staged-payload" --rollout-pct 10
+python3 "$PTR" sign --payload "$TMP/staged-payload" --key "$TMP/a.pem" --keys "$TMP/keys-a.json" --out "$TMP/staged.json"
+out=$(python3 "$PTR" verify --pointer "$TMP/staged.json" --keys "$TMP/keys-a.json" --channel every-merge)
+python3 -c 'import json,sys; r=json.loads(sys.argv[1])["rollout"]; assert r=={"pct":10}, r' "$out" \
+  || fail "the rollout field did not round-trip"
+python3 -c 'import json,sys; assert "rollout" not in json.load(open(sys.argv[1])), "unstaged payload names rollout"' "$TMP/p1" \
+  || fail "a payload without --rollout-pct named a rollout"
+python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json" --channel every-merge \
+  --commit 1111111111111111111111111111111111111111 --committed-at 100 --out "$TMP/x" --rollout-pct 101 2>/dev/null \
+  && fail "a rollout pct over 100 was accepted"
+
 # The promoted NEXT workflow publishes a distinct nightly pointer. Its payload
 # and read-back verification use the same signed channel contract.
 python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json" --channel nightly \

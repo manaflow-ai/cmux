@@ -125,6 +125,8 @@ cmux-sync.workspace = true
 # A move's history pages: the zstd level per page, from the event-log curve and the copy's measured
 # link and compressor (`cmux_bytes::serial`, `cli/run/transfer_live.rs`).
 cmux-bytes.workspace = true
+# The channel file's staged rollout (`cli/host_self_update.rs`, hq RFD 0224).
+cmux-rollout.workspace = true
 cmux-team-messaging.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is

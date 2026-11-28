@@ -243,6 +243,95 @@ fn decides_by_the_current_profile_and_the_record() {
     assert_eq!(decide(&paths, &rolled, &newer, TARGET).unwrap(), Decision::RolledBack);
 }
 
+/// [`payload_json`] of a new cmux-tui with `rollout` and `revoked` set.
+fn staged(rollout: serde_json::Value, revoked: &[&str]) -> Payload {
+    let mut p = payload_json(&"a".repeat(64), OLD_HOOK);
+    p["rollout"] = rollout;
+    p["revoked"] = json!(revoked);
+    serde_json::from_value(p).unwrap()
+}
+
+fn with_host_id(paths: &Paths, file: &str, id: &str) {
+    let path = paths.at(file);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, format!("{id}\n")).unwrap();
+}
+
+#[test]
+fn a_machine_outside_the_staged_rollout_keeps_its_build_until_pct_covers_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    with_host_id(&paths, crate::config::MACHINE_ID_FILE, "machine-a");
+    assert_eq!(host_id(&paths).as_deref(), Some("machine-a"));
+    // The bound instance id wins over the machine id.
+    with_host_id(&paths, crate::config::BOUND_INSTANCE_FILE, "instance-a");
+    assert_eq!(host_id(&paths).as_deref(), Some("instance-a"));
+    let bucket = cmux_rollout::bucket("instance-a", COMMIT);
+    let state = State::default();
+    let held = decide(&paths, &state, &staged(json!({"pct": bucket}), &[]), TARGET).unwrap();
+    let Decision::Staged(why) = held else { panic!("expected staged, got {held:?}") };
+    assert!(why.contains("staged rollout"), "{why}");
+    let taken = decide(&paths, &state, &staged(json!({"pct": bucket + 1}), &[]), TARGET).unwrap();
+    assert!(matches!(taken, Decision::Update(_)), "{taken:?}");
+    // No rollout field: every machine.
+    let mut plain = payload_json(&"a".repeat(64), OLD_HOOK);
+    plain.as_object_mut().unwrap().remove("rollout");
+    let plain: Payload = serde_json::from_value(plain).unwrap();
+    assert_eq!(plain.rollout, cmux_rollout::Rollout::FULL);
+    assert!(plain.revoked.is_empty());
+    assert!(matches!(decide(&paths, &state, &plain, TARGET).unwrap(), Decision::Update(_)));
+}
+
+#[test]
+fn a_machine_with_no_id_waits_for_every_machine() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    assert_eq!(host_id(&paths), None);
+    let state = State::default();
+    let held = decide(&paths, &state, &staged(json!({"pct": 99}), &[]), TARGET).unwrap();
+    assert!(matches!(held, Decision::Staged(_)), "{held:?}");
+    let all = decide(&paths, &state, &staged(json!({"pct": 100}), &[]), TARGET).unwrap();
+    assert!(matches!(all, Decision::Update(_)), "{all:?}");
+}
+
+#[test]
+fn a_revoked_build_leaves_even_for_an_older_one_at_zero_pct() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    with_host_id(&paths, crate::config::MACHINE_ID_FILE, "machine-a");
+    // Applied later than the channel's build: without the revoke it is Older.
+    let state = State { applied_committed_at: 2_000, ..State::default() };
+    let older = decide(&paths, &state, &staged(json!({"pct": 0}), &[]), TARGET).unwrap();
+    assert_eq!(older, Decision::Older);
+    let out = decide(&paths, &state, &staged(json!({"pct": 0}), &[OLD_TUI]), TARGET).unwrap();
+    assert!(matches!(out, Decision::Update(_)), "{out:?}");
+    let applied = "f".repeat(40);
+    let by_commit = State { applied_commit: Some(applied.clone()), ..state };
+    let out = decide(&paths, &by_commit, &staged(json!({"pct": 0}), &[&applied]), TARGET).unwrap();
+    assert!(matches!(out, Decision::Update(_)), "{out:?}");
+}
+
+#[test]
+fn a_channel_refuses_a_bad_rollout_or_revoking_its_own_build() {
+    let verify = |edit: &dyn Fn(&mut serde_json::Value)| {
+        let mut p = payload_json(&"a".repeat(64), OLD_HOOK);
+        edit(&mut p);
+        channel::verify(&envelope(&p, "test"), &keys(), 5_000)
+    };
+    let ok = verify(&|p| {
+        p["rollout"] = json!({"pct": 10});
+        p["revoked"] = json!([OLD_TUI, "f".repeat(40)]);
+    })
+    .unwrap();
+    assert_eq!(ok.rollout.pct, 10);
+    assert_eq!(ok.revoked.len(), 2);
+    assert!(verify(&|p| p["rollout"] = json!({"pct": 101})).is_err());
+    assert!(verify(&|p| p["revoked"] = json!(["not-hex"])).is_err());
+    assert!(verify(&|p| p["revoked"] = json!([COMMIT])).is_err());
+    assert!(verify(&|p| p["revoked"] = json!(["a".repeat(64)])).is_err());
+    assert!(verify(&|p| p["revoked"] = json!([OLD_HOOK])).is_err());
+}
+
 #[test]
 fn an_update_adds_a_profile_flips_and_rolls_back() {
     let dir = tempfile::tempdir().unwrap();
