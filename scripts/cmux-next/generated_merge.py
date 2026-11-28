@@ -172,8 +172,6 @@ REGENERATE: dict[str, Regen] = {
     "Resources/markdown-viewer/ondine.min.js": line("a vendored upstream release (vendor-ondine.mjs)"),
     "THIRD_PARTY_LICENSES.md": line("written by the release build's license collector"),
     "cmux-tui/build-support/notices/REVIEW.md": line("written by pin-cmux-tui.sh when the cmux-tui pin moves"),
-    "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md": line(
-        "written by browser-host-release.py's release packaging"),
     "cmux-tui/crates/acpmux/rules/secrets/gitleaks.toml": line("a vendored upstream rule set"),
     "cmux-tui/crates/cmux-app-host/js/dist/cmux-app-runtime.js": line(
         "an esbuild bundle (js/build.ts); rebuilt with the app host, not on a merge host"),
