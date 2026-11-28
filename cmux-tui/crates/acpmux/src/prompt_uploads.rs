@@ -63,6 +63,13 @@ fn upload_of(block: &Value) -> Option<&Value> {
 /// it matches. Deleted when the prompt is refused (`attach::Saved`), so none is left behind; a
 /// reference to anyone else's upload names none. Each token is read off the runtime.
 pub async fn owned(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
+    owned_paths(session, blocks).await
+}
+
+/// Finds the folders a prompt owns without installing a cleanup guard. Callers that can
+/// refuse-and-retry must only wrap the result in [`crate::attach::OwnedUploads`] after their
+/// bounded wait succeeds, so a late lookup cannot delete files a retry still needs.
+pub(crate) async fn owned_paths(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
     let refs = owned_refs(blocks);
     if refs.is_empty() {
         return Vec::new();
@@ -351,42 +358,5 @@ pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_resolved_link_under_web_control_is_refused() {
-        // A web client's queue edit keeps a person's resolved blocks; its turn is refused.
-        let mut blocks = vec![
-            json!({"type": "text", "text": "edited"}),
-            json!({"type": "resource_link", "uri": "file:///x/a.bin", "name": "a.bin",
-                "_meta": {"acpmux": {"uploadPath": "/x/a.bin"}}}),
-        ];
-        let refused = resolve("s", true, &mut blocks).unwrap_err();
-        assert_eq!(refused.data.unwrap()["reason"], "upload.remote");
-        // The same blocks under the person's control are resolved already: nothing to read.
-        assert!(resolve("s", false, &mut blocks).is_ok());
-        assert_eq!(blocks.len(), 2);
-    }
-
-    #[test]
-    fn a_remote_web_prompt_is_refused_before_any_file_is_read() {
-        let mut blocks = vec![json!({"type": "image", "_meta": {"acpmux": {"upload": {
-            "uploadId": "01a17a00-0000-7000-8000-000000000000", "fileName": "a.png"}}}})];
-        let refused = resolve("s", true, &mut blocks).unwrap_err();
-        assert_eq!(refused.data.unwrap()["reason"], "upload.remote");
-        assert!(resolve("s", true, &mut vec![json!({"type": "text", "text": "x"})]).is_ok());
-    }
-
-    #[test]
-    fn a_link_names_its_upload_on_any_platform() {
-        let (id, peer) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
-        let link = |path: String| json!({"type": "resource_link", "_meta": {"acpmux": {"uploadPath": path}}});
-        let blocks = [
-            link(format!("/home/me/state/uploads/chat/{id}/a.png")),
-            link(format!("C:\\Users\\me\\acpmux\\uploads\\chat\\{}\\b.png", peer.simple())),
-            link("a.png".to_owned()),
-        ];
-        assert_eq!(upload_ids(&blocks), [id.to_string(), peer.to_string()].into_iter().collect());
-    }
-}
+#[path = "prompt_uploads_tests.rs"]
+mod tests;

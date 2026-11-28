@@ -1,7 +1,7 @@
 //! The wait between connect attempts (`Peer::run`), and how a client that waits on the peer
 //! shortens it. A client's request refused because the link is down (`server/peer_forward.rs`),
-//! or a ready link that ended (chats are open on it), marks the peer wanted for `WANTED_FOR`: each
-//! wait in that window is bounded by `Backoff::WANTED_CAP`, and a refusal cuts the running wait
+//! or a ready link that ended (chats are open on it), marks the peer wanted for the outage window:
+//! each wait in that window is bounded by `Backoff::WANTED_CAP`, and a refusal cuts the running wait
 //! to that bound at once. Nothing new runs in the background: the bound is read by the wait
 //! that is already there, and it lapses by itself `WANTED_FOR` after the last ask.
 //!
@@ -18,6 +18,12 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::time::Instant;
+
+/// Every ssh of a peer shares its host's master (`ssh_command`).
+#[path = "peer_ssh_master.rs"]
+mod ssh_master;
+#[cfg(test)]
+pub(super) use ssh_master::SshMux;
 
 /// How long one ask keeps the peer wanted.
 pub(super) const WANTED_FOR: Duration = Duration::from_secs(60);
@@ -66,15 +72,39 @@ pub(super) struct Wanted {
     until: StdMutex<Option<Instant>>,
     /// Until when a connect attempt asks its route to wake a paused machine (`Peer::wake`).
     wake_until: StdMutex<Option<Instant>>,
+    /// When `peerWake` last ran for a message (`Peer::wake`): it runs again once `WAKE_FOR` has
+    /// passed since, while messages still wait.
+    hook_at: StdMutex<Option<Instant>>,
     asked: Notify,
     /// When an ask last cut a backoff wait short (`Peer::wait_backoff`).
     cut_at: StdMutex<Option<Instant>>,
     /// When the last ask came, so one made before a waiter listens still counts
     /// (`Peer::next_ask_after`); `asked` wakes only the waiters there are.
     asked_at: StdMutex<Option<Instant>>,
+    /// When a sleep or a network change last sent an attempt at once, and which (`"sleep"`,
+    /// `"network"`): the next ready link logs the time since as `reconnect_ms`, the reconnect's
+    /// duration that NOW's paths row reads (leo-workspace tools/now_paths_source.py).
+    reconnect_at: StdMutex<Option<(Instant, &'static str)>>,
+    /// Whether the peer waits to be used before it dials, and when it was last used
+    /// (`peer_demand.rs`).
+    pub(super) demand: super::demand::Demand,
 }
 
 impl Peer {
+    /// A sleep or network change sends an attempt now: remember when, for `reconnect_took`.
+    fn reconnect_started(&self, cause: &'static str) {
+        *self.wanted.reconnect_at.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((Instant::now(), cause));
+    }
+
+    /// The link is ready: how long since the sleep or network change that sent the attempt, and
+    /// which, once; None when no such trigger is pending.
+    pub(super) fn reconnect_took(&self) -> Option<(Duration, &'static str)> {
+        let (at, cause) =
+            self.wanted.reconnect_at.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+        Some((at.elapsed(), cause))
+    }
+
     /// A client waits on this peer: for `WANTED_FOR` its reconnects come within
     /// `Backoff::WANTED_CAP`, the wait running now included.
     pub(crate) fn want(&self) {
@@ -85,18 +115,24 @@ impl Peer {
     /// wake a paused machine ([`WAKE_ENV`]), and the peer is wanted, so the attempts come within
     /// `Backoff::WANTED_CAP` while it wakes.
     ///
-    /// The first message of a window (none marked it within `WAKE_FOR`) also runs the daemon's
-    /// `peerWake` command once ([`WakeHook`]), whatever route the peer has: an ssh route with no
-    /// ProxyCommand that wakes (a VM its idle guard powered off) is resumed by it too.
+    /// A message also runs the daemon's `peerWake` command ([`WakeHook`]), whatever route the
+    /// peer has: an ssh route with no ProxyCommand that wakes (a VM its idle guard powered off) is
+    /// resumed by it too. Once per `WAKE_FOR`: the first message runs it, and a message still
+    /// waiting runs it again each `WAKE_FOR` (its outbox's retries mark the peer again), so a
+    /// machine parked again before the message went in is resumed again (cmuxterm-hq#17784: the
+    /// retries kept the window open, and the hook never ran a second time).
     pub(crate) fn wake(&self) {
         let now = Instant::now();
         let until = now.checked_add(WAKE_FOR).unwrap_or(now);
         let mut held = self.wanted.wake_until.lock().unwrap_or_else(|e| e.into_inner());
-        let opens = held.is_none_or(|was| was <= now);
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
         self.want_for(WAKE_FOR);
-        if opens {
+        let mut ran = self.wanted.hook_at.lock().unwrap_or_else(|e| e.into_inner());
+        let due = ran.is_none_or(|at| at.checked_add(WAKE_FOR).is_none_or(|next| next <= now));
+        if due {
+            *ran = Some(now);
+            drop(ran);
             self.run_wake_hook();
         }
     }
@@ -152,9 +188,10 @@ impl Peer {
     }
 
     /// `ssh`, with [`WAKE_ENV`] set while the peer is marked to wake: the environment reaches
-    /// the route's ProxyCommand, which ssh runs as its child.
+    /// the route's ProxyCommand, which ssh runs as its child. It shares the host's one master
+    /// connection (`peer_ssh_master.rs`): a master that is up runs no ProxyCommand, and needs none.
     pub(super) fn ssh_command(&self) -> tokio::process::Command {
-        let mut ssh = tokio::process::Command::new("ssh");
+        let mut ssh = self.ssh_with_master();
         if self.waking() {
             ssh.env(WAKE_ENV, "1");
         } else {
@@ -198,7 +235,7 @@ impl Peer {
     pub(super) fn link_ending(&self, restarting: bool) {
         let ready_for = self.link().ready_for(crate::store::now_ms());
         if ready_for.is_some_and(|up| restarting || up >= READY_FOR) {
-            self.want_for(if restarting { RESTART_WANTED_FOR } else { WANTED_FOR });
+            self.want_for(if restarting { RESTART_WANTED_FOR } else { WANTED_OUTAGE_FOR });
         }
     }
 
@@ -222,6 +259,22 @@ impl Peer {
         self.waking() || self.link().down_since.is_none_or(young)
     }
 
+    /// Whether a client that waits on the peer now gets a connect attempt within about
+    /// `Backoff::WANTED_CAP`: the outage is young enough for its ask to cut the wait
+    /// (`asks_shorten`), and no refused ssh login holds the attempts back. A new chat for it
+    /// (`server/requests.rs` `new_on_peer`) waits for the link only then; a machine long gone is
+    /// refused at once, as before.
+    pub(crate) fn reconnects_soon(&self) -> bool {
+        !self.ssh_refused() && self.asks_shorten(crate::store::now_ms())
+    }
+
+    /// Whether the last attempt ended in ssh refusing the login or the host key: its next
+    /// attempts wait their own backoff, which no ask cuts.
+    fn ssh_refused(&self) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.login_refused.load(SeqCst) || self.host_key_refused.load(SeqCst)
+    }
+
     /// Waits out one backoff delay, or its `Backoff::wanted` bound while the peer is wanted
     /// (read again at each ask and each clock check, so an ask mid-wait cuts it). A wait that
     /// this computer slept through ends at the wake, with the backoff started over: the delay
@@ -232,7 +285,8 @@ impl Peer {
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
         // After a refused ssh login no ask shortens the wait: a chat that keeps asking would
         // otherwise send the remote one refused login a second (`Backoff::login_refused`).
-        let heed_asks = !self.login_refused.load(std::sync::atomic::Ordering::SeqCst);
+        // A refused host key likewise waits its own short backoff (`Backoff::host_key_refused`).
+        let heed_asks = !self.ssh_refused();
         let mut watch = SleepWatch::now();
         loop {
             // Listening before the read: an ask between the two still wakes this wait.
@@ -250,6 +304,7 @@ impl Peer {
                 _ = tokio::time::sleep_until(check) => {
                     if let Some(slept) = watch.check() {
                         tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
+                        self.reconnect_started("sleep");
                         return BackoffWait::Woke;
                     }
                 }
@@ -272,6 +327,7 @@ impl Peer {
                 // changing while the peer is down costs one attempt per change, not quick retries.
                 () = self.network_changed() => {
                     tracing::info!(peer = %self.name, "this computer's network changed; reconnecting now");
+                    self.reconnect_started("network");
                     return BackoffWait::Done;
                 }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
@@ -288,6 +344,28 @@ mod tests {
     fn peer() -> std::sync::Arc<Peer> {
         let (tx, _notices) = mpsc::channel(64);
         Peer::new("huge-blue", "ws://127.0.0.1:9", None, None, tx)
+    }
+
+    /// remote-ssh-reconnect probe: a chat started as the network comes back after a 150 s drop
+    /// waits for the link (`new_on_peer`); one for a machine gone for longer is refused at once.
+    #[test]
+    fn a_new_chat_waits_on_a_young_outage_only() {
+        let peer = peer();
+        let now = crate::store::now_ms();
+        peer.with_link(|l| {
+            l.down(now - 150_000, Duration::from_secs(1));
+        });
+        assert!(peer.reconnects_soon(), "a 150 s outage still reconnects within a second");
+        peer.login_refused.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!peer.reconnects_soon(), "a refused login holds its attempts back");
+        peer.login_refused.store(false, std::sync::atomic::Ordering::SeqCst);
+        peer.host_key_refused.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!peer.reconnects_soon(), "a refused host key holds its attempts back");
+        let gone = self::peer();
+        gone.with_link(|l| {
+            l.down(now - 2 * WANTED_OUTAGE_FOR.as_millis() as u64, Duration::from_secs(60));
+        });
+        assert!(!gone.reconnects_soon(), "a machine gone for long is refused at once");
     }
 
     /// cosmic-gray, 2026-11-21: reads that kept asking about swarm VMs long gone re-dialed each
@@ -426,6 +504,27 @@ mod tests {
         assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);
     }
 
+    /// ask-3c089caeef: the next ready link logs how long the reconnect a network change sent took
+    /// (`reconnect_ms`), once; NOW's paths row reads it in place of "duration unmeasured".
+    #[tokio::test(start_paused = true)]
+    async fn a_network_change_starts_the_reconnect_clock_read_once() {
+        use crate::no_panic::LockExt as _;
+        let peer = peer();
+        assert_eq!(peer.reconnect_took(), None, "no trigger, no duration");
+        let (changes, seen) = tokio::sync::watch::channel(0);
+        *peer.network.lock_or_recover() = seen;
+        let waiting = peer.clone();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        changes.send_modify(|n| *n += 1);
+        assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+        tokio::time::advance(Duration::from_millis(250)).await;
+        let (took, cause) = peer.reconnect_took().expect("the change is remembered");
+        assert_eq!(cause, "network");
+        assert!(took >= Duration::from_millis(250), "{took:?}");
+        assert_eq!(peer.reconnect_took(), None, "read once");
+    }
+
     fn wake_env(peer: &Peer) -> Option<String> {
         let ssh = peer.ssh_command();
         ssh.as_std()
@@ -475,6 +574,7 @@ mod tests {
         assert_eq!(read(), "1 huge-blue\n");
         // A window that lapsed opens again on the next message.
         *peer.wanted.wake_until.lock().unwrap() = Some(Instant::now());
+        *peer.wanted.hook_at.lock().unwrap() = Instant::now().checked_sub(WAKE_FOR);
         peer.wake();
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while read().lines().count() < 2 {
@@ -484,6 +584,52 @@ mod tests {
         // A reload that removes the key stops it at once (`catalog_reload.rs`).
         *hook.lock().unwrap() = None;
         assert_eq!(peer.wake_argv(), None);
+    }
+
+    /// cmuxterm-hq#17784: a message whose machine was resumed, then parked again before it went
+    /// in, is tried by its outbox at 0, 2, 7, 17, 47, 107, 227 and 527 s (its retry delays, 2, 5,
+    /// 10, 30, 60, 120, 300 s, added up), and each attempt marks the peer again. Before, those
+    /// marks kept the window open from 0 s to 407 s and `peerWake` ran at 0 s, then not until
+    /// 527 s; now it runs again at 227 s, the first attempt `WAKE_FOR` after the last run. The
+    /// clock is tokio's, paused.
+    #[tokio::test(start_paused = true)]
+    async fn a_message_still_waiting_runs_peer_wake_again_each_window() {
+        let peer = peer();
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("woken");
+        let script = format!("printf '%s\\n' \"$1\" >> {}", log.display());
+        let hook: WakeHook =
+            Arc::new(StdMutex::new(Some(vec!["sh".into(), "-c".into(), script, "wake".into()])));
+        peer.set_wake_hook(hook);
+        let runs = || std::fs::read_to_string(&log).unwrap_or_default().lines().count();
+        // Polls on the real clock, so the paused one moves only by `advance`: the hook's task
+        // gets the thread between polls.
+        async fn settle(runs: &dyn Fn() -> usize, want: usize) {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while runs() < want && std::time::Instant::now() < deadline {
+                tokio::task::yield_now().await;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            for _ in 0..10 {
+                tokio::task::yield_now().await;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        let started = Instant::now();
+        let mut at = Duration::ZERO;
+        let mut seen = Vec::new();
+        let want = [(0u64, 1usize), (2, 1), (7, 1), (17, 1), (47, 1), (107, 1), (227, 2), (527, 3)];
+        for (attempt, runs_by_then) in want {
+            let to = Duration::from_secs(attempt);
+            tokio::time::advance(to - at).await;
+            at = to;
+            peer.wake();
+            settle(&runs, runs_by_then).await;
+            assert!(peer.waking(), "marked to wake while the message waits");
+            seen.push((attempt, runs()));
+        }
+        assert_eq!(Instant::now() - started, Duration::from_secs(527));
+        assert_eq!(seen, want, "peerWake runs once per WAKE_FOR while the message waits");
     }
 
     #[tokio::test(start_paused = true)]
@@ -513,6 +659,17 @@ mod tests {
             peer.is_wanted()
         };
         assert!(ended(Some(20_000), false), "a link up 20 s drops: its chats wait on it");
+        let outage = peer();
+        outage.with_link(|l| {
+            l.opened(now - 20_000);
+            l.ready(now - 20_000);
+        });
+        outage.link_ending(false);
+        let until = outage.wanted.until.lock().unwrap().unwrap();
+        assert!(
+            until > Instant::now() + WANTED_FOR,
+            "a stable outage keeps fast reconnects longer than one ask"
+        );
         let restarted = peer();
         restarted.with_link(|l| {
             l.opened(now);

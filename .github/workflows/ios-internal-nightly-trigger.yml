@@ -10,10 +10,22 @@ name: cmux-next iPhone INTERNAL builder trigger
 # never compares them with another branch. The schedule is the periodic fallback
 # and runs only once this file is on the default branch.
 # Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
+#
+# iPhone YOLO (input `yolo`): a person or agent dispatches this with PR numbers, or `label` for every open PR
+# labelled ios-yolo. The `yolo` job stacks them on the feat-cmux-next head (scripts/ci/ios_internal_yolo.py),
+# pushes the stack to ios-yolo/<stamp> and dispatches the same INTERNAL builder with it: same app, same
+# signing, TestFlight installs it, the next nightly replaces it. `decide` skips on such a dispatch.
+#   gh workflow run ios-internal-nightly-trigger.yml --ref feat-cmux-next -f yolo="51126 51471"
 on:
   push:
     branches: [feat-cmux-next]
   workflow_dispatch:
+    inputs:
+      yolo:
+        description: "iPhone YOLO: PR numbers to stack on feat-cmux-next (or `label` for every open PR labelled ios-yolo); empty runs the nightly decision"
+        required: false
+        default: ''
+        type: string
 
 permissions: {}
 
@@ -32,15 +44,17 @@ env:
 
 jobs:
   decide:
-    if: github.repository == 'manaflow-ai/cmux' && vars.IOS_INTERNAL_HOLD != '1'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
+    if: github.repository == 'manaflow-ai/cmux' && vars.IOS_INTERNAL_HOLD != '1' && (github.event_name != 'workflow_dispatch' || inputs.yolo == '')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # The plan waits up to 45 min and the dispatch up to 20 min for a spent or failing GitHub API (2026-11-25: a
+    # skip on the spent installation limit lost every head from 19:04Z to 21:47Z), plus checkout and git reads.
+    timeout-minutes: 75
     permissions:
       # actions: read lists earlier builds; actions: write dispatches one.
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -52,12 +66,29 @@ jobs:
             scripts/ci
             cmux-next-ios/project.yml
             cmux-next-ios/CmuxMobileKit/Package.swift
+            .gitmodules
           sparse-checkout-cone-mode: false
+
+      # The trigger's own quota (2026-11-25 21:35Z and 21:38Z: the repository's shared GITHUB_TOKEN quota was
+      # spent and two decides skipped). The bot App token reads and dispatches; the workflow token is the
+      # fallback, so one spent quota never skips a build. No App configured: the workflow token alone.
+      - name: Mint the trigger's own token
+        id: app-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
 
       - name: Decide
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           head="$(git rev-parse HEAD)"
@@ -71,10 +102,61 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_FALLBACK_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_SHA: ${{ steps.plan.outputs.head }}
           BASE_SHA: ${{ steps.plan.outputs.base }}
         run: |
           set -euo pipefail
-          gh workflow run ios-internal-nightly.yml --repo "$GITHUB_REPOSITORY" --ref rc/cnx-ios-builder \
-            -f sha="$HEAD_SHA" -f base="$BASE_SHA"
-          echo "dispatched cmux-next-ios INTERNAL $HEAD_SHA (base ${BASE_SHA:-none})" | tee -a "$GITHUB_STEP_SUMMARY"
+          # ios-internal-nightly.yml on rc/cnx-ios-builder: the workflow token, then the App token, waiting out a
+          # spent API limit instead of losing the head; a dispatch that never gets through fails the step.
+          python3 scripts/ci/ios_internal_builder.py dispatch --sha "$HEAD_SHA" --base "$BASE_SHA"
+
+  # iPhone YOLO: feat-cmux-next plus the named PRs, built by the INTERNAL builder like a nightly.
+  yolo:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.yolo != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    permissions:
+      # contents: write pushes the ios-yolo/ stack branch; actions: write dispatches the builder;
+      # pull-requests: write tells a PR it was left out.
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: refs/heads/feat-cmux-next
+          # Merging needs the history between feat-cmux-next and each PR; blobless keeps it small.
+          fetch-depth: 0
+          filter: blob:none
+
+      # The stack branch is created at the feat-cmux-next head, whose .github/workflows differ from main's, so
+      # GitHub refuses the job token without the workflows permission, which GITHUB_TOKEN cannot hold (run
+      # 46080212141, 2026-11-27: the ref create failed). The release App token holds contents + workflows write,
+      # as app-ffi-repin.yml mints it, for the branch create and push only; minting fails: the job token, as before.
+      - name: Mint the stack-push App token
+        id: push-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Stack the PRs and dispatch the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Only the stack branch's create and push take it; reads, the dispatch and comments stay on the job token.
+          YOLO_PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
+          YOLO: ${{ inputs.yolo }}
+        run: |
+          set -euo pipefail
+          prs="$YOLO"
+          [ "$prs" != label ] || prs=""
+          python3 scripts/ci/ios_internal_yolo.py run --prs "$prs"
+

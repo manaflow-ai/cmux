@@ -4,6 +4,7 @@
 //! sees one, `revoked-always: X` every time.
 
 use super::FIRST_SEND_RETRY_MS;
+use crate::agent_credentials::{AgentCredential, CLAUDE_OAUTH};
 use crate::config::{Config, StoreMode};
 use crate::hub::{Hub, NewRequest, PromptOptions, Session};
 use crate::rpc::RpcError;
@@ -34,19 +35,26 @@ fake.handle_prompt = handle
 fake.main()
 "#;
 
-async fn chat(name: &str) -> (Arc<Hub>, Arc<Session>) {
+async fn chat(name: &str, cloud_token: bool) -> (Arc<Hub>, Arc<Session>) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let dir = std::env::temp_dir().join(format!("acpmux-first-send-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let marker = dir.join("revoked-once").display().to_string();
     let argv = json!(["python3", "-c", WRAPPER, fake, marker]);
-    let cfg = json!({"harnesses": {"fake": {"argv": argv}}, "defaultHarness": "fake"});
+    let cfg = json!({"harnesses": {"fake": {"argv": argv, "family": "claude"}}, "defaultHarness": "fake"});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
     cfg.store.mode = StoreMode::Memory;
+    cfg.cloud_host = cloud_token;
     let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let req = NewRequest { cwd: Some(dir), ..NewRequest::default() };
+    let credential = cloud_token.then(|| {
+        AgentCredential::parse(&json!({
+            "connection": "claude-token", "env": {CLAUDE_OAUTH: "sk-ant-oat01-fixture"}
+        }))
+        .unwrap()
+    });
+    let req = NewRequest { cwd: Some(dir), credential, ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
     (hub, session)
 }
@@ -83,7 +91,7 @@ async fn past_the_wait() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_first_send_a_revoked_token_failed_goes_again_once_and_completes() {
-    let (hub, s) = chat("once").await;
+    let (hub, s) = chat("once", true).await;
     let e = prompt(&hub, &s, "revoked-once: hello", "p-first").await.unwrap_err();
     assert!(e.message.contains("OAuth token revoked"), "{}", e.message);
     let failed = Instant::now();
@@ -118,7 +126,7 @@ async fn a_first_send_a_revoked_token_failed_goes_again_once_and_completes() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_retried_first_send_that_fails_again_is_not_retried_again() {
-    let (hub, s) = chat("again").await;
+    let (hub, s) = chat("again", false).await;
     prompt(&hub, &s, "revoked-always: hello", "p-again").await.unwrap_err();
     until("the retry's turn ends", || records(&hub, &s, "turn_result").len() == 2).await;
     past_the_wait().await;
@@ -139,7 +147,7 @@ async fn a_retried_first_send_that_fails_again_is_not_retried_again() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_later_turn_a_revoked_token_failed_is_not_retried() {
-    let (hub, s) = chat("later").await;
+    let (hub, s) = chat("later", false).await;
     prompt(&hub, &s, "hello", "p-1").await.unwrap();
     prompt(&hub, &s, "revoked-always: then", "p-2").await.unwrap_err();
     past_the_wait().await;
@@ -152,7 +160,7 @@ async fn a_later_turn_a_revoked_token_failed_is_not_retried() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_during_the_wait_keeps_the_first_send_from_going_again() {
-    let (hub, s) = chat("stop").await;
+    let (hub, s) = chat("stop", false).await;
     prompt(&hub, &s, "revoked-once: hello", "p-stop").await.unwrap_err();
     let _ = hub.cancel(&s).await;
     past_the_wait().await;
@@ -167,7 +175,7 @@ async fn a_stop_during_the_wait_keeps_the_first_send_from_going_again() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_prompt_during_the_wait_takes_the_chat_instead() {
-    let (hub, s) = chat("prompt").await;
+    let (hub, s) = chat("prompt", false).await;
     prompt(&hub, &s, "revoked-once: hello", "p-old").await.unwrap_err();
     prompt(&hub, &s, "something else", "p-new").await.unwrap();
     past_the_wait().await;
@@ -179,4 +187,14 @@ async fn a_prompt_during_the_wait_takes_the_chat_instead() {
         skipped.iter().any(|m| m["firstSend"] == true && m["skipped"] == "superseded"),
         "{skipped:?}"
     );
+}
+
+/// A first send whose agent restarts on a model route that was only late goes again, logged as
+/// `model_route`; the plain sign-in explanation does not.
+#[test]
+fn a_late_route_retries_the_first_send() {
+    let text = crate::claude_auth::route_arrived_text("Not logged in · Please run /login");
+    assert!(super::retried_error(&text));
+    assert_eq!(super::retry_reason(&text), "model_route");
+    assert!(!super::retried_error("Not logged in · Please run /login"));
 }

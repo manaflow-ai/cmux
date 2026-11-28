@@ -58,9 +58,21 @@ fn route_table() {
     let screen_only = Consent { control: false, ..granted };
     let none = Consent { screen: false, control: false, ..granted };
     let not_joined = Consent { required: false, ..none };
-    // An iPhone viewer: the app's while it is attached, else nobody's.
+    // An iPhone viewer: the app's while it is attached; with no app, the daemon's (cmux.rd/1)
+    // under the gate a Mac viewer gets.
     assert_eq!(route::route(&view, Some("ios"), true, none), Route::App);
-    assert_eq!(route::route(&view, Some("ios"), false, granted), Route::End("app_required"));
+    assert_eq!(route::route(&view, Some("ios"), false, granted), Route::Daemon { view_only: true });
+    assert_eq!(
+        route::route(&full, Some("ios"), false, granted),
+        Route::Daemon { view_only: false }
+    );
+    assert_eq!(route::route(&full, Some("ios"), false, OPEN), Route::Daemon { view_only: false });
+    assert_eq!(
+        route::route(&view, Some("ios"), false, screen_only),
+        Route::Daemon { view_only: true }
+    );
+    assert_eq!(route::route(&full, Some("ios"), false, screen_only), Route::End("failed"));
+    assert_eq!(route::route(&view, Some("ios"), false, none), Route::End("failed"));
     // A Mac (or any other) viewer: the daemon's, under the app's gate.
     assert_eq!(
         route::route(&view, Some("macos"), true, granted),
@@ -134,10 +146,17 @@ fn a_ticket_both_see_is_served_once_and_the_relay_says_by_whom() {
     link::handle_push(&shared, r#"{"type":"relays.changed"}"#, || OPEN);
     let line: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     assert_eq!(line["text"], r#"{"type":"relays.changed"}"#);
-    // A closed app channel is no app.
+    // A closed app channel is no app: the daemon serves the iPhone itself (the Mac's app
+    // closed, cmuxterm-hq#18912), under the consent and own-account rules a Mac viewer gets.
     drop(rx);
     assert!(!shared.app_attached());
-    assert_eq!(link::decide_for_tests(&shared, &phone, OPEN), ("app_required", None));
+    assert_eq!(link::decide_for_tests(&shared, &phone, OPEN), ("daemon", Some(false)));
+    let none = Consent { enabled: true, required: true, screen: false, control: false };
+    let phone_view = ticket_push("s3", "view", "phone", "KEY", "wss://hub.example/s");
+    assert_eq!(link::decide_for_tests(&shared, &phone_view, none), ("screen", None));
+    let mut owned = phone.clone();
+    owned["ownerKind"] = json!("user");
+    assert_eq!(link::decide_for_tests(&shared, &owned, none), ("daemon", Some(false)));
 }
 
 #[test]
@@ -435,11 +454,11 @@ fn helper_bundle(app: &Path, name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
+fn helpers_are_found_in_order_and_staged_at_the_fixed_path() {
     let root = tempfile::tempdir().unwrap();
     let own = root.path().join("cmux DEV.app");
     let nightly = root.path().join("cmux NIGHTLY.app");
-    let own_helper = helper_bundle(&own, "cmux DEV Screen Sharing.app");
+    let own_helper = helper_bundle(&own, "cmux DEV Helper.app");
     let nightly_helper = helper_bundle(&nightly, "cmux NIGHTLY Screen Sharing.app");
     // Not a helper: another bundle in the same folder.
     std::fs::create_dir_all(nightly.join("Contents/Library/cmux Remote.app")).unwrap();
@@ -462,9 +481,18 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     assert_eq!(
         helper::staging_root(Path::new("/Users/p"), "com.cmuxterm.app.nightly.screen-sharing"),
         Path::new(
-            "/Users/p/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.app.nightly.screen-sharing/daemon"
+            "/Users/p/Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing"
         )
     );
+    // The old per-digest slot it removes once, and nothing above Application Support/cmux-next.
+    let (legacy, stop) = helper::legacy_root(Path::new("/Users/p"), "x.screen-sharing");
+    assert_eq!(
+        legacy,
+        Path::new(
+            "/Users/p/Library/Application Support/cmux-next/screen-sharing/x.screen-sharing/daemon"
+        )
+    );
+    assert_eq!(stop, Path::new("/Users/p/Library/Application Support/cmux-next"));
     assert_eq!(
         helper::app_of(Path::new("/Applications/cmux.app/Contents/Resources/bin/acpmux")),
         Some("/Applications/cmux.app".into())
@@ -473,6 +501,73 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     assert!(helper::is_helper_bundle_id("com.cmuxterm.app.nightly.screen-sharing"));
     assert!(!helper::is_helper_bundle_id("com.example.screen-sharing"));
     assert!(!helper::is_helper_bundle_id("com.cmuxterm.app.x/../y.screen-sharing"));
+}
+
+#[test]
+fn the_helpers_own_grant_reading_is_kept_with_the_item_it_is_listed_as() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    assert_eq!(helper::status_json(home.path())["permissions"], Value::Null, "not read yet");
+    let macos = home.path().join("cmux NIGHTLY Screen Sharing.app/Contents/MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    let exe = macos.join(helper::EXECUTABLE);
+    std::fs::write(
+        &exe,
+        b"#!/bin/sh\n[ \"$1\" = permissions ] || exit 2\necho '{\"screen_recording\":false,\"accessibility\":true}'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    helper::read_grants(home.path(), &exe);
+    let kept = &helper::status_json(home.path())["permissions"];
+    assert_eq!(kept["screen_recording"], false);
+    assert_eq!(kept["accessibility"], true);
+    assert_eq!(kept["listed_as"], "cmux NIGHTLY Screen Sharing");
+    assert!(kept["at"].as_u64().is_some());
+
+    // A helper too old to answer leaves the last reading.
+    std::fs::write(&exe, b"#!/bin/sh\nexit 2\n").unwrap();
+    helper::read_grants(home.path(), &exe);
+    assert_eq!(helper::status_json(home.path())["permissions"]["screen_recording"], false);
+    assert_eq!(helper::grants_record(&exe, "not json", 1), None);
+    assert_eq!(helper::listed_as(Path::new("/opt/cmux-rd")), "cmux Computer Use");
+}
+
+#[test]
+fn a_fresh_install_reads_the_helpers_grants_once_before_any_share() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let macos = home.path().join("cmux NIGHTLY Helper.app/Contents/MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    let exe = macos.join(helper::EXECUTABLE);
+    std::fs::write(
+        &exe,
+        b"#!/bin/sh\n[ \"$1\" = permissions ] || exit 2\necho '{\"screen_recording\":true,\"accessibility\":true}'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut found = 0;
+    helper::read_grants_once(home.path(), || {
+        found += 1;
+        Some(exe.clone())
+    });
+    assert_eq!(found, 1);
+    let kept = &helper::status_json(home.path())["permissions"];
+    assert_eq!(kept["screen_recording"], true, "the helper's grant, before any share: {kept}");
+    assert_eq!(kept["listed_as"], "cmux NIGHTLY Helper");
+
+    // Once per home: a second ask neither looks the helper up again nor reads it again.
+    let other = tempfile::tempdir().unwrap();
+    let mut looked = 0;
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    assert_eq!(looked, 1);
+    assert_eq!(helper::status_json(other.path())["permissions"], Value::Null);
 }
 
 #[test]
@@ -521,21 +616,84 @@ type Ends = Arc<Mutex<Vec<(String, String)>>>;
 /// A loopback device hub: the machine sign-in, `/end`, and each session's signaling socket,
 /// which sends the viewer's signed cmux.rd/1 offer and then only listens.
 fn fake_hub(viewer: Arc<Device>) -> (String, Ends) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
-    let ends: Ends = Arc::default();
-    let heard = ends.clone();
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(stream) = stream else { return };
-            let (viewer, heard) = (viewer.clone(), heard.clone());
-            std::thread::spawn(move || answer_one(stream, &viewer, &heard));
-        }
-    });
+    let (origin, ends, _) = fake_hub_with(viewer, false);
     (origin, ends)
 }
 
-fn answer_one(stream: std::net::TcpStream, viewer: &Device, ends: &Ends) {
+/// The text frames the host sent on its signaling sockets.
+type Sent = Arc<Mutex<Vec<String>>>;
+
+/// [`fake_hub`], whose viewer (with `webrtc_first`, the iPhone's) offers WebRTC first and its
+/// cmux.rd/1 offer only once the host answered that with a frame.
+fn fake_hub_with(viewer: Arc<Device>, webrtc_first: bool) -> (String, Ends, Sent) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let ends: Ends = Arc::default();
+    let sent: Sent = Arc::default();
+    let (heard, told) = (ends.clone(), sent.clone());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let (viewer, heard, told) = (viewer.clone(), heard.clone(), told.clone());
+            std::thread::spawn(move || answer_one(stream, &viewer, &heard, &told, webrtc_first));
+        }
+    });
+    (origin, ends, sent)
+}
+
+/// One client text frame (masked, as the host's socket sends it), or None at the end.
+fn read_client_text(reader: &mut impl Read) -> Option<String> {
+    let mut head = [0_u8; 2];
+    reader.read_exact(&mut head).ok()?;
+    let mut len = u64::from(head[1] & 0x7f);
+    if len == 126 {
+        let mut ext = [0_u8; 2];
+        reader.read_exact(&mut ext).ok()?;
+        len = u64::from(u16::from_be_bytes(ext));
+    } else if len == 127 {
+        let mut ext = [0_u8; 8];
+        reader.read_exact(&mut ext).ok()?;
+        len = u64::from_be_bytes(ext);
+    }
+    let mut mask = [0_u8; 4];
+    if head[1] & 0x80 != 0 {
+        reader.read_exact(&mut mask).ok()?;
+    }
+    let mut payload = vec![0_u8; usize::try_from(len).ok()?];
+    reader.read_exact(&mut payload).ok()?;
+    for (i, byte) in payload.iter_mut().enumerate() {
+        *byte ^= mask[i % 4];
+    }
+    (head[0] & 0x0f == 1)
+        .then(|| String::from_utf8_lossy(&payload).into_owned())
+        .or(Some(String::new()))
+}
+
+fn server_text(out: &mut impl Write, value: &Value) {
+    let payload = value.to_string().into_bytes();
+    let mut frame = vec![0x81_u8, 126];
+    frame.extend_from_slice(&u16::try_from(payload.len()).unwrap().to_be_bytes());
+    frame.extend_from_slice(&payload);
+    out.write_all(&frame).unwrap();
+}
+
+fn signed_offer(viewer: &Device, sid: &str, sdp: &str) -> Value {
+    let fingerprint = rd_doc::fingerprint_of(sdp).unwrap();
+    let signature = viewer
+        .signer()
+        .unwrap()
+        .sign(&rd_doc::fingerprint_message(sid, "viewer", &fingerprint))
+        .unwrap();
+    json!({"type": "offer", "sdp": sdp, "fpSig": b64::encode(&signature)})
+}
+
+fn answer_one(
+    stream: std::net::TcpStream,
+    viewer: &Device,
+    ends: &Ends,
+    sent: &Sent,
+    webrtc_first: bool,
+) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
@@ -567,21 +725,24 @@ fn answer_one(stream: std::net::TcpStream, viewer: &Device, ends: &Ends) {
     } else if let (Some(sid), true) = (session, target.contains("/ws?ticket=")) {
         let accept = cmux_hub_host::net::accept_key(&header("sec-websocket-key").unwrap());
         write!(out, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n").unwrap();
+        if webrtc_first {
+            // The iPhone's WebRTC offer; its cmux.rd/1 offer follows the host's transport frame.
+            let webrtc = "v=0\r\na=fingerprint:sha-256 AB:CD\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n";
+            server_text(&mut out, &signed_offer(viewer, sid, webrtc));
+            loop {
+                let Some(text) = read_client_text(&mut reader) else { return };
+                sent.lock().unwrap().push(text.clone());
+                if text.contains(r#""type":"transport""#) {
+                    break;
+                }
+            }
+        }
         let sdp = RdDocument { key: "ab".repeat(32), ..RdDocument::default() }.text();
-        let fingerprint = rd_doc::fingerprint_of(&sdp).unwrap();
-        let signature = viewer
-            .signer()
-            .unwrap()
-            .sign(&rd_doc::fingerprint_message(sid, "viewer", &fingerprint))
-            .unwrap();
-        let offer = json!({"type": "offer", "sdp": sdp, "fpSig": b64::encode(&signature)});
-        let payload = offer.to_string().into_bytes();
-        let mut frame = vec![0x81_u8, 126];
-        frame.extend_from_slice(&u16::try_from(payload.len()).unwrap().to_be_bytes());
-        frame.extend_from_slice(&payload);
-        out.write_all(&frame).unwrap();
+        server_text(&mut out, &signed_offer(viewer, sid, &sdp));
         // Only listens from here; the share ends on its own.
-        let _ = std::io::copy(&mut reader, &mut std::io::sink());
+        while let Some(text) = read_client_text(&mut reader) {
+            sent.lock().unwrap().push(text);
+        }
     } else {
         let text = r#"{"error":{"code":"not_found","message":"no"}}"#;
         write!(out, "HTTP/1.1 404 Not Found\r\nContent-Length: {}\r\n\r\n{text}", text.len())
@@ -634,10 +795,60 @@ fn a_helper_that_exits_early_ends_only_its_own_share() {
     assert!(records::read(&dir, "s-live").is_some_and(|r| r.alive()));
     stop_live.store(true, Ordering::SeqCst);
     let ended = live.join().unwrap();
-    assert_eq!(ended.reason, "stopped");
+    // Stopped before a viewer connected: the reason says how far it got (the helper had the offer).
+    assert_eq!(
+        ended.reason,
+        "stopped before the viewer connected: the screen host had not answered the viewer's offer"
+    );
     assert_eq!(ended.tell_hub, None);
     assert_eq!(ends.lock().unwrap().len(), 1);
     assert!(!dir.join("s-live.json").exists());
+}
+
+#[test]
+fn a_viewer_that_offers_webrtc_hears_the_transport_and_is_served_on_its_rd_offer() {
+    // The iPhone with the Mac's app closed (cmuxterm-hq#18912): the daemon serves it over
+    // cmux.rd/1, so its WebRTC offer is answered with the transport frame, not `bye`.
+    let viewer = Arc::new(Device::generate("iPhone").unwrap());
+    let viewer_key = viewer.signer().unwrap().public_key();
+    let (origin, ends, sent) = fake_hub_with(viewer, true);
+    let signal = format!("{}/v1/sessions/s-phone/ws", origin.replace("http://", "ws://"));
+    let home = tempfile::tempdir().unwrap();
+    let dir = records::dir(home.path());
+    let hub = Hub::with_renewal(
+        &origin,
+        Device::generate("Mac").unwrap(),
+        None,
+        Renewal::Machine { credential: "cmm_test".into() },
+    )
+    .unwrap();
+    let ticket =
+        Ticket::from_push(&ticket_push("s-phone", "full", "phone", &viewer_key, &signal)).unwrap();
+    let setup = home.path().join("setup.json");
+    let mut command = session::serve_command("/bin/sh".into());
+    command.args = vec![
+        "-c".into(),
+        format!("read -r line; echo \"$line\" > '{}'; cat >/dev/null", setup.display()),
+    ];
+    let stop = Arc::new(AtomicBool::new(false));
+    let (flag, records_dir) = (stop.clone(), dir.clone());
+    let thread = std::thread::spawn(move || {
+        session::serve_one(&hub, &ticket, false, &command, &flag, &records_dir)
+    });
+    // The helper starts on the cmux.rd/1 offer that followed the frame, in control.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !setup.is_file() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let line: Value = serde_json::from_str(&std::fs::read_to_string(&setup).unwrap()).unwrap();
+    assert_eq!(line["scope"], "control", "{line}");
+    let told = sent.lock().unwrap().clone();
+    assert!(told.iter().any(|t| t == cmux_hub_host::session::TRANSPORT_FRAME), "{told:?}");
+    assert!(!told.iter().any(|t| t.contains(r#""type":"bye""#)), "{told:?}");
+    stop.store(true, Ordering::SeqCst);
+    let ended = thread.join().unwrap();
+    assert!(ended.reason.starts_with("stopped"), "{}", ended.reason);
+    assert!(ends.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -781,6 +992,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
         &args,
         &acpmux_home,
         &env,
+        &[],
         Duration::from_secs(30),
         &AtomicBool::new(false),
     );
@@ -797,6 +1009,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         ),
@@ -811,12 +1024,58 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         )
         .state(),
         "enable_failed"
     );
+}
+
+/// The join puts cmux's own virtual display in the user environment (DISPLAY=:99); a cmux-rd
+/// before 0.2.8 read it as a desktop and installed a host unit that never starts. The enable runs
+/// without it, so the next daemon start heals that host; a real desktop's DISPLAY stays.
+#[test]
+fn the_enable_runs_without_the_virtual_display_cmux_owns() {
+    use super::linux;
+    let dir = tempfile::tempdir().unwrap();
+    let units = dir.path().join("systemd/user");
+    std::fs::create_dir_all(&units).unwrap();
+    assert_eq!(linux::own_virtual_display(dir.path()), None);
+    std::fs::write(
+        units.join("cmux-screen-display.service"),
+        "[Service]\nExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp\n",
+    )
+    .unwrap();
+    let own = linux::own_virtual_display(dir.path());
+    assert_eq!(own, Some(99));
+    let os = |s: &str| std::ffi::OsString::from(s);
+    assert_eq!(linux::enable_unset(Some(&os(":99")), own), ["DISPLAY"]);
+    assert_eq!(linux::enable_unset(Some(&os(":99.0")), own), ["DISPLAY"]);
+    assert_eq!(linux::enable_unset(Some(&os("unix:99")), own), ["DISPLAY"]);
+    assert!(linux::enable_unset(Some(&os(":0")), own).is_empty());
+    assert!(linux::enable_unset(Some(&os(":99")), None).is_empty());
+    assert!(linux::enable_unset(None, own).is_empty());
+
+    // The cmux-rd it runs does not see the unset DISPLAY.
+    let rd = fake_cmux_rd(
+        dir.path(),
+        &format!("printf '%s\\n' \"${{DISPLAY-unset}}\" > '{}/display'", dir.path().display()),
+    );
+    // SAFETY: this test only sets a variable no other test in the crate reads.
+    unsafe { std::env::set_var("DISPLAY", ":99") };
+    let _ = linux::run_enable(
+        &rd,
+        &linux::enable_args("https://hub.example"),
+        dir.path(),
+        &[],
+        &["DISPLAY"],
+        Duration::from_secs(30),
+        &AtomicBool::new(false),
+    );
+    let seen = std::fs::read_to_string(dir.path().join("display")).unwrap();
+    assert_eq!(seen.trim_end(), "unset");
 }
 
 #[test]
@@ -831,6 +1090,7 @@ fn an_enable_past_its_wait_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_millis(500),
         &AtomicBool::new(false),
@@ -867,6 +1127,7 @@ fn a_cancelled_enable_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_secs(60),
         &cancel,
@@ -1093,12 +1354,260 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
         )
         .unwrap();
     };
-    assert!(!rd_signed_in_for(&dir, &mark), "no record: a person's sign-in, or none");
+    let home = std::path::Path::new("/acpmux-home");
+    assert!(!rd_signed_in_for(&dir, &mark, home), "no record: a person's sign-in, or none");
     write("m-b", 2);
-    assert!(rd_signed_in_for(&dir, &mark));
+    assert!(rd_signed_in_for(&dir, &mark, home));
     write("m-b", 1);
-    assert!(!rd_signed_in_for(&dir, &mark));
+    assert!(!rd_signed_in_for(&dir, &mark, home));
     write("m-a", 2);
-    assert!(!rd_signed_in_for(&dir, &mark));
+    assert!(!rd_signed_in_for(&dir, &mark, home));
+    // A cmux-rd from before joins were named in its record wrote only the acpmux home: that
+    // home's join, never another's (hq docs/findings/2026-11-23-screen-host-restart-loop.md).
+    let write_unnamed = |acpmux_home: &str| {
+        cmux_hub_host::identity::write_private(
+            &dir.join("joined.json"),
+            json!({"acpmux_home": acpmux_home}).to_string().as_bytes(),
+        )
+        .unwrap();
+    };
+    write_unnamed("/acpmux-home");
+    assert!(rd_signed_in_for(&dir, &mark, home), "an unnamed record of this home");
+    write_unnamed("/another-home");
+    assert!(!rd_signed_in_for(&dir, &mark, home), "an unnamed record of another home");
+    write("", 0);
+    assert!(rd_signed_in_for(&dir, &mark, home), "an empty machine id names no join");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `cmux remote-host share off` on a joined Mac turns the share host's own device off at the hub,
+/// with no app; a machine with no share host keeps the caller's path; a joined Linux machine
+/// names cmux-rd's switch; a failed hub call says why and what to do (design Z4).
+#[test]
+fn share_off_reaches_the_share_hosts_device_only_on_a_joined_mac() {
+    use super::NotRunning;
+    use super::cli::{OffHere, off_outcome};
+    let joined = || -> Result<(), NotRunning> { Ok(()) };
+    let not_joined = || -> Result<(), NotRunning> {
+        Err(NotRunning::new("not_joined", "this machine is not joined"))
+    };
+    let hub_ok = || Ok::<_, NotRunning>("hub");
+    let off = |hub: &&str| {
+        assert_eq!(*hub, "hub");
+        Ok(json!({"shared": false}))
+    };
+    let unreachable = |_: &&str| -> Result<Value, String> { panic!("no hub call expected") };
+
+    assert_eq!(off_outcome(false, joined(), hub_ok, off), OffHere::Off(json!({"shared": false})));
+    for linux in [false, true] {
+        assert_eq!(off_outcome(linux, not_joined(), hub_ok, unreachable), OffHere::NoHost);
+    }
+    let OffHere::Failed(line) = off_outcome(true, joined(), hub_ok, unreachable) else {
+        panic!("a joined Linux machine names cmux-rd's switch")
+    };
+    assert!(line.contains("cmux-rd linux-host share off"), "{line}");
+    let unregistered = || Err::<&str, _>(NotRunning::new("not_registered", "no device yet"));
+    assert_eq!(off_outcome(false, joined(), unregistered, unreachable), OffHere::NoHost);
+    let unreadable = || Err::<&str, _>(NotRunning::new("identity_unreadable", "bad key"));
+    let OffHere::Failed(line) = off_outcome(false, joined(), unreadable, unreachable) else {
+        panic!("an unreadable device is a failure")
+    };
+    assert!(line.contains("bad key") && line.contains("Allow Mac Screen"), "{line}");
+    let refused = |_: &&str| -> Result<Value, String> { Err("hub unreachable".to_owned()) };
+    let OffHere::Failed(line) = off_outcome(false, joined(), hub_ok, refused) else {
+        panic!("a failed hub call is a failure")
+    };
+    assert!(line.contains("hub unreachable") && line.contains("run it again"), "{line}");
+}
+
+/// What `peers` lists as `deviceHub` on a machine only the mesh hub reaches: the device hub's
+/// record of its name (its first label, any case), or that there is none; nothing before the
+/// list was read.
+#[test]
+fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
+    let home = tempfile::tempdir().unwrap();
+    let shared = shared(home.path());
+    assert_eq!(shared.device_hub_of("lane-1"), None);
+    let own = shared.hub().device.id.clone();
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos", "macScreenShared": true},
+        {"id": "d1", "name": "Lane-1.internal", "platform": "linux", "online": true,
+         "macScreenShared": true},
+        {"id": "d2", "name": "lane-2", "platform": "linux", "online": false},
+        {"id": "d3", "name": "lane-2", "platform": "linux", "online": true,
+         "macScreenShared": false},
+    ]}));
+    assert_eq!(
+        shared.device_hub_of("lane-1"),
+        Some(json!({"listed": true, "id": "d1", "platform": "linux", "online": true,
+            "screenShared": true}))
+    );
+    assert_eq!(
+        shared.device_hub_of("lane-2"),
+        Some(json!({"listed": true, "id": "d3", "platform": "linux", "online": true,
+            "screenShared": false}))
+    );
+    assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
+    // Two equal records: the one seen last, as the app picks, not the one listed last.
+    shared.set_devices(&json!({"devices": [
+        {"id": "new", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 200.0},
+        {"id": "old", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 100.0},
+        {"id": "never", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true},
+    ]}));
+    assert_eq!(shared.device_hub_of("vm").unwrap()["id"], "new");
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos"},
+    ]}));
+    // This device's own record is never another machine's.
+    assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
+}
+
+#[test]
+fn a_join_made_while_the_daemon_runs_is_set_up_without_a_restart() {
+    use super::NotRunning;
+    use super::linux::{Step, Tick, tick};
+    let rd = rd_identity(1000, 1);
+    let not_joined = || Err(NotRunning::new("not_joined", "this machine is not joined"));
+    let join = |generation: u64| -> Result<Value, NotRunning> {
+        Ok(json!({"machineId": "m1", "credentialGeneration": generation}))
+    };
+    // The daemon started before the join (the bug: the watcher ended there), then a join, a
+    // leave, and a join again, with cmux-rd installed all along.
+    let timeline = [not_joined(), not_joined(), join(1), join(1), not_joined(), join(2), join(2)];
+    let mut attempted = None;
+    let mut seen = Vec::new();
+    for read in timeline {
+        match tick(read, Value::clone, &mut attempted, Some(rd)) {
+            Tick::NotJoined(why) => {
+                assert_eq!(why.code, "not_joined");
+                assert_eq!(attempted, None, "a leave forgets what was tried");
+                seen.push("not_joined".to_owned());
+            }
+            Tick::Joined(_, key, Step::Enable(id)) => {
+                attempted = Some((id, key.clone()));
+                seen.push(format!("enable {}", key["credentialGeneration"]));
+            }
+            Tick::Joined(_, _, step) => seen.push(format!("{step:?}")),
+        }
+    }
+    assert_eq!(
+        seen,
+        ["not_joined", "not_joined", "enable 1", "Wait", "not_joined", "enable 2", "Wait"]
+    );
+    // A join while cmux-rd is not there yet says so, and its install is set up on its tick.
+    let mut attempted = None;
+    assert!(matches!(
+        tick(join(3), Value::clone, &mut attempted, None),
+        Tick::Joined(_, _, Step::NotInstalled)
+    ));
+    assert!(matches!(
+        tick(join(3), Value::clone, &mut attempted, Some(rd)),
+        Tick::Joined(_, _, Step::Enable(_))
+    ));
+    assert_eq!(super::JOIN_CHECK_EVERY, Duration::from_secs(60));
+}
+
+#[tokio::test]
+async fn a_status_from_before_a_join_says_the_host_starts_and_wakes_the_check() {
+    use super::state::{not_running_json, refreshed};
+    use super::{NotRunning, joined_since, next_check};
+    // Every join reason, read against a machine joined now: out of date.
+    for state in super::JOIN_STATES {
+        assert!(joined_since(state, false, || true), "{state}");
+        assert!(!joined_since(state, false, || false), "{state}");
+    }
+    // A running host, or one stopped for another reason, never asks about the join.
+    let asked = std::cell::Cell::new(false);
+    let ask = || {
+        asked.set(true);
+        true
+    };
+    assert!(!joined_since("set_up", true, ask));
+    assert!(!joined_since("not_installed", false, ask));
+    assert!(!joined_since("enable_failed", false, ask));
+    assert!(!asked.get());
+    // The daemon's own not-joined status, unchanged while the machine is not joined.
+    let why = NotRunning::new("not_joined", "this machine is not joined");
+    let before = not_running_json(Some(&why), true);
+    assert_eq!(refreshed(before.clone(), || false), before);
+    // Joined since: it says the host starts, and the check is woken now, not in a minute.
+    let after = refreshed(before, || true);
+    assert_eq!(after["state"], "starting");
+    assert_eq!(after["running"], false);
+    assert!(after["detail"].as_str().unwrap().contains("joined since"));
+    tokio::time::timeout(Duration::from_secs(5), next_check(Duration::from_secs(3600)))
+        .await
+        .expect("a recheck wakes the join check at once");
+    // The Linux host's status says the same.
+    let linux = super::linux::status_json("not_joined", "x", Path::new("/rd"), "");
+    assert_eq!(refreshed(linux, || true)["state"], "starting");
+}
+
+#[test]
+fn a_ping_without_a_pong_ends_the_link() {
+    let s = Duration::from_secs;
+    // No ping yet, or one just sent: the socket is fine.
+    assert!(!link::pong_overdue(None, true));
+    assert!(!link::pong_overdue(Some(s(3)), false));
+    // Answered: fine however long ago the ping went out.
+    assert!(!link::pong_overdue(Some(s(25)), true));
+    // Unanswered past the bound: the socket is gone, reconnect.
+    assert!(link::pong_overdue(Some(s(11)), false));
+}
+
+#[test]
+fn a_watching_app_hears_each_time_the_daemon_comes_online_signed_in() {
+    let home = tempfile::tempdir().unwrap();
+    let hub = Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("u".into()))
+        .unwrap();
+    let host = Shared::new(home.path().to_path_buf(), hub);
+    assert_eq!(
+        ask(&host, json!({"id": 1, "method": "device.watch"})),
+        (json!({"id": 1, "ok": true, "result": {}}), After::Watch)
+    );
+    // Not online yet: nothing now, so an app that read no `user_id` waits for the event.
+    let (early, mut early_lines) = tokio::sync::mpsc::unbounded_channel();
+    host.watch(early);
+    assert!(early_lines.try_recv().is_err());
+    host.update_link(|link| link.state = "online");
+    host.announce_online();
+    let event: Value = serde_json::from_str(&early_lines.try_recv().unwrap()).unwrap();
+    let id = host.hub().device.id.clone();
+    assert_eq!(event, json!({"event": "online", "id": id, "user_id": "u"}));
+    // Online already: a new watcher hears it at once.
+    let (late, mut late_lines) = tokio::sync::mpsc::unbounded_channel();
+    host.watch(late);
+    assert_eq!(late_lines.try_recv().unwrap(), event.to_string());
+    // A new device (the hub refused the old one) online again: every watcher hears its id.
+    host.set_hub(
+        Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("u".into()))
+            .unwrap(),
+    );
+    host.announce_online();
+    let renewed: Value = serde_json::from_str(&early_lines.try_recv().unwrap()).unwrap();
+    assert_ne!(renewed["id"], json!(id));
+    assert_eq!(renewed["id"], json!(host.hub().device.id));
+    assert_eq!(late_lines.try_recv().unwrap(), renewed.to_string());
+    // Signed out of the hub or not online: no event.
+    let unsigned = shared(home.path());
+    unsigned.update_link(|link| link.state = "online");
+    assert!(unsigned.online_event().is_none());
+}
+
+#[test]
+fn a_stopped_link_offers_no_account_so_the_app_keeps_its_own_device() {
+    let home = tempfile::tempdir().unwrap();
+    let hub =
+        Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("user-1".into()))
+            .unwrap();
+    let shared = Shared::new(home.path().to_path_buf(), hub);
+    let (signed_in, _) = ask(&shared, json!({"id": 1, "method": "device.identity"}));
+    assert_eq!(signed_in["result"]["user_id"], "user-1");
+    // The hub removed this device (socket close 4001): the link stops until the Mac joins again.
+    shared.update_link(|link| link.state = "stopped");
+    let (stopped, _) = ask(&shared, json!({"id": 2, "method": "device.identity"}));
+    assert_eq!(stopped["ok"], true);
+    assert!(stopped["result"].get("user_id").is_none());
 }

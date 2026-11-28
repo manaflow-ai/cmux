@@ -770,6 +770,10 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
             function_event_names(server, "complete_daemon_shutdown_after_ack"),
             "control",
         )
+    # kick_client's connection-wide notice reaches the kicked client on whatever
+    # stream it holds, so it is a control-connection event like the shutdown one.
+    if re.search(r"\bfn\s+kick_client(?:\s*<[^>]*>)?\s*\(", server):
+        add(function_event_names(server, "kick_client"), "control")
     add(
         first_function_event_names(server, "render_state_message", "render_state_json"),
         "attach-render",
@@ -1163,7 +1167,7 @@ def mux_protocol_version() -> int:
 
 def secondary_protocols() -> dict[str, object]:
     host_source = strip_rust_comments(
-        (TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs").read_text()
+        (TUI / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs").read_text()
     )
     host_body = rust_enum_body(host_source, "MessageKind")
     host_messages = {
@@ -1497,7 +1501,7 @@ def validate_secondary_protocols(
         fail("terminal-host v1 message inventory drift")
     terminal_host_doc = (SPEC / "terminal-host.md").read_text()
     terminal_host_source = (
-        TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
+        TUI / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs"
     ).read_text()
     source_documented_host = set(
         re.findall(

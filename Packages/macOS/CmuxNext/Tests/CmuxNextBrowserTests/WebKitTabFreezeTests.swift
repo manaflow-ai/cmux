@@ -80,7 +80,7 @@ import WebKit
             return tab.close()
         }
         let lost = Counter()
-        tab.onFrozenPageLost = { lost.count += 1 }
+        tab.onFrozenPageChange = { if $0 == .lost { lost.count += 1 } }
         #expect(tab.setFrozen(true))
         #expect(kill(pid, SIGKILL) == 0)
         for _ in 0..<600 where tab.state.processExit == nil { try await Task.sleep(for: .milliseconds(25)) }
@@ -99,6 +99,23 @@ import WebKit
         tab.stop()
         tab.setZoom(1.5)
         tab.close()
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/51079: Play from Now Playing or the media menu on a frozen
+    /// tab (a paused, hidden player) ran no script and did nothing. A media command wakes the page first.
+    @Test func aMediaCommandWakesAFrozenPage() async throws {
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
+        let tab = engine.makeWebKitTab()
+        defer { tab.close() }
+        try await Self.loadTallPage(in: tab)
+        var changes: [BrowserFrozenPageChange] = []
+        tab.onFrozenPageChange = { changes.append($0) }
+        #expect(tab.setFrozen(true))
+        await tab.media(.play)
+        #expect(!tab.isFrozen, "Play left the page frozen")
+        // The host hears it: else it counts the page frozen and never freezes it again.
+        #expect(changes == [.woke])
+        #expect(try await tab.evaluate("6 * 7", world: .page, gesture: .cmux) == .number(42))
     }
 
     @Test func aClosedWebKitTabIgnoresAFreeze() {

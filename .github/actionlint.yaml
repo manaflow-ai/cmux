@@ -5,6 +5,10 @@ self-hosted-runner:
     # these are the literal labels referenced as fallbacks or as manual
     # workflow_dispatch choices.
     # See docs/ci-runners.md.
+    # The one own-branch Mac label (Leo, 2026-11-21): a Mac job that needs only a
+    # plain Mac with Xcode 26.6 reads vars.CI_OVERFLOW_MAC || 'cmux-mac'; the 60
+    # shared Mac runners carry it.
+    - cmux-mac
     - blacksmith-6vcpu-macos-15
     - blacksmith-6vcpu-macos-26
     - blacksmith-6vcpu-macos-latest
@@ -12,7 +16,8 @@ self-hosted-runner:
     # macOS 26 needs route to Blacksmith cloud, not warp-macos-26-arm64-6x: our
     # self-hosted minis carry that label, and GitHub prefers a matching
     # self-hosted runner. See check_no_self_hosted_fleet_runners.
-    # Linux: Blacksmith primary (LINUX_RUNNER), WarpBuild overflow fallback.
+    # Linux: Blacksmith through RUNNER_POOLS and LINUX_RUNNER today; the capability
+    # map (.github/runners.json `owned`) names cmux-linux.
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404
@@ -20,6 +25,18 @@ self-hosted-runner:
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - cmux-fleet-linux-x64
+    # Literal runner labels for the PR control and CI repair JIT pools.
+    - cmux-gcp-pr-control-jit-x64
+    # The one owned Linux label (runners.json `owned`, scripts/ci/one_linux_label.py). Most jobs reach it
+    # inside an expression, which actionlint does not check; base-only jobs name it bare (#55036 and after).
+    - cmux-linux
+    # The nightly GCP Linux pool's label, named bare by cmux-machine-channel-thin.yml's profiles job.
+    - cmux-gcp-nightly-x64
+    # One-job JIT VMs that cmuxterm-hq gha-runners makes for CI repair jobs only
+    # (runner_pool.py REPAIR_JIT_LABEL, JIT_POOLS in its README); the other
+    # cmux-gcp-*-jit-x64 labels appear only inside expressions, which
+    # actionlint does not check.
+    - cmux-gcp-repair-jit-x64
     - warp-ubuntu-latest-x64-4x
     # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
     # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of

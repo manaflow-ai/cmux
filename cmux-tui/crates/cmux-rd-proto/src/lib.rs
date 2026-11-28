@@ -19,7 +19,10 @@ mod datagram;
 mod error;
 mod feedback;
 mod frame;
+mod frame_times;
 mod input;
+#[cfg(feature = "serde")]
+pub mod rd_doc;
 mod stream;
 
 pub use bulk::{BULK_PREFIX_LEN, BulkFrame, MAX_BULK_CHUNK};
@@ -30,11 +33,14 @@ pub use cursor::{
 };
 pub use datagram::{
     DatagramDeparture, DatagramHeader, DatagramKind, HEADER_LEN, MAX_DEPARTURE_RECEIPTS,
-    MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
+    MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, fec_block_of, fec_blocks, flags,
 };
 pub use error::DecodeError;
-pub use feedback::{Arrival, Feedback, MAX_ARRIVALS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack};
-pub use frame::{FRAME_PREFIX_LEN, FrameBody, REF_NONE};
+pub use feedback::{
+    Arrival, Feedback, MAX_ARRIVALS, MAX_LTR_TOKENS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack,
+};
+pub use frame::{FRAME_LTR_PREFIX_LEN, FRAME_PREFIX_LEN, FrameBody, REF_NONE};
+pub use frame_times::{FRAME_TIMES_LEN, FrameTimes};
 pub use input::{
     INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_SERVICE_BYTES, MAX_TEXT_BYTES,
     service_flags,

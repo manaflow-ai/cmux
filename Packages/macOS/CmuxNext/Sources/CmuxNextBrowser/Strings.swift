@@ -6,6 +6,7 @@ nonisolated enum Strings {
     // Toolbar
     static var back: String { String(localized: "browser.toolbar.back", defaultValue: "Back", bundle: .localizedModule) }
     static var forward: String { String(localized: "browser.toolbar.forward", defaultValue: "Forward", bundle: .localizedModule) }
+    // retry-prompt-ok: the toolbar's Reload command, not a retry prompt
     static var reload: String { String(localized: "browser.toolbar.reload", defaultValue: "Reload This Page", bundle: .localizedModule) }
     /// The Reload button's right-click menu (cx-2lm4).
     static var menuReload: String { String(localized: "browser.toolbar.menu.reload", defaultValue: "Reload Page", bundle: .localizedModule) }
@@ -26,6 +27,7 @@ nonisolated enum Strings {
         case .options: String(localized: "browser.extensions.options", defaultValue: "Options", bundle: .localizedModule)
         case .enable: String(localized: "browser.extensions.enable", defaultValue: "Enable", bundle: .localizedModule)
         case .disable: String(localized: "browser.extensions.disable", defaultValue: "Disable", bundle: .localizedModule)
+        // retry-prompt-ok: the extensions menu's Reload command (an unpacked extension), not a retry prompt
         case .reload: String(localized: "browser.extensions.reload", defaultValue: "Reload", bundle: .localizedModule)
         case .remove: String(localized: "browser.extensions.remove", defaultValue: "Remove…", bundle: .localizedModule)
         case .siteAccess: String(localized: "browser.extensions.siteAccess", defaultValue: "Site Access and More…", bundle: .localizedModule)
@@ -96,7 +98,7 @@ nonisolated enum Strings {
     }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
-        String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .localizedModule)
+        String(localized: "browser.omnibar.placeholder", defaultValue: "Search or enter address", bundle: .localizedModule)
     }
     /// Chromium `IDS_CONTEXT_MENU_SHOW_FULL_URLS`.
     static var alwaysShowFullURLs: String {
@@ -136,6 +138,18 @@ nonisolated enum Strings {
     static func permissionCameraAndMicrophone(_ origin: String) -> String {
         String(localized: "browser.permission.cameraAndMicrophone", defaultValue: "\(origin) wants to use your camera and microphone.", bundle: .localizedModule)
     }
+    static func permissionScreenShare(_ origin: String) -> String {
+        String(localized: "browser.permission.screenShare", defaultValue: "\(origin) wants to share your screen.", bundle: .localizedModule)
+    }
+    static var screenShareAllow: String {
+        String(localized: "browser.permission.screenShare.allow", defaultValue: "Share Screen", bundle: .localizedModule)
+    }
+    static var screenShareDontAllow: String {
+        String(localized: "browser.permission.screenShare.dontAllow", defaultValue: "Don't Allow", bundle: .localizedModule)
+    }
+    static func permissionClipboard(_ origin: String) -> String {
+        String(localized: "browser.permission.clipboard", defaultValue: "\(origin) wants to see text and images on your clipboard.", bundle: .localizedModule)
+    }
     static func permissionLocation(_ origin: String) -> String {
         String(localized: "browser.permission.location", defaultValue: "\(origin) wants to know your location.", bundle: .localizedModule)
     }
@@ -171,11 +185,13 @@ nonisolated enum Strings {
     static var cancel: String { String(localized: "browser.prompt.cancel", defaultValue: "Cancel", bundle: .localizedModule) }
     // beforeunload (Chrome's wording)
     static var beforeUnloadLeaveTitle: String { String(localized: "browser.beforeUnload.leaveTitle", defaultValue: "Leave site?", bundle: .localizedModule) }
+    // retry-prompt-ok: the page's beforeunload question: reloading drops its unsaved changes
     static var beforeUnloadReloadTitle: String { String(localized: "browser.beforeUnload.reloadTitle", defaultValue: "Reload site?", bundle: .localizedModule) }
     static var beforeUnloadMessage: String {
         String(localized: "browser.beforeUnload.message", defaultValue: "Changes that you made may not be saved.", bundle: .localizedModule)
     }
     static var beforeUnloadLeave: String { String(localized: "browser.beforeUnload.leave", defaultValue: "Leave", bundle: .localizedModule) }
+    // retry-prompt-ok: the page's beforeunload answer: reloading drops its unsaved changes
     static var beforeUnloadReload: String { String(localized: "browser.beforeUnload.reload", defaultValue: "Reload", bundle: .localizedModule) }
 
     // Context menu
@@ -189,6 +205,7 @@ nonisolated enum Strings {
     static var loadFailedTitle: String {
         String(localized: "browser.error.loadFailed", defaultValue: "Can’t open this page", bundle: .localizedModule)
     }
+    // retry-prompt-ok: shown only when loading again would send a form (BrowserLoadError.sentForm, BR-R1)
     static var tryAgain: String { String(localized: "browser.error.tryAgain", defaultValue: "Try Again", bundle: .localizedModule) }
 }
 

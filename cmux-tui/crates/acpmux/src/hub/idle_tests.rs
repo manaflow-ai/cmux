@@ -192,3 +192,108 @@ async fn startup_settles_only_once_every_load_is_done() {
     }
     assert!(hub.startup_settled());
 }
+
+/// An update's restart (`restart_harnesses`, the stale-binary pass after an app relaunch) never
+/// ends work below a chat with no turn open: the chat keeps its agent and moves before its next
+/// turn. With nothing below, it restarts now.
+#[tokio::test]
+async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() {
+    let (hub, session) = chat().await;
+    let ids: std::collections::BTreeSet<String> = [session.id.to_string()].into();
+    *session.work_below_since.lock().unwrap() = 1;
+    let held = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!((held.now, held.after_turn), (0, 1), "work below was cut: {held:?}");
+    assert!(session.route_switch.load(Ordering::SeqCst), "not marked to move before its next turn");
+    *session.work_below_since.lock().unwrap() = 0;
+    session.route_switch.store(false, Ordering::SeqCst);
+    let quiet = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!(
+        (quiet.now, quiet.after_turn),
+        (1, 0),
+        "a quiet chat did not restart now: {quiet:?}"
+    );
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn an_account_restart_keeps_background_work_after_the_turn_settles() {
+    let (hub, session) = chat().await;
+    let child = hub.child_for(&session).await.unwrap();
+    let ids = std::collections::BTreeSet::from([session.id.clone()]);
+    let (shown, showing) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    *hub.turn_shown_seam.lock().unwrap() = Some((shown, released));
+    let prompt = || vec![json!({"type": "text", "text": "hello"})];
+    let turn = tokio::spawn({
+        let (hub, session) = (hub.clone(), session.clone());
+        async move { hub.prompt(&session, prompt(), "test", false).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), showing).await.unwrap().unwrap();
+    assert!(session.turn().is_some());
+    let process = |state: &str| {
+        let update = json!({"params": {"update": {"sessionUpdate": "background_task_update",
+            "toolCallId": "worker", "taskId": "worker", "state": state, "command": "serve"}}});
+        let event = hub.append(&session, "in", "background_task_update", update);
+        hub.note_process(&session, &event, None);
+    };
+    process("running");
+    let restarts = hub.restart_harnesses(None, Some(&ids)).await;
+    assert_eq!((restarts.now, restarts.after_turn), (0, 1));
+    release.send(()).unwrap();
+    turn.await.unwrap().unwrap();
+
+    assert!(hub.holds_work_below(&session));
+    assert!(session.route_switch.load(Ordering::SeqCst));
+    assert!(Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+
+    process("completed");
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert!(!Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+    assert!(!session.route_switch.load(Ordering::SeqCst));
+    hub.shutdown_all().await;
+}
+
+/// An unstored Claude chat whose failed turn did work stays awake only while Claude has not
+/// stored its conversation: once the conversation's transcript is in the store its profile
+/// reads, the idle pass clears the flags and it may sleep (its next wake resumes it). Red on
+/// the base: only a turn that ended Ok cleared them, so a chat whose one turn hit a 429 after
+/// working stayed awake until the daemon stopped.
+#[tokio::test]
+async fn an_unstored_chat_claude_stored_after_all_may_sleep() {
+    const CHAT: &str = "0199a1b2-0000-7000-8000-00000000c1a1";
+    let root = std::env::temp_dir().join(format!("acpmux-idle-stored-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let cwd = root.join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake], "env": {"CLAUDE_CONFIG_DIR": root}}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(cwd.clone()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    {
+        let mut m = session.meta.lock().unwrap();
+        m.agent_session_id = Some(CHAT.into());
+        m.claude_unstored = true;
+        m.claude_unstored_work = true;
+        m.turn_count = 1;
+    }
+    hub.confirm_claude_stored(&session).await;
+    assert!(!hub.idle_eligible(&session), "a conversation Claude never stored keeps it awake");
+    assert!(session.meta().claude_unstored);
+
+    let dir = root.join("projects").join(crate::adopt::project_dir_name(&cwd));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("{CHAT}.jsonl")), "{\"type\":\"user\"}\n").unwrap();
+    hub.confirm_claude_stored(&session).await;
+    let meta = session.meta();
+    assert!(!meta.claude_unstored && !meta.claude_unstored_work, "the store has it");
+    assert!(hub.idle_eligible(&session), "a stored conversation may sleep");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}

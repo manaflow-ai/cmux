@@ -143,6 +143,12 @@ fn run(target: Option<&str>, scope: &str, list: bool, opts: &Opts) -> Res<()> {
         .call("POST", "/v1/sessions", Some(&json!({ "hostId": host.id, "scope": scope })))
         .map_err(|e| explain_request(e, &host.name))?;
     let session_id = request["session"]["id"].as_str().ok_or("no session id")?.to_owned();
+    let hub_approval = match request["session"]["hubApproval"].as_str() {
+        Some("permission" | "requested") => {
+            request["session"]["hubApproval"].as_str().map(str::to_owned)
+        }
+        _ => None,
+    };
     if request["session"]["state"].as_str() == Some("pending") {
         eprintln!(
             "Asked {} to {} it. Waiting for its person to allow this...",
@@ -158,7 +164,7 @@ fn run(target: Option<&str>, scope: &str, list: bool, opts: &Opts) -> Res<()> {
         }
     };
     let decoder = decoder.ok_or("no decoder")?;
-    let result = view_session(&hub, &mut user, &ticket, &host, scope, opts, decoder);
+    let result = view_session(&hub, &mut user, &ticket, &host, scope, hub_approval, opts, decoder);
     let reason = match &result {
         Ok(o) if o.connected => "viewer_disconnected",
         _ => "failed",
@@ -302,6 +308,16 @@ fn device_id_shaped(text: &str) -> bool {
             .all(|(g, n)| g.len() == n && g.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
+/// A failed link's end reason, with why the hub sent no relay when billing could not be read.
+fn with_relay_note(reason: String, relay_note: Option<&str>) -> String {
+    match relay_note {
+        Some(note) if reason.starts_with("the link failed") => {
+            format!("{reason}; no relay: {note}")
+        }
+        _ => reason,
+    }
+}
+
 /// Reads the user socket until the viewer ticket for `session_id` (or the request's end).
 fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
     let deadline = Instant::now() + APPROVAL_WITHIN;
@@ -318,7 +334,7 @@ fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
                     "the hub closed this device's socket ({code} {})",
                     printable(&why)
                 )
-                .into())
+                .into());
             }
             Some(Message::Text(text)) => match serde_json::from_str::<Value>(&text) {
                 Ok(v) => v,
@@ -336,7 +352,7 @@ fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
                     "the request ended: {}",
                     printable(push["reason"].as_str().unwrap_or("no reason"))
                 )
-                .into())
+                .into());
             }
             _ => {}
         }
@@ -368,6 +384,7 @@ fn view_session(
     ticket: &Ticket,
     host: &HostDevice,
     scope: &str,
+    hub_approval: Option<String>,
     opts: &Opts,
     decoder: cmux_encode::openh264::OpenH264Decoder,
 ) -> Res<Outcome> {
@@ -380,24 +397,33 @@ fn view_session(
         // The stream fits this screen: the host scales down to it, so the window shows it 1:1.
         max_width: Some(screen.0),
         max_fps: Some(opts.num_or("max-fps", 60u32)?),
+        // `--encode-profile ultra` asks the host for the ultra profile (standard when absent).
+        encode_profile: opts
+            .get("encode-profile")
+            .map(|_| opts.encode_profile())
+            .transpose()?
+            .map(|p| p.as_str().to_owned()),
         ..RdDocument::default()
     };
     signal.send_text(&signed_frame("offer", &offer.text(), &ticket.session_id, hub)?)?;
     let answer = wait_for_answer(&mut signal, user, ticket)?;
     let peer = unhex32(&answer.key).ok_or("the host's session key is malformed")?;
     let (stun, turn) = rd_doc::servers(&ticket.ice);
-    let stun = stun
-        .iter()
-        .filter_map(|s| {
-            std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(std::net::SocketAddr::is_ipv4)
-        })
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&stun, false);
+    // Every relay, UDP first (`servers` sorts them): the TCP and TLS ones are the way
+    // through a network that blocks UDP.
     let turn: Vec<crate::carrier::TurnSetup> = turn
         .into_iter()
         .map(|t| crate::carrier::TurnSetup {
             addr: t.addr,
             username: t.username,
             password: t.password,
+            transport: match t.transport {
+                rd_doc::TurnTransport::Udp => "udp",
+                rd_doc::TurnTransport::Tcp => "tcp",
+                rd_doc::TurnTransport::Tls => "tls",
+            }
+            .to_owned(),
         })
         .collect();
     let net = cmux_rd_link::net::Net::start(NetConfig {
@@ -410,6 +436,9 @@ fn view_session(
         turn: crate::carrier::turn_servers(&turn),
         relay_only: false,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // A host that dies without a close ends this viewer instead of freezing it.
     net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
@@ -438,12 +467,16 @@ fn view_session(
             control: scope == "full",
             viewer_id: hub.device.id.clone(),
             stats_file: opts.get("stats-file").map(PathBuf::from),
+            hub_approval,
         };
         let ended = stream::run(net, decoder, &config, &from_hub, &waker, &to_hub);
         drop(to_hub);
         let _ = signals.join();
         let ended = ended?;
-        Ok(Outcome { reason: ended.reason, connected: ended.connected })
+        Ok(Outcome {
+            reason: with_relay_note(ended.reason, ticket.relay_note.as_deref()),
+            connected: ended.connected,
+        })
     })
 }
 
@@ -567,7 +600,7 @@ fn wait_for_answer(
                     "signaling closed before the answer ({code} {})",
                     printable(&why)
                 )
-                .into())
+                .into());
             }
             Some(Message::Text(text)) => text,
         };
@@ -591,7 +624,7 @@ fn wait_for_answer(
                     "the host left signaling: {}",
                     printable(frame["reason"].as_str().unwrap_or("no reason"))
                 )
-                .into())
+                .into());
             }
             _ => {}
         }
@@ -625,6 +658,17 @@ fn unhex32(text: &str) -> Option<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_link_says_when_billing_could_not_be_read() {
+        let note = Some("could not read your plan");
+        assert_eq!(
+            with_relay_note("the link failed: the secure handshake timed out".into(), note),
+            "the link failed: the secure handshake timed out; no relay: could not read your plan"
+        );
+        assert_eq!(with_relay_note("the link failed: x".into(), None), "the link failed: x");
+        assert_eq!(with_relay_note("the window was closed".into(), note), "the window was closed");
+    }
 
     fn devices() -> Value {
         json!({"devices": [

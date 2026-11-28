@@ -64,11 +64,26 @@ public final class ChiefConversationOwner {
     /// on the main thread at launch, cmuxterm-hq#6338). A refused acpmux still gives no `acpmux_bin`.
     @concurrent nonisolated static func ownerEnvironment(home: ChiefHome, process: [String: String],
                                                          resources: URL?) async -> [String: String] {
+        ownerEnvironment(home: home, process: process, brains: await timedBrainsValue(home: home, process: process, resources: resources))
+    }
+
+    /// ``ownerEnvironment(home:process:resources:)`` with `brains` already built (``OwnerEnvironmentPrefetch``).
+    /// Records the build space, so it runs only when an owner is spawned.
+    nonisolated static func ownerEnvironment(home: ChiefHome, process: [String: String], brains: String?) -> [String: String] {
         var environment = process
         recordBuildSpace(home: home, environment: process)
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
-        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, resources: resources)
+        environment["CMUX_TUI_CHIEF_BRAINS"] = brains
         return environment
+    }
+
+    /// `brainsValue` between two launch marks (`chief_owner.brains_start`, `chief_owner.brains_done`).
+    @concurrent nonisolated static func timedBrainsValue(home: ChiefHome, process: [String: String],
+                                                         resources: URL?) async -> String? {
+        DaemonLaunchTimings.shared.mark("chief_owner.brains_start")
+        let value = brainsValue(home: home, process: process, resources: resources)
+        DaemonLaunchTimings.shared.mark("chief_owner.brains_done")
+        return value
     }
 
     /// `start` ran and its connection loop runs (false: never started, or the launcher failed).
@@ -89,12 +104,16 @@ public final class ChiefConversationOwner {
         let launcher: DaemonLauncher
         let ownerHome = home
         let resources = bundle.resourceURL
+        // The environment's slow part runs beside the adoptions below, not after them (see the type).
+        let prefetch = OwnerEnvironmentPrefetch {
+            await Self.timedBrainsValue(home: ownerHome, process: environment, resources: resources)
+        }
         do {
             launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
                                                    bundle: bundle, processEnvironment: environment,
                                                    ownerEnvironment: {
-                                                       await Self.ownerEnvironment(home: ownerHome, process: environment,
-                                                                                   resources: resources)
+                                                       Self.ownerEnvironment(home: ownerHome, process: environment,
+                                                                             brains: await prefetch.value())
                                                    })
         } catch {
             lastError = String(describing: error)
@@ -120,6 +139,7 @@ public final class ChiefConversationOwner {
             // NIGHTLY's backup before this app starts the owner (cx-is1kf.7); a running owner's
             // databases are copied with SQLite's online backup.
             // cmux NEXT's one-time adoption of its old homes ends before its owner starts (cx-is1kf.9).
+            await prefetch.begin()
             await AcpmuxEnvironment.adoptBuildHomes()
             DaemonLaunchTimings.shared.mark("chief_owner.build_homes_adopted")
             let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)

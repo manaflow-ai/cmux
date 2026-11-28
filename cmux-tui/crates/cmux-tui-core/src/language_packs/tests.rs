@@ -165,7 +165,7 @@ fn a_manifest_is_version_1_with_well_formed_packs() {
 
 #[test]
 fn a_pack_names_a_downloadable_chromium_locale_and_carries_something() {
-    let pack = |extra: serde_json::Value| {
+    let pack = |extra: Value| {
         let mut pack = json!({"url": "https://files-next.cmux.com/language-packs/x/sv.tar.zst",
             "sha256": SHA_A, "size": 10});
         pack.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
@@ -482,4 +482,32 @@ fn a_request_needs_absolute_paths() {
         let error = parse_request(&fields(manifest, cache)).unwrap_err();
         assert_eq!(error.code, "validation.invalid");
     }
+}
+
+#[test]
+fn an_offline_download_is_tried_again_before_it_is_reported() {
+    let tries = std::cell::Cell::new(0);
+    let outcome = retry_offline(
+        || {
+            tries.set(tries.get() + 1);
+            if tries.get() < 3 { Err(Code::Offline) } else { Ok(()) }
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(outcome, Ok(()));
+    assert_eq!(tries.get(), 3);
+}
+
+#[test]
+fn a_bad_download_is_not_tried_again() {
+    let tries = std::cell::Cell::new(0);
+    let outcome = retry_offline(
+        || {
+            tries.set(tries.get() + 1);
+            Err(Code::Verify)
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(outcome, Err(Code::Verify));
+    assert_eq!(tries.get(), 1);
 }

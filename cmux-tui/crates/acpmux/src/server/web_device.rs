@@ -16,6 +16,22 @@
 //!   (`Conn::device_mesh`), once per connection. The connection is still served as Web: every
 //!   `remote_guard.rs` rule (known folders, asking modes, no command-bearing params) holds.
 //!
+//! The device credential is bound to the browser's key (RFD 0083, "Known gap: the device
+//! credential is a bearer"): `device_enroll` also takes `deviceKey`, the raw P-256 public point
+//! of a non-extractable WebCrypto ECDSA key, and the hub then never takes the `cmm_` credential
+//! on its own. The browser proves the key on each connection:
+//!
+//! - `_acpmux/device_challenge {credential}` -> `{machineId, nonce, binding}`: the hub's
+//!   single-use nonce, and `binding`, this connection's name (`acpmux:<conn id>`).
+//! - `_acpmux/device_hello {credential, nonce, signature}`: the browser's ECDSA P-256 / SHA-256
+//!   signature (r || s, base64url) of `cmux-device-hello/v1\n<machineId>\n<nonce>\n<binding>`.
+//!   The daemon trades it for the hub's session credential and the connection's client sends
+//!   only that. A stolen credential without the key gets a nonce and nothing else; a proof
+//!   made for another connection names another binding and is refused.
+//!
+//! A hello with no signature is the old bearer hello: the hub takes it while its compatibility
+//! window holds for a device enrolled without a key (cmux-platform `DeviceProof.ts`).
+//!
 //! Then the hub stamps the device's reads and prompts with the device's identity and person, the
 //! target daemon checks that person against its own `controlFrom` `sameUser`
 //! (`mesh_relay.rs` `MeshControlHook::control`), and the hub's 401 (`machine.revoked`) cuts the
@@ -71,6 +87,7 @@ pub(super) async fn dispatch(
 ) -> Option<Result<Value, RpcError>> {
     match m {
         method::MUX_DEVICE_HELLO => Some(hello(hub, conn, params).await),
+        method::MUX_DEVICE_CHALLENGE => Some(challenge(hub, conn, params).await),
         method::MUX_DEVICE_ENROLL => Some(enroll(hub, conn, params).await),
         method::MUX_BROWSER_SIGN_IN_START => Some(sign_in_start(conn, params).await),
         method::MUX_BROWSER_SIGN_IN_COMPLETE => Some(sign_in_complete(conn, params).await),
@@ -124,13 +141,72 @@ pub(super) fn revoked(reason: &'static str) -> RpcError {
     RpcError::new(-32003, message).with_data(json!({"reason": reason}))
 }
 
-/// `_acpmux/device_hello {credential}` -> `{auth: "webDevice"}`.
+/// The connection binding a device proof names: this connection, and no other.
+fn binding(conn: &Conn) -> String {
+    format!("acpmux:{}", conn.id)
+}
+
+fn hub_client(origin: String, credential: Zeroizing<String>) -> Result<HttpHub, RpcError> {
+    HttpHub::with_credential(origin, credential)
+        .map_err(|_| RpcError::internal("the hub client could not be built"))
+}
+
+/// A refused proof call: the hub's 401 says the proof (`device.proof_refused`) or the credential
+/// (`device.revoked`, `device.unauthorized`); anything else is the hub being unavailable.
+fn proof_error(client: &HttpHub, error: &crate::mesh::HubError) -> RpcError {
+    if error.code.as_deref() == Some("device.proof_refused") {
+        return RpcError::new(-32003, "the mesh hub refused this browser's device proof")
+            .with_data(json!({"reason": "device.proof_refused"}));
+    }
+    match client.refused() {
+        Some(reason) => revoked(reason),
+        None => owner_error("device.hub_unavailable", "The hub could not verify this browser."),
+    }
+}
+
+/// `_acpmux/device_challenge {credential}` -> `{machineId, nonce, binding}`.
+async fn challenge(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    web_only(conn, method::MUX_DEVICE_CHALLENGE)?;
+    let credential = token_param(params, "credential")?;
+    let client = hub_client(hub_origin(hub).await?, credential)?;
+    let issued = client.device_challenge().await.map_err(|e| proof_error(&client, &e))?;
+    let text = |key: &str| {
+        issued.get(key).and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 256)
+    };
+    let (Some(machine), Some(nonce)) = (text("machineId"), text("nonce")) else {
+        return Err(owner_error("device.hub_unavailable", "The hub sent no device challenge."));
+    };
+    Ok(json!({"machineId": machine, "nonce": nonce, "binding": binding(conn)}))
+}
+
+/// `_acpmux/device_hello {credential, nonce?, signature?}` -> `{auth: "webDevice"}`.
 async fn hello(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     web_only(conn, method::MUX_DEVICE_HELLO)?;
     let credential = token_param(params, "credential")?;
     let origin = hub_origin(hub).await?;
-    let client = HttpHub::with_credential(origin, credential)
-        .map_err(|_| RpcError::internal("the hub client could not be built"))?;
+    let client = if params.get("signature").is_some() {
+        // A bound device: the proof buys a session credential, the one this connection sends.
+        let nonce = short_param(params, "nonce", 256)?;
+        let signature = short_param(params, "signature", 256)?;
+        let device = hub_client(origin.clone(), credential)?;
+        let session = device
+            .device_session(nonce, &binding(conn), signature)
+            .await
+            .map_err(|e| proof_error(&device, &e))?;
+        let session = Zeroizing::new(
+            session
+                .get("credential")
+                .and_then(Value::as_str)
+                .filter(|c| c.starts_with("cmm_"))
+                .ok_or_else(|| {
+                    owner_error("device.hub_unavailable", "The hub sent no session credential.")
+                })?
+                .to_owned(),
+        );
+        hub_client(origin, session)?
+    } else {
+        hub_client(origin, credential)?
+    };
     if conn.auth == ConnAuth::BrowserApp {
         verify_owner(hub, &client).await?;
     }
@@ -148,7 +224,26 @@ async fn hello(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError
     Ok(json!({"auth": conn.proof().as_str()}))
 }
 
-/// `_acpmux/device_enroll {accessToken, publicKey}` -> `{credential, machineId, userId}`.
+/// A browser's device key: the raw uncompressed P-256 public point (65 bytes, 0x04 first), in
+/// base64url without padding, as cmux-platform's `JoinRedeem.deviceKey` takes it.
+fn device_key(params: &Value) -> Result<Option<&str>, RpcError> {
+    let Some(key) = params.get("deviceKey") else { return Ok(None) };
+    key.as_str()
+        .filter(|key| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(key)
+                .is_ok_and(|raw| raw.len() == 65 && raw.first() == Some(&4))
+        })
+        .map(Some)
+        .ok_or_else(|| {
+            RpcError::invalid_params(
+                "deviceKey must be a raw P-256 public key (65 bytes) in base64url",
+            )
+        })
+}
+
+/// `_acpmux/device_enroll {accessToken, publicKey, deviceKey?}` -> `{credential, machineId,
+/// userId}`.
 async fn enroll(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     web_only(conn, method::MUX_DEVICE_ENROLL)?;
     let access = token_param(params, "accessToken")?;
@@ -162,6 +257,7 @@ async fn enroll(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcErro
         .ok_or_else(|| {
             RpcError::invalid_params("publicKey must be a 32-byte key in standard base64")
         })?;
+    let device_key = device_key(params)?;
     let origin = hub_origin(hub).await?;
     let token = crate::cli::cloud_join::mint_join_token(&origin, &access, "web")
         .await
@@ -169,14 +265,19 @@ async fn enroll(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcErro
     // cmux-platform's web redeem: `{token, platform: "web", hostname, wgPublicKey}`. The hub
     // mints the `cmm_` credential and names the device by `wgPublicKey` on the mesh (its
     // `from.daemonId`). The generated body always carries `capabilities` (`build.rs`): none here.
-    let body: cmux_cloud_client::types::JoinRedeem = serde_json::from_value(json!({
+    // With `deviceKey` the hub binds the credential to the browser's key (RFD 0083).
+    let mut body = json!({
         "token": token.as_str(),
         "platform": "web",
         "hostname": "web",
         "wgPublicKey": key,
         "capabilities": [],
-    }))
-    .map_err(|_| RpcError::internal("the join request is not the hub's shape"))?;
+    });
+    if let (Some(device_key), Some(fields)) = (device_key, body.as_object_mut()) {
+        fields.insert("deviceKey".to_owned(), json!(device_key));
+    }
+    let body: cmux_cloud_client::types::JoinRedeem = serde_json::from_value(body)
+        .map_err(|_| RpcError::internal("the join request is not the hub's shape"))?;
     let client = crate::cli::cloud_join::hub_client(&origin, None)
         .map_err(|_| RpcError::internal("the hub client could not be built"))?;
     let redeemed = match client.machine_redeem_redeem(&body).await {
@@ -268,8 +369,35 @@ fn same_browser_owner(identity: &Value, team: &str, user: &str) -> bool {
         && identity.get("teamId").and_then(Value::as_str) == Some(team)
 }
 
+/// Whether a socket keeps the Origin of the page that opened it, which binds a browser
+/// sign-in (`start_with`). Only a web socket admitted by the listener token or by the
+/// `/app/ws` token (`ConnAuth::BrowserApp`, the production pane's) has a page origin.
+pub(super) fn keeps_page_origin(origin: Origin, auth: ConnAuth) -> bool {
+    origin == Origin::Web && matches!(auth, ConnAuth::ListenerToken | ConnAuth::BrowserApp)
+}
+
+/// How many renewals in a row may find the hub unavailable before the socket ends:
+/// a blip keeps the tab, an outage past about two minutes still ends its access.
+const UNAVAILABLE_RENEWALS: u32 = 3;
+
+/// Whether a renewal ends the socket: a refusal or a different owner at once, an
+/// unavailable hub only after `UNAVAILABLE_RENEWALS` in a row (`unavailable` counts them).
+fn renewal_ends(result: &Result<(), RpcError>, unavailable: &mut u32) -> bool {
+    let Err(error) = result else {
+        *unavailable = 0;
+        return false;
+    };
+    let reason = error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str);
+    if reason != Some("device.hub_unavailable") {
+        return true;
+    }
+    *unavailable = unavailable.saturating_add(1);
+    *unavailable >= UNAVAILABLE_RENEWALS
+}
+
 /// A quiet socket can still receive a live transcript. Renew its proof even
-/// when the browser makes no requests. A refused or unavailable hub ends it.
+/// when the browser makes no requests. A refusal ends it; so does a hub that stays
+/// unavailable (`renewal_ends`).
 pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
     if conn.auth != ConnAuth::BrowserApp {
         return std::future::pending().await;
@@ -278,9 +406,10 @@ pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
         Slot::Device(device) => Arc::clone(device),
         _ => return,
     };
+    let mut unavailable = 0;
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        if verify_owner(hub, &device).await.is_err() {
+        if renewal_ends(&verify_owner(hub, &device).await, &mut unavailable) {
             return;
         }
     }
@@ -289,6 +418,26 @@ pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
 #[cfg(test)]
 mod browser_owner_tests {
     use super::*;
+
+    #[test]
+    fn the_production_pane_socket_keeps_its_page_origin() {
+        assert!(keeps_page_origin(Origin::Web, ConnAuth::BrowserApp));
+        assert!(keeps_page_origin(Origin::Web, ConnAuth::ListenerToken));
+    }
+
+    #[test]
+    fn an_unavailable_hub_ends_the_socket_only_when_it_stays_unavailable() {
+        let unavailable = || Err(owner_error("device.hub_unavailable", "down"));
+        let mut count = 0;
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(!renewal_ends(&Ok(()), &mut count), "a success resets the count");
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(renewal_ends(&unavailable(), &mut count));
+        let mut fresh = 0;
+        assert!(renewal_ends(&Err(owner_error("device.wrong_owner", "no")), &mut fresh));
+    }
 
     #[test]
     fn requires_a_web_device_from_the_same_person_and_team() {

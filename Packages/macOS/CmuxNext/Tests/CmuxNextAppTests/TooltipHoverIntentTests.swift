@@ -48,14 +48,14 @@ import CmuxNextWakeupsTestSupport
             presenter.dismiss()
             window.closeAfterTest()
         }
-        // The first tooltip waits the initial delay (450 ms).
+        // The first tooltip waits the initial delay (250 ms).
         presenter.enter(try Self.tracker(buttons[0]))
         #expect(presenter.shown == nil, "the first tooltip showed with no delay")
         try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(300))
+        clock.advance(by: .milliseconds(150))
         try await Self.settle()
         #expect(presenter.shown == nil, "the first tooltip showed before the delay")
-        clock.advance(by: .milliseconds(200))
+        clock.advance(by: .milliseconds(100))
         try await Self.settle(until: { presenter.shown != nil })
         #expect(presenter.shown?.text == "Back")
 
@@ -141,7 +141,7 @@ import CmuxNextWakeupsTestSupport
     /// (a titled button, a label). A shortcut still shows, as a page's `data-tooltip-shortcut` does.
     @Test func aControlThatShowsItsOwnTextShowsNoTooltip() async throws {
         let clock = ManualClock()
-        let (window, _, presenter) = Self.toolbar(clock: clock)
+        let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
             window.closeAfterTest()
@@ -154,11 +154,23 @@ import CmuxNextWakeupsTestSupport
         label.frame = NSRect(x: 250, y: 18, width: 60, height: 20)
         window.contentView?.addSubview(label)
         label.themedToolTip = "~/fun/cmux on main"
+        // The steps below do show an icon-only control's tooltip, so they can see one; then the group cools.
+        presenter.enter(try Self.tracker(buttons[0]))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(2_000))
+        try await Self.settle(until: { presenter.shown?.text == "Back" })
+        #expect(presenter.shown?.text == "Back")
+        presenter.exit(try Self.tracker(buttons[0]))
+        presenter.dismiss()
+        if (try? await clock.waitForSleeper()) != nil { clock.advance(by: .milliseconds(2_000)) }
+        try await Self.settle(until: { presenter.shown == nil })
         for view in [button, label] as [NSView] {
             presenter.enter(try Self.tracker(view))
-            for _ in 0..<10 {
-                try await Self.settle()
-                clock.advance(by: .milliseconds(100))
+            // A tooltip for it would start the hover delay: run any delay out, past the first delay, then look. With
+            // none, nothing waits on the clock (waitForSleeper gives up after its bound).
+            if (try? await clock.waitForSleeper()) != nil {
+                clock.advance(by: .milliseconds(2_000))
+                try await Self.settle(until: { presenter.shown != nil })
             }
             try await Self.settle()
             #expect(presenter.shown == nil, "\(type(of: view)) showing its own text showed \(presenter.shown?.text ?? "")")

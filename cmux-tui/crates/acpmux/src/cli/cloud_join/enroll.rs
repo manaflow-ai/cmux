@@ -381,9 +381,13 @@ async fn record_leave_intent_at(
 ) -> Result<bool> {
     let at = signed_out_at.unwrap_or_else(now_ms);
     let account = safe_id(account.trim()).ok_or_else(|| anyhow!("the user id is malformed"))?;
-    let _lock = wait_for_lock(home)
-        .await
-        .ok_or_else(|| anyhow!("another join or leave holds this machine; try again"))?;
+    let _lock = wait_for_lock(home).await.ok_or_else(|| {
+        anyhow!(
+            "another join or leave has held this machine's join lock for {} s; it may be stuck: \
+                 `acpmux machine status` shows it",
+            LOCK_WAIT.as_secs()
+        )
+    })?;
     if signed_in_since(home, &account, at) {
         tracing::info!("sign-out intent: that account signed in again since; not recorded");
         return Ok(false);
@@ -465,6 +469,11 @@ pub(super) async fn enroll_at(
     // began it, with nothing minted. One the hub never took waits for the mint below.
     if let Err(e) = port.resume().await {
         tracing::debug!("sign-in enroll: no join to finish: {e:#}");
+    }
+    // A proposal another account's sign-in left unfinished is set aside, so this join's mint and
+    // redeem make a proposal of their own, under this account.
+    if recovery::retire_other_account_pending_at(home, current, account).is_err() {
+        return EnrollOutcome::Unavailable;
     }
     let Ok(mut record) = load_at(home) else { return EnrollOutcome::Unavailable };
     // The last person's sign-in join, recorded under their account, and another person signs in

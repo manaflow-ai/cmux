@@ -19,7 +19,8 @@
 //!   carries `_meta.provenance = {kind: "auto_resume", reason: "daemon_restart", ...}`.
 //! - `autoResumeDelaysMs: []` turns it off, as it does the transport continuation, and a chain
 //!   of restarts gives up after the attempts it configures ([`configured_attempts`]), as a
-//!   transport cut does (`auto_resume_exhausted`).
+//!   transport cut does (`auto_resume_exhausted`). A move's continuation is not one of those
+//!   attempts: a turn moves as many times as a person moves it.
 //! - A crash between the continuation's `queued` record and its move to the head
 //!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
 //! - It goes through the trust gate as the cut turn did (`turn_started` records `trustGate`),
@@ -346,56 +347,21 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
     })
 }
 
-/// The opening of a move's continuation when the move did not happen ([`Cut::unmoved`]).
-const STAYED: &str = "This chat did not move: a move to another machine stopped your previous \
-                      turn and then did not happen. You are still on this machine, with the same \
-                      files; processes you started may have ended with the turn.";
+/// What cut the turn off ([`Cut`]), and how a takeover's tool call in flight is told.
+#[path = "restart_cut.rs"]
+mod cut;
+pub(in crate::hub) use cut::Cut;
 
-/// What cut the turn off.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::hub) enum Cut {
-    /// The daemon restarted (an update or a crash).
-    Restart,
-    /// The chat moved to another machine (`transfer_out.rs`).
-    Move,
-}
+/// The provenance key of a continuation the harness may run from its own transcript, with no
+/// prompt written ([`Cut::MoveAtBoundary`]).
+const SILENT: &str = "silent";
 
-impl Cut {
-    /// The `reason` of its records and provenance.
-    pub(in crate::hub) fn reason(self) -> &'static str {
-        match self {
-            Cut::Restart => "daemon_restart",
-            Cut::Move => "moved",
-        }
-    }
-
-    /// Whether `reason` is a queued continuation's, which goes ahead of what waited behind the
-    /// cut turn and is no waiting retry (`queue.rs`, `auto_resume/restore.rs`).
-    pub(in crate::hub) fn queued(reason: Option<&str>) -> bool {
-        matches!(reason, Some("daemon_restart" | "moved"))
-    }
-
-    /// A [`Cut::Move`] continuation's text for a move that did not happen (`transfer_out.rs`
-    /// `queue_carried`): the same turn, told it is still on this machine. `None` for any other
-    /// text.
-    pub(in crate::hub) fn unmoved(text: &str) -> Option<String> {
-        text.strip_prefix(Cut::Move.opening()).map(|rest| format!("{STAYED}{rest}"))
-    }
-
-    fn opening(self) -> &'static str {
-        match self {
-            Cut::Restart => {
-                "acpmux restarted (an update or a crash) while your previous turn was running, \
-                 and the turn was cut off."
-            }
-            Cut::Move => {
-                "This chat moved to another machine while your previous turn was running, and the \
-                 turn was cut off. The files and git state came with it, but processes you \
-                 started (dev servers, watchers, background shells) did not: start again any \
-                 that you still need."
-            }
-        }
-    }
+/// Whether `provenance` is such a continuation's.
+pub(in crate::hub) fn silent(provenance: Option<&Value>) -> bool {
+    provenance.is_some_and(|p| {
+        p.get("kind").and_then(Value::as_str) == Some("auto_resume")
+            && p.get(SILENT).and_then(Value::as_bool) == Some(true)
+    })
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
@@ -446,6 +412,24 @@ fn continue_text_for(
 }
 
 impl Hub {
+    /// How many of the continuations behind the prompt `root` a move made (`reason: "moved"`).
+    /// A move is not a failed attempt: it spends none of the waits `autoResumeDelaysMs`
+    /// configures, for a restart's chain here or a transport cut's (`auto_resume.rs`).
+    pub(in crate::hub) fn moves_behind(&self, session: &Arc<Session>, root: &str) -> usize {
+        let mut moves = 0;
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
+            if head.kind == "auto_resume_scheduled"
+                && let Some(e) = head.record()
+                && e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason())
+                && e.msg.get("promptId").and_then(Value::as_str) == Some(root)
+            {
+                moves += 1;
+            }
+            true
+        });
+        moves
+    }
+
     /// Before the cut turn `turn_id` is settled: logs the continuation that goes on with it, and
     /// returns its prompt id; `None` when it gets none (turned off, or too many attempts).
     pub(in crate::hub) fn log_restart_continuation(
@@ -462,6 +446,18 @@ impl Hub {
         session: &Arc<Session>,
         turn_id: &str,
         cut: Cut,
+    ) -> Option<String> {
+        self.log_continuation_told(session, turn_id, cut, None)
+    }
+
+    /// [`Self::log_continuation`]; `in_flight` names the tool call (name, arguments) a
+    /// takeover's snapshot says was running, which the log may not show (`auto_import.rs`).
+    pub(in crate::hub) fn log_continuation_told(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Cut,
+        in_flight: Option<(&str, &str)>,
     ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
@@ -494,7 +490,16 @@ impl Hub {
         let mut stopped = false;
         let mut tool_start = None;
         let mut tool_end = None;
-        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+        // Every `auto_resume_scheduled` a move logged, by the prompt it continues: a move is no
+        // failed attempt (`moves_behind`).
+        let mut moved: Vec<String> = Vec::new();
+        // The last prompt that was no continuation: a continuation of a continuation quotes it,
+        // never the continuation before it (ten moves nested the same words ten deep).
+        let mut first_ask = None::<(String, String)>;
+        // The newest turn before the cut one and the newest prompt text before it, each by turn
+        // id: the two records come in either order.
+        let (mut ask_turn, mut ask_text) = (None::<(String, String)>, None::<(String, String)>);
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
             let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
@@ -508,6 +513,7 @@ impl Hub {
                     | "remote_floor_cancel"
                     | "turn_result"
                     | "turn_stop_requested"
+                    | "auto_resume_scheduled"
             );
             if !needs_record {
                 return true;
@@ -516,6 +522,11 @@ impl Hub {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
+                "auto_resume_scheduled"
+                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) =>
+                {
+                    moved.extend(field("promptId"));
+                }
                 "turn_started" if is_turn => {
                     started = true;
                     trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
@@ -533,7 +544,7 @@ impl Hub {
                         .map(str::to_owned)
                         .collect();
                 }
-                "turn_started" if e.msg.get("carried").is_none_or(Value::is_null) => {
+                "turn_started" if started && e.msg.get("carried").is_none_or(Value::is_null) => {
                     steered.clear();
                 }
                 "turn_control" if is_turn => {
@@ -561,6 +572,23 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
+                "turn_started" | "user_message" if !started => {
+                    if e.kind == "turn_started" {
+                        ask_turn = field("turnId").zip(field("promptId"));
+                    } else {
+                        ask_text = field("turnId").zip(field("text"));
+                    }
+                    if let (Some((turn, id)), Some((of, text))) = (&ask_turn, &ask_text)
+                        && turn == of
+                        && split_attempt(id).1 == 0
+                        && !text.trim().is_empty()
+                    {
+                        first_ask = Some((id.clone(), text.clone()));
+                    }
+                    if e.kind == "turn_started" && e.msg.get("carried").is_none_or(Value::is_null) {
+                        steered.clear();
+                    }
+                }
                 "turn_result" if is_turn => {
                     tool_end = Some(e.seq);
                     return false;
@@ -573,6 +601,14 @@ impl Hub {
         // continuation would drop its principal and execute as the person.
         if trigger {
             return None;
+        }
+        // A continuation's own prompt is the continuation before it: quote what was asked.
+        if let (Some((root, n)), Some((id, text)), Some(own)) =
+            (prompt_id.as_deref().map(split_attempt), first_ask, prompts.first_mut())
+            && n > 0
+            && id == root
+        {
+            *own = text;
         }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
@@ -596,7 +632,7 @@ impl Hub {
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
-            let _ = self.store.scan_heads(&session.id, &mut |head| {
+            let _ = self.scan_heads_off(&session.id, &mut |head| {
                 if tool_end.is_some_and(|end| head.seq >= end) {
                     return false;
                 }
@@ -618,7 +654,10 @@ impl Hub {
         });
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
-        if attempt > attempts {
+        // A person moves a chat as often as they like: a move's continuation is never refused for
+        // the count, and the moves behind a restart's are not failures it has used up.
+        let moves = moved.iter().filter(|id| id.as_str() == root).count();
+        if cut == Cut::Restart && attempt.saturating_sub(moves) > attempts {
             let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": cut.reason()});
             self.append(session, "mux", "auto_resume_exhausted", msg);
             return None;
@@ -649,8 +688,19 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": cut.reason()});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
-        let provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        let mut text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
+        if let Some((name, args)) = in_flight.filter(|_| unfinished.is_empty()) {
+            cut::tell_in_flight(&mut text, cut.opening().len(), name, args);
+        }
+        let mut provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        // Nothing of the turn was cut short: the harness may go on from its own transcript.
+        if cut == Cut::MoveAtBoundary
+            && unfinished.is_empty()
+            && omitted_tools == ToolOmission::None
+            && images.is_empty()
+        {
+            provenance.set(SILENT, json!(true));
+        }
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
         // Each image's source goes with it as display metadata, so the continuation's record keeps
@@ -707,739 +757,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::{Config, StoreMode};
-    use crate::store::EventRecord;
-
-    /// A hub holding one chat whose last turn a restart cut, with `delays` as
-    /// `autoResumeDelaysMs` (`None`: the key is unset). `done` continuations ran for it already,
-    /// as its prompt id's attempt suffix records. The caller removes `root` when it is done.
-    fn cut_turn(
-        delays: Option<Vec<u64>>,
-        done: usize,
-    ) -> (std::path::PathBuf, Arc<Hub>, Arc<Session>) {
-        let root =
-            std::env::temp_dir().join(format!("acpmux-restart-resume-{}", uuid::Uuid::now_v7()));
-        let mut cfg = Config::default();
-        cfg.store.mode = StoreMode::Local;
-        cfg.auto_resume_delays_ms = delays;
-        let store = crate::store::open(&cfg.store, &root).unwrap();
-        let meta = json!({
-            "schema": crate::store::META_SCHEMA, "id": "c1", "name": "c1", "harness": "claude",
-            // `idle`: no child process, which is what a daemon restart leaves behind. "open" is
-            // not a SessionStatus, and serde refused it before the fixture was even built.
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
-        });
-        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
-        let hub = Hub::new(cfg, store);
-        let session = hub.resolve("c1").unwrap();
-        let prompt_id = if done == 0 { "p1".to_owned() } else { format!("p1{SUFFIX}{done}") };
-        hub.append(&session, "in", "turn_started", json!({"turnId": "t1", "promptId": prompt_id}));
-        hub.append(&session, "in", "user_message", json!({"turnId": "t1", "text": "do the thing"}));
-        (root, hub, session)
-    }
-
-    /// Why the chat logged `auto_resume_exhausted`, if it did.
-    fn exhausted(hub: &Hub) -> Vec<Value> {
-        hub.events("c1", 0, 10_000)
-            .unwrap()
-            .into_iter()
-            .filter(|e| e.kind == "auto_resume_exhausted")
-            .map(|e| e.msg)
-            .collect()
-    }
-
-    /// What one cut turn's chain does with `delays` configured and `done` continuations behind
-    /// it: the continuation's prompt id if one goes out, and what it logged as exhausted.
-    async fn chain(delays: Option<Vec<u64>>, done: usize) -> (Option<String>, Vec<Value>) {
-        let (root, hub, session) = cut_turn(delays, done);
-        let id = hub.log_restart_continuation(&session, "t1");
-        let gave_up = exhausted(&hub);
-        hub.shutdown_all().await;
-        let _ = std::fs::remove_dir_all(&root);
-        (id, gave_up)
-    }
-
-    /// A daemon that crashed after it queued the continuation and before it settled the cut turn
-    /// finds the turn open again: the next one queues the continuation once, not twice.
-    #[tokio::test]
-    async fn a_crash_before_the_cut_turn_settles_queues_its_continuation_once() {
-        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
-        let first = hub.log_restart_continuation(&session, "t1");
-        let again = hub.log_restart_continuation(&session, "t1");
-        assert_eq!(first, Some(format!("p1{SUFFIX}1")));
-        assert_eq!(again, first);
-        let events = hub.events("c1", 0, 10_000).unwrap();
-        let queued = events.iter().filter(|e| e.kind == "queued").count();
-        assert_eq!(queued, 1, "{events:?}");
-        hub.shutdown_all().await;
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// One continuation per configured wait, for a chain of restarts as for a transport cut:
-    /// `autoResumeDelaysMs` is the whole loop, not only its waits.
-    #[tokio::test]
-    async fn the_configured_waits_set_how_many_restart_continuations_run() {
-        // One wait: the first continuation goes out.
-        let (id, gave_up) = chain(Some(vec![10_000]), 0).await;
-        assert_eq!(id, Some(format!("p1{SUFFIX}1")));
-        assert!(gave_up.is_empty(), "{gave_up:?}");
-
-        // The second has no wait left, so the chain gives up instead of running a fixed four.
-        let (id, gave_up) = chain(Some(vec![10_000]), 1).await;
-        assert_eq!(id, None);
-        // The fields the record is for, not the whole object: a field added to the record later
-        // is not this test's business.
-        assert_eq!(gave_up.len(), 1, "{gave_up:?}");
-        let msg = &gave_up[0];
-        assert_eq!(
-            (&msg["promptId"], &msg["attempts"], &msg["turnId"], &msg["reason"]),
-            (&json!("p1"), &json!(1), &json!("t1"), &json!("daemon_restart")),
-            "{msg}"
-        );
-
-        // A configured six-attempt loop runs all of its attempts.
-        let (id, gave_up) = chain(Some(vec![10_000; 6]), 5).await;
-        assert_eq!(id, Some(format!("p1{SUFFIX}6")));
-        assert!(gave_up.is_empty(), "{gave_up:?}");
-    }
-
-    /// The key unset keeps the default waits' attempts, and `[]` still turns it off.
-    #[tokio::test]
-    async fn an_unset_key_keeps_the_default_attempts_and_an_empty_list_turns_it_off() {
-        let attempts = DEFAULT_DELAYS_MS.len();
-        let (id, _) = chain(None, attempts - 1).await;
-        assert_eq!(id, Some(format!("p1{SUFFIX}{attempts}")));
-
-        let (id, gave_up) = chain(None, attempts).await;
-        assert_eq!(id, None);
-        assert_eq!(gave_up.len(), 1, "{gave_up:?}");
-
-        // Off is not a chain that ran out: it logs nothing.
-        let (id, gave_up) = chain(Some(vec![]), 0).await;
-        assert_eq!(id, None);
-        assert!(gave_up.is_empty(), "{gave_up:?}");
-    }
-
-    /// A carried turn (`carried_turn.rs`) the restart cut: its continuation quotes the steers it
-    /// carried, logged in the turn before it, and attaches their images; not an older turn's.
-    #[tokio::test]
-    async fn a_carried_turns_continuation_quotes_the_steers_it_carried() {
-        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
-        let image = json!({"mimeType": "image/png", "data": "aGk="});
-        let steer = json!({"turnId": "t1", "promptId": "p-late", "text": "late ask", "steer": true, "images": [image]});
-        hub.append(&session, "mux", "user_message", steer);
-        let other =
-            json!({"turnId": "t1", "promptId": "p-read", "text": "read in t1", "steer": true});
-        hub.append(&session, "mux", "user_message", other);
-        let started = json!({"turnId": "t2", "promptId": "p-late", "trustGate": true, "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
-        hub.append(&session, "mux", "turn_started", started);
-        let id = hub.log_restart_continuation(&session, "t2");
-        assert_eq!(id, Some(format!("p-late{SUFFIX}1")));
-        let events = hub.events("c1", 0, 10_000).unwrap();
-        let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
-        let text = queued["text"].as_str().unwrap();
-        assert!(text.contains("late ask"), "{text}");
-        assert!(!text.contains("read in t1") && !text.contains("do the thing"), "{text}");
-        assert_eq!(queued["images"], json!([image]), "{queued}");
-        assert_eq!(queued["trustGate"], true, "{queued}");
-        hub.shutdown_all().await;
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn the_continuation_quotes_the_cut_prompt_and_its_steers() {
-        let text =
-            continue_text(&["do the thing".into(), "also this".into()], &[], ToolOmission::None);
-        assert!(text.contains("Its prompt:\n<message>\ndo the thing\n</message>"), "{text}");
-        assert!(text.contains("A message sent into it:\n<message>\nalso this\n</message>"));
-        assert!(text.ends_with("Do not redo work that completed."));
-        let long = continue_text(&["x".repeat(MAX_QUOTE_CHARS + 10)], &[], ToolOmission::None);
-        assert!(!long.contains(&"x".repeat(MAX_QUOTE_CHARS + 1)));
-    }
-
-    #[test]
-    fn a_restart_prompt_lists_tool_calls_that_have_not_finished() {
-        let update = |fields| {
-            json!({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {"update": fields}
-            })
-        };
-        let records = vec![
-            EventRecord {
-                seq: 1,
-                at: 1,
-                dir: "in".into(),
-                kind: "tool_call".into(),
-                msg: update(json!({
-                    "sessionUpdate": "tool_call",
-                    "toolCallId": "call-1",
-                    "status": "in_progress"
-                })),
-                host_seq: None,
-            },
-            EventRecord {
-                seq: 2,
-                at: 2,
-                dir: "in".into(),
-                kind: "tool_call_update".into(),
-                msg: update(json!({
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": "call-1",
-                    "title": "Run tests",
-                    "rawInput": {"command": "cargo test -p acpmux"}
-                })),
-                host_seq: None,
-            },
-            EventRecord {
-                seq: 3,
-                at: 3,
-                dir: "in".into(),
-                kind: "tool_call".into(),
-                msg: update(json!({
-                    "sessionUpdate": "tool_call",
-                    "toolCallId": "call-2",
-                    "title": "Finished",
-                    "status": "in_progress"
-                })),
-                host_seq: None,
-            },
-            EventRecord {
-                seq: 4,
-                at: 4,
-                dir: "in".into(),
-                kind: "tool_call_update".into(),
-                msg: update(json!({
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": "call-2",
-                    "status": "completed"
-                })),
-                host_seq: None,
-            },
-        ];
-        let (tools, omitted) = unfinished_tools(&records);
-        let text = continue_text(&[], &tools, omitted);
-        assert!(text.contains("Tool calls started but not finished:"), "{text}");
-        assert!(text.contains("Run tests (id: call-1)"), "{text}");
-        assert!(text.contains("input: {\"command\":\"cargo test -p acpmux\"}"), "{text}");
-        assert!(!text.contains("Finished (id: call-2)"), "{text}");
-    }
-
-    fn tool_record(id: usize, status: &str) -> EventRecord {
-        EventRecord {
-            seq: 1,
-            at: 1,
-            dir: "in".into(),
-            kind: "tool_call_update".into(),
-            msg: json!({"params": {"update": {"sessionUpdate": "tool_call_update",
-                "toolCallId": format!("call-{id}"), "status": status}}}),
-            host_seq: None,
-        }
-    }
-
-    #[test]
-    fn overflow_completion_replays_preserve_exact_retained_histories() {
-        let mut records = Vec::new();
-        for id in 0..200 {
-            records.push(tool_record(id, "in_progress"));
-            records.push(tool_record(id, "in_progress"));
-        }
-        let (tools, omitted) = unfinished_tools(&records);
-        assert_eq!(tools.len(), MAX_UNFINISHED_TOOLS);
-        assert_eq!(omitted, ToolOmission::Unfinished);
-        let retained = tools[0].id.clone();
-        for id in 0..200 {
-            if format!("call-{id}") == retained {
-                continue;
-            }
-            records.push(tool_record(id, "completed"));
-            records.push(tool_record(id, "completed"));
-            records.push(tool_record(id, "in_progress"));
-        }
-        records.push(tool_record(999, "completed"));
-        let (tools, omitted) = unfinished_tools(&records);
-        assert!(tools.len() <= 1);
-        assert!(tools.iter().all(|tool| tool.id == retained));
-        assert_eq!(omitted, ToolOmission::Unknown);
-        for id in 0..200 {
-            records.push(tool_record(id, "failed"));
-        }
-        let (tools, omitted) = unfinished_tools(&records);
-        assert!(tools.is_empty());
-        assert_eq!(omitted, ToolOmission::Unknown);
-        let text = continue_text(&[], &tools, omitted);
-        assert!(!text.contains("Tool calls started"));
-        assert!(!text.contains("unfinished tool calls omitted"));
-        assert!(text.contains("completion status is unknown"));
-    }
-
-    #[test]
-    fn completed_tool_histories_are_visited_once() {
-        let mut records: Vec<_> = (0..10_000).map(|id| tool_record(id, "in_progress")).collect();
-        records.extend((0..10_000).map(|id| tool_record(id, "completed")));
-        let mut scans = 0;
-        let mut visits = 0;
-        let (tools, _) = collect_unfinished(|page| {
-            scans += 1;
-            for record in &records {
-                visits += 1;
-                page.note(tool_update(record, None).unwrap());
-                assert!(page.calls.len() <= TOOL_PAGE_SIZE);
-            }
-        });
-        assert!(tools.is_empty());
-        eprintln!("restart-tool-fold: scans={scans} decoded_updates={visits}");
-        assert_eq!((scans, visits), (1, records.len()));
-    }
-
-    #[test]
-    fn discarded_later_active_tool_is_reported_as_unknown_not_unfinished() {
-        let mut identities: Vec<_> = (0..200)
-            .map(|id| {
-                let digest: [u8; 32] = Sha256::digest(format!("call-{id}").as_bytes()).into();
-                (digest, id)
-            })
-            .collect();
-        identities.sort();
-        let later = identities.last().unwrap().1;
-        let mut records = Vec::new();
-        for (_, id) in &identities[..TOOL_PAGE_SIZE] {
-            records.push(tool_record(*id, "in_progress"));
-            records.push(tool_record(*id, "completed"));
-        }
-        records.push(tool_record(later, "in_progress"));
-        let (tools, omitted) = unfinished_tools(&records);
-        assert!(tools.is_empty());
-        assert_eq!(omitted, ToolOmission::Unknown);
-        assert!(continue_text(&[], &tools, omitted).contains("completion status is unknown"));
-    }
-
-    #[test]
-    fn retained_tool_metadata_updates_are_preserved() {
-        let mut records = vec![tool_record(1, "in_progress")];
-        let mut metadata = tool_record(1, "in_progress");
-        metadata.msg["params"]["update"]["title"] = json!("Last live tool");
-        metadata.msg["params"]["update"]["rawInput"] = json!({"command": "cargo check"});
-        records.push(metadata);
-        let (tools, omitted) = unfinished_tools(&records);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "Last live tool");
-        assert_eq!(tools[0].input.as_deref(), Some("{\"command\":\"cargo check\"}"));
-        assert_eq!(omitted, ToolOmission::None);
-    }
-
-    #[test]
-    fn restart_tool_details_are_single_line_and_mask_secrets_before_truncation() {
-        let credential = ["abcd", "1234"].repeat(8).join("");
-        let record = EventRecord {
-            seq: 1,
-            at: 1,
-            dir: "in".into(),
-            kind: "tool_call".into(),
-            msg: json!({"params": {"update": {"sessionUpdate": "tool_call",
-                "toolCallId": "call\n\t\u{1b}1", "title": "Run\r\n\t\u{0} tests",
-                "status": "in_progress", "rawInput": {"command": format!("curl -H 'Authorization: Bearer {credential}'")}}}}),
-            host_seq: None,
-        };
-        let (tools, omitted) = unfinished_tools(&[record]);
-        let text = continue_text(&[], &tools, omitted);
-        assert!(text.contains("Run tests (id: call 1)"), "{text}");
-        assert!(!text.contains(&credential), "credentials must not enter the continuation");
-        assert!(text.contains("[secret]"));
-        assert!(!text.contains('\u{1b}') && !text.contains('\u{0}'));
-        for prefix in [" ".repeat(270), "x".repeat(240)] {
-            let masked = input_prefix(
-                &json!({"rawInput": format!("{prefix} Authorization: Bearer {credential}")}),
-            )
-            .unwrap();
-            assert!(!masked.contains(&credential[..24]), "secret straddles display cut");
-        }
-        let masked = input_prefix(&json!({"rawInput": {"password": credential}})).unwrap();
-        assert!(!masked.contains(&credential));
-        assert!(masked.contains("[secret]"));
-        // A token longer than the scan budget is dropped whole, never exposed as a prefix.
-        let huge = credential.repeat(MAX_TOOL_SCAN_BYTES);
-        let masked =
-            input_prefix(&json!({"rawInput": format!("Authorization: Bearer {huge}")})).unwrap();
-        assert!(!masked.contains(&credential[..24]));
-        assert!(
-            !bounded_text(&format!("Authorization: Bearer {credential}")).contains(&credential)
-        );
-    }
-
-    #[test]
-    fn restart_inputs_mask_decoded_quoted_assignments_before_json_escaping() {
-        let password = ["open", "sesame", "42"].join("_");
-        let command = format!("PASSWORD=\"{password}\" ./deploy");
-        for raw in [json!(command), json!({"command": command}), json!([{"nested": command}])] {
-            let masked = input_prefix(&json!({"rawInput": raw})).unwrap();
-            assert!(!masked.contains(&password), "quoted assignment leaked into restart input");
-            assert!(masked.contains("[secret]"), "{masked}");
-            assert!(!masked.contains("./deploy"), "suffix must be redacted: {masked}");
-        }
-    }
-
-    #[test]
-    fn restart_inputs_mask_whole_quoted_assignment_values() {
-        for command in [
-            r#"PASSWORD="correct horse battery staple" ./deploy"#,
-            r#"PASSWORD="open sesame" ./deploy"#,
-            r#"PASSWORD='open sesame' ./deploy"#,
-            r#"PASSWORD="open \"sesame\" again" ./deploy"#,
-            r#"PASSWORD="open\\ sesame" ./deploy"#,
-            r#"PASSWORD='open '\''sesame' ./deploy"#,
-            r#"PASSWORD="open sesame"' extra words' ./deploy"#,
-            r#"PASSWORD="open sesame"suffix ./deploy"#,
-            r#"PASSWORD="x" API_KEY='y z' ./deploy"#,
-        ] {
-            let expected = r#""PASSWORD=[secret]""#;
-            assert_eq!(input_prefix(&json!({"rawInput": command})).unwrap(), expected);
-            let nested = input_prefix(&json!({"rawInput": {"command": command}})).unwrap();
-            assert_eq!(nested, format!("{{\"command\":{expected}}}"));
-            let array = input_prefix(&json!({"rawInput": [command]})).unwrap();
-            assert_eq!(array, format!("[{expected}]"));
-        }
-        // A harmless quoted argument remains useful context.
-        let plain = r#"echo "correct horse battery staple""#;
-        assert_eq!(mask_input_assignments(plain), plain);
-    }
-
-    #[test]
-    fn restart_inputs_mask_concatenated_and_escaped_shell_assignments() {
-        for command in [
-            r#"PASSWORD=x"open sesame" ./deploy"#,
-            r#"PASSWORD=$'open sesame' ./deploy"#,
-            r#"PASSWORD=$"open sesame" ./deploy"#,
-            r#"PASSWORD=prefix'open '"sesame"suffix ./deploy"#,
-            r#"PASSWORD=x$'open '\"sesame\" ./deploy"#,
-            r#"PASSWORD=open\ sesame ./deploy"#,
-            r#"PASSWORD=open\ sesame' extra words' ./deploy"#,
-            r#"PASSWORD=$'open\' sesame' ./deploy"#,
-            r#"PASSWORD='open '\''sesame' ./deploy"#,
-            r#"PASSWORD="open "sesame\ again ./deploy"#,
-            r#"PASSWORD=x"open sesame" API_KEY=$'another secret' ./deploy"#,
-            r#"PASSWORD=abc,correcthorse ./deploy"#,
-            r#"PASSWORD=abc}correcthorse ./deploy"#,
-            r#"PASSWORD=abc]correcthorse ./deploy"#,
-            r#"PASSWORD=abc{correcthorse,more}[tail] ./deploy"#,
-        ] {
-            let expected = "PASSWORD=[secret]";
-            assert_eq!(mask_input_assignments(command), expected, "{command}");
-            for (value, masked) in [
-                (json!(command), json!(expected)),
-                (json!({"command": command}), json!({"command": expected})),
-                (json!([command]), json!([expected])),
-            ] {
-                assert_eq!(
-                    input_prefix(&json!({"rawInput": value})).unwrap(),
-                    masked.to_string(),
-                    "{command}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn restart_inputs_hide_ambiguous_shell_substitution_boundaries() {
-        for command in [
-            r#"PASSWORD=$(printf 'open sesame') ./deploy"#,
-            r#"PASSWORD=prefix`printf 'open sesame'` ./deploy"#,
-            r#"PASSWORD=${unset:-open sesame} ./deploy"#,
-            r#"PASSWORD="${unset:-open sesame}" ./deploy"#,
-            r#"PASSWORD=<(printf 'open sesame') ./deploy"#,
-            r#"PASSWORD=>(printf 'open sesame') ./deploy"#,
-        ] {
-            let expected = "PASSWORD=[secret]";
-            assert_eq!(mask_input_assignments(command), expected, "{command}");
-            for (raw, masked) in [
-                (json!(command), json!(expected)),
-                (json!({"command": command}), json!({"command": expected})),
-                (json!([command]), json!([expected])),
-            ] {
-                assert_eq!(input_prefix(&json!({"rawInput": raw})).unwrap(), masked.to_string());
-            }
-        }
-    }
-
-    #[test]
-    fn quoted_assignments_redact_literal_and_ansi_c_backslashes() {
-        for command in [
-            r#"PASSWORD='prefix\'"it's open sesame" ./deploy"#,
-            r#"PASSWORD='prefix\'"open sesame" ./deploy"#,
-            r#"PASSWORD=\$'prefix\'"it's open sesame" ./deploy"#,
-            r#"PASSWORD=$'prefix\' open sesame' ./deploy"#,
-            r#"PASSWORD=$'prefix\\'"it's open sesame" ./deploy"#,
-        ] {
-            for (raw, expected) in [
-                (json!(command), r#""PASSWORD=[secret]""#),
-                (json!({"command": command}), r#"{"command":"PASSWORD=[secret]"}"#),
-                (json!([command]), r#"["PASSWORD=[secret]"]"#),
-            ] {
-                assert_eq!(input_prefix(&json!({"rawInput": raw})).unwrap(), expected, "{command}");
-            }
-        }
-    }
-
-    #[test]
-    fn colon_delimited_quoted_values_redact_ambiguous_data_escapes() {
-        let code = r#"config = {'password': 'prefix\' open sesame'}"#;
-        let safe = "config = {'password': [secret]";
-        for (raw, expected) in [
-            (json!(code), json!(safe)),
-            (json!({"code": code}), json!({"code": safe})),
-            (json!([code]), json!([safe])),
-        ] {
-            let prefix = input_prefix(&json!({"rawInput": raw})).unwrap();
-            assert_eq!(prefix, expected.to_string());
-            assert!(!prefix.contains("open sesame"));
-        }
-    }
-
-    #[test]
-    fn restart_inputs_mask_unclosed_and_scan_boundary_quoted_assignments() {
-        for command in [
-            "PASSWORD=\"open sesame".to_owned(),
-            format!("PASSWORD=\"{}\" ./deploy", "open sesame ".repeat(MAX_TOOL_SCAN_BYTES)),
-            format!("PASSWORD=\"{}\" ./deploy", "世 界 ".repeat(MAX_TOOL_SCAN_BYTES)),
-        ] {
-            let prefix = input_prefix(&json!({"rawInput": command})).unwrap();
-            for secret_fragment in ["open", "sesame", "世", "界"] {
-                assert!(!prefix.contains(secret_fragment), "quoted secret leaked: {prefix}");
-            }
-        }
-    }
-
-    #[test]
-    fn restart_inputs_keep_password_field_context_when_masking_structured_input() {
-        let password = "open_sesame42";
-        let masked = input_prefix(&json!({
-            "rawInput": {"password": format!("\"{password}\"")}
-        }))
-        .unwrap();
-        assert!(!masked.contains(password), "structured password leaked: {masked}");
-        assert!(masked.contains("[secret]"), "{masked}");
-        let masked = input_prefix(&json!({
-            "rawInput": {"password": [password]}
-        }))
-        .unwrap();
-        assert!(!masked.contains(password), "nested structured password leaked: {masked}");
-        let masked = input_prefix(&json!({
-            "rawInput": {"password": "let me in"}
-        }))
-        .unwrap();
-        assert!(!masked.contains("let me in"), "plain structured password leaked: {masked}");
-        assert!(masked.contains("[secret]"), "{masked}");
-    }
-
-    #[test]
-    fn restart_inputs_mask_sensitive_numeric_and_boolean_fields() {
-        let masked = input_prefix(&json!({
-            "rawInput": {"password": 12345678, "token": true, "secret": null}
-        }))
-        .unwrap();
-        assert!(!masked.contains("12345678"), "numeric password leaked: {masked}");
-        assert!(!masked.contains("true"), "boolean token leaked: {masked}");
-        assert!(masked.matches("[secret]").count() >= 3, "{masked}");
-        let masked = input_prefix(&json!({
-            "rawInput": {"apiKey": 12345678, "credentials": "let me in", "authorization": false}
-        }))
-        .unwrap();
-        assert!(!masked.contains("12345678") && !masked.contains("let me in"), "{masked}");
-        let long_key = format!("{}password", "x".repeat(MAX_TOOL_FIELD_CHARS));
-        let masked = input_prefix(&json!({"rawInput": {long_key: "open_sesame42"}})).unwrap();
-        assert!(!masked.contains("open_sesame42"), "long sensitive key leaked: {masked}");
-    }
-
-    #[test]
-    fn structured_secret_keys_follow_the_assignment_scanner() {
-        for key in [
-            "apiKey",
-            "api_key",
-            "api-key",
-            "SECRET",
-            "accessToken",
-            "passwd",
-            "password",
-            "credentials",
-            "private_key",
-            "privateKey",
-            "access_key",
-        ] {
-            let assignment = format!("{key}=open_sesame42");
-            assert_ne!(crate::secret_scan::mask(&assignment), assignment, "{key}");
-            for value in [json!("x"), json!(7), json!(false), json!([{"inside": "x"}])] {
-                let input = json!({"rawInput": {key: value}});
-                let prefix = input_prefix(&input).unwrap();
-                assert!(prefix.contains("[secret]"), "{key}: {prefix}");
-            }
-        }
-        for key in ["authorization", "AUTH", "cookie", "key"] {
-            assert!(sensitive_key(key), "{key}");
-        }
-        // Entire key inspection must not be needed to decide that an oversized key
-        // is opaque, including when no sensitive word appears in its prefix.
-        assert!(sensitive_key(&"x".repeat(MAX_TOOL_FIELD_CHARS + 1)));
-    }
-
-    #[test]
-    fn child_tool_updates_are_ignored_and_metadata_is_bounded() {
-        let child = EventRecord {
-            seq: 1,
-            at: 1,
-            dir: "in".into(),
-            kind: "tool_call".into(),
-            msg: json!({"params": {"_meta": {"acpmux": {"subagent": {"id": "child"}}}, "update": {"sessionUpdate": "tool_call", "toolCallId": "child-call", "status": "in_progress"}}}),
-            host_seq: None,
-        };
-        assert!(tool_update(&child, None).is_none());
-
-        let mut page = ToolPage::default();
-        let huge = "x".repeat(MAX_TOOL_FIELD_CHARS + 100);
-        page.note(&json!({"toolCallId": huge, "title": huge, "status": "in_progress",
-            "rawInput": {"body": "x".repeat(10_000)}}));
-        let open = page.calls.values().flatten().next().unwrap();
-        assert_eq!(open.id.chars().count(), MAX_TOOL_FIELD_CHARS);
-        assert_eq!(open.name.chars().count(), MAX_TOOL_FIELD_CHARS);
-        assert!(open.input.as_ref().unwrap().len() <= MAX_TOOL_INPUT_CHARS);
-        page.note(&json!({"toolCallId": format!("{huge}2"), "status": "in_progress"}));
-        assert_eq!(page.calls.values().flatten().count(), 2);
-        page.note(&json!({"toolCallId": huge, "status": "completed"}));
-        assert_eq!(page.calls.values().flatten().count(), 1);
-        page.note(&json!({"toolCallId": format!("{huge}2"), "status": "failed"}));
-        assert_eq!(page.calls.values().flatten().count(), 0);
-    }
-
-    #[test]
-    fn root_tool_updates_with_subagent_metadata_are_retained() {
-        let record = EventRecord {
-            seq: 1,
-            at: 1,
-            dir: "in".into(),
-            kind: "tool_call".into(),
-            msg: json!({"params": {"sessionId": "root", "_meta": {"acpmux": {"subagent": "child-1"}},
-                "update": {"sessionUpdate": "tool_call", "toolCallId": "root-call", "title": "Own build", "status": "in_progress"}}}),
-            host_seq: None,
-        };
-        assert!(tool_update(&record, Some("root")).is_some());
-        assert!(tool_update(&record, Some("other")).is_none());
-        let mut child = record;
-        child.msg["params"]["_meta"] = Value::Null;
-        assert!(tool_update(&child, Some("other")).is_none());
-    }
-
-    #[test]
-    fn input_serialization_stops_at_the_prefix_budget() {
-        use serde::Serialize;
-        struct Unvisited;
-        impl Serialize for Unvisited {
-            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
-                panic!("serialization must stop before the next value");
-            }
-        }
-        let mut bytes = Vec::with_capacity(MAX_TOOL_INPUT_CHARS);
-        let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_INPUT_CHARS };
-        assert!(serde_json::to_writer(&mut writer, &("x".repeat(10_000), Unvisited)).is_err());
-        assert_eq!(bytes.len(), MAX_TOOL_INPUT_CHARS);
-        let prefix = input_prefix(&json!({"rawInput": "世".repeat(10_000)})).unwrap();
-        assert!(prefix.len() <= MAX_TOOL_INPUT_CHARS);
-        assert!(!prefix.contains('\u{fffd}'));
-    }
-
-    #[test]
-    fn multibyte_text_is_cut_on_char_boundaries() {
-        // "世" is 3 bytes: a 4-byte budget keeps one, never half of the second.
-        assert_eq!(char_prefix("世世", 4), "世");
-        assert_eq!(char_prefix("世世", 6), "世世");
-        assert_eq!(char_prefix("世", 2), "");
-        // 7-byte units: the scan cut (4096 = 7 * 585 + 1) lands inside a 3-byte char, and the
-        // word crossing it is dropped back to the last space.
-        let long = "世世 ".repeat(MAX_TOOL_SCAN_BYTES);
-        assert_eq!(masked_scan(&long), "世世 ".repeat(585).trim_end());
-        // The truncated tail is cut at a multibyte space (U+3000), not a byte inside it.
-        assert_eq!(safe_tool_text("世\u{3000}世世", true, 100), "世");
-        // Multibyte text before a sensitive assignment keeps its prefix whole.
-        assert_eq!(mask_input_assignments("世 PASSWORD=世世"), "世 PASSWORD=[secret]");
-    }
-
-    #[tokio::test]
-    async fn restart_journal_ignores_children_and_honors_replayed_completion() {
-        use crate::config::{Config, StoreMode};
-        let root =
-            std::env::temp_dir().join(format!("acpmux-restart-tools-{}", uuid::Uuid::now_v7()));
-        let mut cfg = Config::default();
-        cfg.store.mode = StoreMode::Local;
-        let store = crate::store::open(&cfg.store, &root).unwrap();
-        store.save(&serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "claude",
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2
-        })).unwrap()).unwrap();
-        let hub = Hub::new(cfg, store);
-        let session = hub.resolve("chat").unwrap();
-        let tool = |id: &str, state: &str| {
-            json!({"params": {"update": {
-                "sessionUpdate": "tool_call", "toolCallId": id, "title": id, "status": state
-            }}})
-        };
-        // Historical inputs must not enter the interrupted turn's summary.
-        for _ in 0..100 {
-            hub.append(&session, "in", "tool_call", tool("historical", "in_progress"));
-        }
-        hub.append(
-            &session,
-            "mux",
-            "turn_started",
-            json!({"turnId": "cut", "promptId": "p", "control": "local", "trustGate": false}),
-        );
-        // More child calls than the display cap, including replayed calls and an ID
-        // shared with the parent, cannot consume or remove the parent's entries.
-        for n in 0..=MAX_UNFINISHED_TOOLS {
-            let mut child = tool(&format!("child-{n}"), "in_progress");
-            child["params"]["_meta"] = json!({"acpmux": {"subagent": {"id": "child"}}});
-            hub.append(&session, "in", "tool_call.replay", child);
-        }
-        hub.append(&session, "in", "tool_call", tool("finished", "in_progress"));
-        let mut completion = tool("finished", "completed");
-        completion["params"]["update"]["sessionUpdate"] = json!("tool_call_update");
-        hub.append(&session, "in", "tool_call_update.replay", completion);
-        hub.append(&session, "in", "tool_call.replay", tool("own", "in_progress"));
-        let mut child = tool("own", "completed");
-        child["params"]["_meta"] = json!({"acpmux": {"subagent": {"id": "child"}}});
-        hub.append(&session, "in", "tool_call_update", child);
-        assert!(hub.log_restart_continuation(&session, "cut").is_some());
-        let records = hub.events("chat", 0, usize::MAX).unwrap();
-        let text =
-            records.iter().find(|e| e.kind == "queued").unwrap().msg["text"].as_str().unwrap();
-        assert!(text.contains("own (id: own)"), "{text}");
-        for absent in ["child-", "historical", "finished (id:", "omitted"] {
-            assert!(!text.contains(absent), "{text}");
-        }
-        hub.shutdown_all().await;
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn replayed_terminal_tool_update_closes_the_call() {
-        let update = |kind: &str, status: &str| EventRecord {
-            seq: 1,
-            at: 1,
-            dir: "in".into(),
-            kind: kind.into(),
-            msg: json!({"params": {"update": {"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": status}}}),
-            host_seq: None,
-        };
-        let records = vec![
-            EventRecord {
-                kind: "tool_call".into(),
-                msg: json!({"params": {"update": {"sessionUpdate": "tool_call", "toolCallId": "call-1", "status": "in_progress"}}}),
-                ..update("tool_call", "in_progress")
-            },
-            update("tool_call_update.replay", "completed"),
-        ];
-        let (tools, omitted) = unfinished_tools(&records);
-        assert!(tools.is_empty());
-        assert_eq!(omitted, ToolOmission::None);
-    }
-}
+#[path = "restart_resume_tests.rs"]
+mod tests;

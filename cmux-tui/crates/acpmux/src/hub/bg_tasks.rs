@@ -26,13 +26,11 @@ fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
 
-/// The most tasks one chat runs at once.
-const MAX_RUNNING: usize = 32;
 /// The most a `bg/output` returns, and what one without `maxBytes` returns.
 const OUTPUT_MAX: u64 = 1 << 20;
 const OUTPUT_DEFAULT: u64 = 64 << 10;
 /// The tail each listed task shows.
-const LIST_TAIL: u64 = 1 << 10;
+pub(super) const LIST_TAIL: u64 = 1 << 10;
 /// How long a start waits for its runner's answer.
 const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -41,6 +39,10 @@ const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 struct BgSpawn<'a> {
     fixed_id: Option<&'a str>,
     subagent: Option<Value>,
+    /// The harness tool call that started it (`bg_run::Spec::tool_call_id`).
+    tool_call_id: Option<String>,
+    /// Its CPU class (`bg_start`'s `class`): a filler task's scope runs at `CPUWeight=idle`.
+    class: crate::session_budget::TaskClass,
 }
 
 /// Whose tasks a list or a stop acts on. Incident 2026-11-14: a Claude Code subagent listed
@@ -106,7 +108,10 @@ impl Hub {
     /// one message when it ends ([`Hub::bg_notify`]). With `subagent` (`{id, type}`, plain words:
     /// the Claude Code subagent whose MCP call starts it, `subagent_call.rs`), it runs as that
     /// subagent's Bash would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that
-    /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`).
+    /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`). With
+    /// `tool_call_id` (the Bash call acpmux's hook rewrote), the process registry lists the task
+    /// under that call (`bg_registry.rs`).
+    #[allow(clippy::too_many_arguments)]
     pub async fn bg_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -116,8 +121,10 @@ impl Hub {
         notify: bool,
         result_line: bool,
         subagent: Option<Value>,
+        tool_call_id: Option<String>,
+        class: crate::session_budget::TaskClass,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id: None, subagent };
+        let spawn = BgSpawn { fixed_id: None, subagent, tool_call_id, class };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -136,7 +143,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent };
+        let spawn = BgSpawn { fixed_id, subagent, tool_call_id: None, class: Default::default() };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -150,11 +157,11 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let BgSpawn { fixed_id, subagent } = spawn;
+        let BgSpawn { fixed_id, subagent, tool_call_id, class } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
-        // One start at a time: the running count and a purge's stop see every task.
+        // One start at a time: a purge's stop sees every task.
         let _one = self.bg_starts.lock().await;
         // A chat stopped before a restart is Closed with no closing flag: both count.
         let closing = || {
@@ -185,13 +192,10 @@ impl Hub {
                 return Ok(bg_view(&dir, &record, LIST_TAIL));
             }
         }
-        // A runner whose lock cannot be probed counts: the cap never lets an unknown one by.
-        let running = self.bg_records(&dir).iter().filter(|r| !bg_gone(&dir, &r.id)).count();
-        if running >= MAX_RUNNING {
-            return Err(RpcError::invalid_params(format!(
-                "{MAX_RUNNING} background tasks already run in this chat; stop one first"
-            )));
-        }
+        // No count cap: a chat runs as many tasks as it starts (Leo, 2026-11-22: "shouldn't have
+        // these arbitrary caps yo"). Each costs a constant: its own runner process, a spool of at
+        // most two segments (`bg_run::SEGMENT`), and with `notify` one daemon watch thread
+        // (`bg_notify.rs`, a small stack) holding one descriptor. A start reads no other task.
         let mut env = self.bg_env(session, &meta).await?;
         let word = |key: &str| subagent.as_ref()?.get(key)?.as_str();
         if let (Some(kind), Some(sub)) = (word("type"), word("id")) {
@@ -241,8 +245,9 @@ impl Hub {
             notify,
             result_line,
             subagent,
+            tool_call_id: tool_call_id.filter(|c| !c.trim().is_empty()),
         };
-        bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        bg_spawn(&runner, &spec, class).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
         if closing() {
             bg_run::request_stop(&dir, &id, &spec.generation);
@@ -250,9 +255,10 @@ impl Hub {
         }
         let record = bg_run::read_record(&dir, &id)
             .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
-        if record.notify {
-            self.bg_watch(&dir, &record);
-        }
+        // Every task is watched: its end reaches the process registry's clients, and with
+        // `notify` its chat (`bg_notify.rs`).
+        self.bg_watch(&dir, &record);
+        self.bg_publish(session, &dir, &record);
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
@@ -275,28 +281,103 @@ impl Hub {
         };
         let profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
         let at = Some((session.id.as_str(), meta.name.as_str()));
-        let cmd = crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
-            .await
-            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        let (cmd, scratch) =
+            crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
+                .await
+                .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        if scratch.is_some() {
+            return Err(RpcError::invalid_params(
+                "GitHub Copilot credentials require an agent launch",
+            ));
+        }
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 
-    /// The folder's tasks: only records of its own generation, so a runner that outlived a purge
-    /// of an earlier folder of this name never shows here.
-    pub(super) fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
-        let Ok(generation) = bg_generation(dir, false) else { return Vec::new() };
-        let mut records: Vec<Record> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                bg_run::read_record(dir, name.strip_suffix(".json")?)
+    /// The folder's tasks, oldest first: only records of its own generation, so a runner that
+    /// outlived a purge of an earlier folder of this name never shows here. Read once per change
+    /// of the folder (`bg_folder.rs`).
+    pub(super) fn bg_records(&self, dir: &std::path::Path) -> Arc<super::bg_folder::BgFolder> {
+        self.bg_folders.look(dir)
+    }
+
+    /// How many of the folder's tasks `want` picks run: records not ended whose runner still
+    /// holds its lock.
+    pub(super) fn bg_running_in(
+        &self,
+        dir: &std::path::Path,
+        want: impl Fn(&Record) -> bool,
+    ) -> usize {
+        self.bg_records(dir)
+            .tasks
+            .iter()
+            .filter(|t| {
+                t.record.ended_at.is_none() && want(&t.record) && !bg_gone(dir, &t.record.id)
             })
-            .filter(|r| r.generation == generation)
-            .collect();
-        records.sort_by_key(|r| r.started_at);
-        records
+            .count()
+    }
+
+    /// The running tasks of the chat, as `(id, cwd)`.
+    pub(super) fn bg_running_tasks(&self, session: &Session) -> Vec<(String, String)> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .map(|t| (t.record.id.clone(), t.record.cwd.clone()))
+            .collect()
+    }
+
+    /// The chat's running tasks' records, for what a move would interrupt (`move_interrupts.rs`).
+    pub(super) fn bg_running_records(&self, session: &Session) -> Vec<Record> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .map(|t| t.record.clone())
+            .collect()
+    }
+
+    /// The chat's running tasks that are re-armable waits (`rearm.rs`), as `bgWaits` rows:
+    /// `{id, kind, form, repo, number, sha, until, deadlineMs, description, notify, resultLine}`.
+    /// A session move starts each again at the destination (`server/bg_rearm.rs`).
+    pub(crate) fn bg_waits(&self, session: &Session) -> Vec<Value> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .filter_map(|t| {
+                let r = &t.record;
+                let mut row = crate::rearm::parse(&r.command, r.started_at)?.to_json();
+                row.set("id", json!(r.id));
+                row.set("description", json!(r.description));
+                row.set("notify", json!(r.notify));
+                row.set("resultLine", json!(r.result_line));
+                // Its call, so its registry row names it again at the destination (`bg_rearm.rs`).
+                row.set("toolCallId", json!(r.tool_call_id));
+                Some(row)
+            })
+            .collect()
+    }
+
+    /// The running task `id` of the chat, when it is a re-armable wait.
+    pub(crate) fn bg_wait(&self, session: &Session, id: &str) -> Option<crate::rearm::Wait> {
+        let dir = self.bg_dir(session);
+        let folder = self.bg_records(&dir);
+        let t = folder.tasks.iter().find(|t| t.record.id == id)?;
+        if t.record.ended_at.is_some() || bg_gone(&dir, id) {
+            return None;
+        }
+        crate::rearm::parse(&t.record.command, t.record.started_at)
+    }
+
+    /// One task's list view, when the chat's folder holds it.
+    pub(crate) fn bg_task_view(&self, session: &Session, id: &str) -> Option<Value> {
+        let dir = self.bg_dir(session);
+        let folder = self.bg_records(&dir);
+        let task = folder.tasks.iter().find(|t| t.record.id == id)?;
+        Some(folder.view(&dir, task, LIST_TAIL))
     }
 
     /// Whether a task of the chat runs (`Hub::in_use`).
@@ -306,21 +387,25 @@ impl Hub {
 
     /// How many of the chat's tasks run.
     pub(super) fn bg_running_count(&self, session: &Session) -> usize {
+        self.bg_running_in(&self.bg_dir(session), |_| true)
+    }
+
+    /// The pids of the chat's running tasks: roots of its process trees (`session_usage.rs`).
+    pub(super) fn bg_running_pids(&self, session: &Session) -> Vec<u32> {
         let dir = self.bg_dir(session);
         self.bg_records(&dir)
+            .tasks
             .iter()
-            .filter(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
-            .count()
+            .map(|t| &t.record)
+            .filter(|r| r.ended_at.is_none() && r.pid > 0 && !bg_gone(&dir, &r.id))
+            .map(|r| r.pid)
+            .collect()
     }
 
     /// How many of the chat's tasks run that bring their end to the chat (`notify`,
     /// `bg_notify.rs`): each is sure to give the chat another turn.
     pub(super) fn bg_notifying_count(&self, session: &Session) -> usize {
-        let dir = self.bg_dir(session);
-        self.bg_records(&dir)
-            .iter()
-            .filter(|r| r.notify && r.ended_at.is_none() && !bg_gone(&dir, &r.id))
-            .count()
+        self.bg_running_in(&self.bg_dir(session), |r| r.notify)
     }
 
     /// Tests: a task of the chat that runs (its record, and its lock held while the returned
@@ -365,10 +450,10 @@ impl Hub {
     /// `_acpmux/bg/list` for `scope`: its tasks, and `otherOwners`, how many it leaves out.
     pub fn bg_list_as(&self, session: &Session, scope: &BgScope) -> Value {
         let dir = self.bg_dir(session);
-        let records = self.bg_records(&dir);
-        let (mine, others): (Vec<&Record>, Vec<&Record>) =
-            records.iter().partition(|r| scope.covers(r));
-        let tasks: Vec<Value> = mine.iter().map(|r| bg_view(&dir, r, LIST_TAIL)).collect();
+        let folder = self.bg_records(&dir);
+        let (mine, others): (Vec<_>, Vec<_>) =
+            folder.tasks.iter().partition(|t| scope.covers(&t.record));
+        let tasks: Vec<Value> = mine.iter().map(|t| folder.view(&dir, t, LIST_TAIL)).collect();
         json!({"tasks": tasks, "otherOwners": others.len()})
     }
 
@@ -401,7 +486,11 @@ impl Hub {
         Ok(view)
     }
 
-    fn bg_record(&self, session: &Session, id: &str) -> Result<(PathBuf, Record), RpcError> {
+    pub(super) fn bg_record(
+        &self,
+        session: &Session,
+        id: &str,
+    ) -> Result<(PathBuf, Record), RpcError> {
         let dir = self.bg_dir(session);
         let known = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
         let generation = bg_generation(&dir, false).ok();
@@ -447,7 +536,7 @@ impl Hub {
             && scope.covers(&record)
             && record.notify
             && to_the_end
-            && view["state"] != "running"
+            && view.get("state").and_then(Value::as_str) != Some("running")
         {
             self.bg_end_told(session, &dir, id);
         }
@@ -703,7 +792,7 @@ fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
 
 /// Waits until the task's runner exited (nothing holds its lock), at most [`STOP_WAIT`]: a
 /// non-blocking look every [`STOP_LOOK`], so no thread or descriptor outlives the wait.
-async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
+pub(super) async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
     let deadline = tokio::time::Instant::now() + STOP_WAIT;
     while !bg_gone(dir, id) {
         if tokio::time::Instant::now() >= deadline {
@@ -751,6 +840,17 @@ fn workflow_bg_output(dir: &std::path::Path, record: &Record) -> Result<Value, R
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
 /// nobody here sent) or `lost` (its runner died without a word), with its last `tail` bytes.
 pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
+    bg_view_at(dir, r, tail, None)
+}
+
+/// [`bg_view`], given the task's segment starts a listing of the folder found (`bg_folder.rs`),
+/// so the view lists the folder no more.
+pub(super) fn bg_view_at(
+    dir: &std::path::Path,
+    r: &Record,
+    tail: u64,
+    segments: Option<&[u64]>,
+) -> Value {
     // An exit the runner wrote is final; without one, only a free lock says the runner is gone.
     let running = r.ended_at.is_none() && !bg_gone(dir, &r.id);
     let state = match (running, r.ended_at, r.stopped, r.signal) {
@@ -760,7 +860,7 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         (_, _, _, Some(_)) => "killed",
         _ => "exited",
     };
-    let read = bg_run::read_output(dir, &r.id, None, tail).unwrap_or_default();
+    let read = bg_run::read_output_at(dir, &r.id, None, tail, segments).unwrap_or_default();
     let mut view = json!({
         "id": r.id, "sessionId": r.session_id, "command": r.command, "cwd": r.cwd,
         "description": r.description, "notify": r.notify, "resultLine": r.result_line,
@@ -771,9 +871,11 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         "outputError": r.output_error,
         // The Claude Code subagent that started it (`{id, type}`); null: the lead agent.
         "startedBy": r.subagent,
+        // The harness tool call that started it (the Bash call acpmux's hook rewrote); null: none.
+        "toolCallId": r.tool_call_id,
     });
     if r.result_line {
-        let end = bg_run::read_output(dir, &r.id, None, LIST_TAIL).unwrap_or_default();
+        let end = bg_run::read_output_at(dir, &r.id, None, LIST_TAIL, segments).unwrap_or_default();
         let text = String::from_utf8_lossy(&end.data);
         let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
         view.set("lastLine", json!(last));
@@ -785,7 +887,11 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
 }
 
 /// Starts the runner in a session of its own and waits for its one-line answer: the task runs.
-async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec) -> Result<()> {
+async fn bg_spawn(
+    runner: &crate::self_command::SelfCommand,
+    spec: &bg_run::Spec,
+    class: crate::session_budget::TaskClass,
+) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let mut cmd = tokio::process::Command::from(runner.command(&[bg_run::RUN_ARG]));
     cmd.stdin(std::process::Stdio::piped())
@@ -807,7 +913,14 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         .spawn()
         .with_context(|| format!("start the task's runner ({})", runner.program().display()))?;
     if let Some(pid) = child.id() {
-        crate::agent_host::scope::place(pid).await;
+        // The task's scope joins its session's slice, which holds the session's total
+        // (`session_total.rs`); the hosts slice when that is off or not made.
+        let slice = if crate::agent_host::scope::moves() {
+            crate::session_total::ensure(&spec.session_id, std::time::Duration::from_secs(2)).await
+        } else {
+            None
+        };
+        crate::agent_host::scope::place_in(pid, slice, class).await;
     }
     let mut stdin = child.stdin.take().context("runner stdin")?;
     let stdout = child.stdout.take().context("runner stdout")?;

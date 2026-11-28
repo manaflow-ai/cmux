@@ -179,7 +179,7 @@ extension ConversationViewController {
 
     /// "Translate" for an untranslated message; "Show Original" / "Show
     /// Translation" once it has one. Empty without on-device translation.
-    func translateMenuItems(for model: MessageRowModel, cell: MessageCell) -> [MessageActionOverlay.MenuItem] {
+    func translateMenuItems(for model: MessageRowModel, forSelection: Bool) -> [MessageActionOverlay.MenuItem] {
         let translations = store.translations
         guard let message = store.message(rowID: model.rowID), translations.canTranslate(message) else { return [] }
         if translations.hasTranslation(rowID: model.rowID) {
@@ -191,7 +191,10 @@ extension ConversationViewController {
                 self?.store.translations.toggleOriginal(rowID: model.rowID)
             }]
         }
-        return [.init(title: String(localized: "conversation.menu.translate", defaultValue: "Translate", bundle: .module), symbol: "translate") { [weak self] in
+        let title = forSelection
+            ? String(localized: "conversation.translate.message", defaultValue: "Translate This Message", bundle: .module)
+            : String(localized: "conversation.menu.translate", defaultValue: "Translate", bundle: .module)
+        return [.init(title: title, symbol: "translate") { [weak self] in
             self?.presentTranslateChoice(for: model.rowID)
         }]
     }

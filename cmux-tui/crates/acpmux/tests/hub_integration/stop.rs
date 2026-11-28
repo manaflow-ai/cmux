@@ -452,7 +452,13 @@ async fn a_slow_stop_does_not_fold_the_next_prompt_into_the_stopped_turn() {
 /// does not let the late result start another turn.
 #[tokio::test]
 async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
-    let (_hub, mut c) = claude_setup().await;
+    let hold = std::env::temp_dir().join(format!("acpmux-compact-stop-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&hold, "").unwrap();
+    let (hub, mut c) = claude_setup_env(BTreeMap::from([(
+        "FAKE_CLAUDE_COMPACT_HOLD".to_owned(),
+        hold.to_string_lossy().into_owned(),
+    )]))
+    .await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let prompt_id = "compact-stop-prompt";
@@ -498,10 +504,18 @@ async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
     assert_eq!(result["msg"]["promptId"], prompt_id, "{result}");
     assert!(result["msg"]["turnId"].as_str().is_some(), "{result}");
     assert!(result["msg"]["turnSeq"].as_u64().is_some(), "{result}");
-    // The fake emits its compaction result after 800 ms. It is stale after the
-    // forced end: no second turn or forced result is recorded for the stop.
-    tokio::time::sleep(Duration::from_millis(900)).await;
-    let events = _hub.events(&id, 0, 10_000).unwrap();
+    // Release the stale result only after forced cancellation. A subsequent control
+    // response is ordered after that result in the fake's stdout, so no sleep guesses
+    // whether the adapter has consumed it. Neither operation starts another turn.
+    std::fs::remove_file(&hold).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": "plan"})),
+    )
+    .await
+    .expect("the fake did not finish its late compaction")
+    .unwrap();
+    let events = hub.events(&id, 0, 10_000).unwrap();
     let results: Vec<_> = events.iter().filter(|e| e.kind == "turn_result").collect();
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(events.iter().filter(|e| e.kind == "turn_started").count(), 1, "{events:?}");
@@ -513,15 +527,18 @@ async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
 const STOP_BUDGET: Duration = Duration::from_millis(200);
 
 /// Stop timing: the agent that takes the cancel (it checks every 50 ms) ends
-/// its turn, as cancelled, within [`STOP_BUDGET`] of the cancel.
+/// its turn, as cancelled, and acpmux adds at most [`STOP_BUDGET`] to that: it
+/// passes the cancel on at once, and ends the turn on the agent's answer. Read
+/// from acpmux's own records (`at`, Unix ms), so the agent's process and its
+/// pipes, which a loaded machine slows whatever acpmux does, are not counted.
 #[tokio::test]
 async fn a_cancel_ends_an_honouring_agents_turn_within_the_budget() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-timing").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
         .await;
-    let asked = std::time::Instant::now();
+    let asked = acpmux::store::now_ms();
     c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
         .await
         .unwrap();
@@ -531,9 +548,37 @@ async fn a_cancel_ends_an_honouring_agents_turn_within_the_budget() {
     )
     .await
     .expect("the turn did not end after Stop");
-    let took = asked.elapsed();
     assert_eq!(done["msg"]["stopReason"], "cancelled", "{done}");
-    assert!(took < STOP_BUDGET, "the turn ended {took:?} after Stop (budget {STOP_BUDGET:?})");
+    // Its result follows its end: the agent's answer ended it, not acpmux's grace.
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("no turn_result after the turn's end");
+    assert_eq!(result["msg"]["cancelForced"], Value::Null, "{result}");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let find = |what: &str, f: &dyn Fn(&acpmux::store::EventRecord) -> bool| {
+        events.iter().find(|&e| f(e)).unwrap_or_else(|| panic!("no {what}: {events:?}")).clone()
+    };
+    // One cancel went out: acpmux never had to cancel again.
+    let cancels =
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_CANCEL).count();
+    assert_eq!(cancels, 1, "{events:?}");
+    let cancel = find("cancel sent", &|e| e.dir == "out" && e.kind == method::SESSION_CANCEL);
+    let answer = find("cancelled answer", &|e| {
+        e.dir == "in" && e.kind == "response" && e.msg["result"]["stopReason"] == "cancelled"
+    });
+    let end = find("turn end", &|e| e.dir == "mux" && e.kind == "turn_end");
+    assert!(cancel.seq < answer.seq && answer.seq < end.seq, "{events:?}");
+    let passed_on = cancel.at.saturating_sub(asked);
+    let ended = end.at.saturating_sub(answer.at);
+    let took = Duration::from_millis(passed_on + ended);
+    assert!(
+        took < STOP_BUDGET,
+        "acpmux took {took:?} of the Stop (cancel passed on after {passed_on} ms, turn ended \
+         {ended} ms after the answer; budget {STOP_BUDGET:?})"
+    );
 }
 
 /// Stop timing: the cancel's answer (the CLI's "cancel sent") never waits for
@@ -713,7 +758,8 @@ async fn a_session_resumed_from_stopped_keeps_only_the_new_reply_as_its_last_mes
     c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
     c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
     let events = hub.events(&id, 0, 10_000).unwrap();
-    assert!(!find(&events, "agent_message_chunk.replay").is_empty(), "the load replayed no reply");
+    // The load's replayed reply is kept out of the log (`unread_records.rs`).
+    assert!(find(&events, "agent_message_chunk.replay").is_empty(), "a replayed reply was logged");
     assert_eq!(last(&hub), json!({"role": "agent", "text": "echo: second"}));
 }
 
@@ -734,8 +780,8 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
     assert_eq!(summary["lastMessage"], json!({"role": "agent", "text": "echo: second"}));
 }
 
-/// A test's stand-in harness runs at normal CPU class once its start is over, not at the
-/// product's background default (`cpu_class.rs`). The stand-ins time their turns with short
+/// A test's stand-in harness runs at normal CPU class once its start is over (`cpu_class.rs`; the
+/// product's default too since 2026-11-24, when it was background). The stand-ins time their turns with short
 /// sleeps (a Codex-steer turn polls 300 x 10 ms for a joined prompt), and on a loaded fleet Mac
 /// (load 13 to 21 on 10 performance cores) a background-class stand-in did not end that turn in
 /// 18 to 30 s: this test, the forum's steered rule and the steer race failed only on macOS.

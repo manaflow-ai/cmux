@@ -131,7 +131,10 @@ every fork pull request that changes a `.swift` file under `Packages/macOS/CmuxN
 (Sources or Tests, whatever else it changes): a Release-only optimizer crash
 (cx-ebm.59.5) reached the base through a PR that only had the Debug tiers. A
 same-repository PR runs it only with `full-ci` or when the build fleet gives no
-verdict (2026-10-21), as a fork PR does for its other native sources. Every
+verdict (2026-10-21), as a fork PR does for its other native sources. With
+`full-ci` (ready-to-land adds it) it runs only when the same paths without the
+label reach `native` or `mac_release`: a daemon-Rust-, iOS- or CI-only head
+skips it (2026-11-27, 9 of 24 PR heads, 166 of 393 runner-min). Every
 `feat-cmux-next` push runs it, so a Release-only break shows on the base push
 and push-attribution names the PR.
 
@@ -365,14 +368,10 @@ The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
 no pull request commits it, and the PR autofix leaves it out. It is stale
 between a merge and the base autofix's commit, so CI never runs `check-fresh` on
 an event. The base autofix
-rewrites it after each merge. The defaults guard judges a pull request by the defaults its
-exports and sources produce, never by a committed snapshot. A changed default passes
-with an independent review receipt on the head (a comment or review whose first line is
-`Review (<reviewer>): SHIP at <full head sha>`, from a member, not a self-review; the
-newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) or an
-approving review from a call owner in `.github/defaults-call-owners.json` other than the
-author. A new setting whose default is off (false, null, `off`, `never`, `none`,
-`disabled` or empty) keeps what everyone had before it existed and passes on its own.
+rewrites it after each merge. No check judges a pull request's default changes: the
+defaults guard that did was deleted (Leo, 2026-11-25: "the fuck is a defaults guard for.
+if it's not useful, get rid of it"). Flipping a default still needs Leo's say-so, quoted in
+the pull request.
 
 ## Warm sources
 

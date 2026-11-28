@@ -144,21 +144,24 @@ impl NewArgs {
     /// name, target, and wait behavior.
     pub fn apply_compat(&mut self) -> Vec<&'static str> {
         let mut notices = Vec::new();
+        // Only a word that reads as a session name: a quoted prompt with spaces stays a prompt.
+        // `-d` included: `acpmux new NAME -d` is how agents start a lane, and a lone word taken
+        // as its prompt left the session named after its agent ("codex"; Leo, 2026-11-21).
         if self.name.is_none()
             && self.prompt.len() == 1
+            && self.prompt.first().is_some_and(|word| looks_like_session_name(word))
             && self.prompt_file.is_none()
             && self.worktree.is_none()
             && self.report_to.is_none()
             && self.group.is_none()
             && !self.reuse
-            && !self.detach
             && !self.quiet
             && !self.ephemeral
             && self.parent.is_none()
         {
             self.name = self.prompt.pop();
             notices
-                .push("acpmux new: the lone positional is the session name, equivalent to --name");
+                .push("acpmux new: the lone positional is the session name, equivalent to --name (give -n NAME to send it as the first prompt)");
         }
         if self.stay {
             self.host = Some("local".to_owned());
@@ -181,82 +184,12 @@ impl NewArgs {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-
-    #[derive(Parser)]
-    struct New {
-        #[command(flatten)]
-        args: NewArgs,
-    }
-
-    #[test]
-    fn compatibility_spellings_keep_the_name_and_wait_on_local() {
-        let mut args = New::try_parse_from([
-            "new",
-            "codex-nightly-check",
-            "--harness",
-            "codex",
-            "--stay",
-            "--wait",
-        ])
-        .unwrap()
-        .args;
-        let notices = args.apply_compat();
-        assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
-        assert!(args.prompt.is_empty());
-        assert_eq!(args.host.as_deref(), Some("local"));
-        assert!(args.detach);
-        assert_eq!(notices.len(), 3);
-    }
-
-    #[test]
-    fn wait_with_an_explicit_name_keeps_the_name_without_a_prompt() {
-        let mut args =
-            New::try_parse_from(["new", "--name", "codex-nightly-check", "--stay", "--wait"])
-                .unwrap()
-                .args;
-        let notices = args.apply_compat();
-        assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
-        assert!(args.prompt.is_empty());
-        assert_eq!(args.host.as_deref(), Some("local"));
-        assert!(args.detach);
-        assert_eq!(notices.len(), 2);
-    }
-
-    #[test]
-    fn prompt_aliases_keep_their_single_positional_prompt() {
-        for mut args in [
-            New::try_parse_from(["new", "do the work", "--detach"]).unwrap().args,
-            New::try_parse_from(["new", "do the work", "--quiet"]).unwrap().args,
-        ] {
-            args.apply_compat();
-            assert_eq!(args.prompt, ["do the work"]);
-            assert!(args.name.is_none());
-        }
-    }
-
-    #[test]
-    fn wait_with_a_prompt_uses_an_explicit_name_to_disambiguate() {
-        let mut args =
-            New::try_parse_from(["new", "--name", "codex-nightly-check", "--wait", "do the work"])
-                .unwrap()
-                .args;
-        args.apply_compat();
-        assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
-        assert_eq!(args.prompt, ["do the work"]);
-        assert!(args.quiet);
-        assert!(!args.detach);
-    }
-
-    #[test]
-    fn wait_without_a_prompt_creates_without_opening_the_tui() {
-        let mut args = New::try_parse_from(["new", "--wait"]).unwrap().args;
-        let notices = args.apply_compat();
-        assert!(args.detach);
-        assert!(!args.quiet);
-        assert_eq!(notices.len(), 1);
-    }
+/// A lone `new` word is a session name only when it could be one: non-empty, no whitespace,
+/// not an option-looking `-` word.
+fn looks_like_session_name(word: &str) -> bool {
+    !word.is_empty() && !word.starts_with('-') && !word.chars().any(char::is_whitespace)
 }
+
+#[cfg(test)]
+#[path = "command_new_tests.rs"]
+mod tests;

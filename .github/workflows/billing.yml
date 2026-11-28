@@ -27,11 +27,13 @@ name: Billing
 # changed files.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
       - "tests/test_ci_billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
       - "docs/billing/**"
       - "web/services/billing/**"
@@ -100,6 +102,7 @@ on:
       - ".github/workflows/billing.yml"
       - "scripts/ci/billing_lane.py"
       - "tests/test_ci_billing_lane.py"
+      - "scripts/ci/swift-linux-packages.txt"
       - "web/scripts/run-db-behavior-tests.sh"
       - "docs/billing/**"
       - "web/services/billing/**"
@@ -161,11 +164,35 @@ on:
       - "cmux-next-ios/**/*.storekit"
       - "cmux-next-ios/project.yml"
       - "cmux-next-ios/*/Package.swift"
+  # A flake hunt dispatches the lane with a runner and a StoreKit iteration
+  # count (`gh workflow run billing.yml --ref BRANCH -f runner=owned -f
+  # storekit_iterations=10`): every iteration runs the whole StoreKit suite,
+  # setUp and tearDown included, and any red iteration fails the step.
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "ios-billing's runner: auto (the iOS simulator pick), owned (an owned glaeda-ios-sim mini), or a Blacksmith macOS 26 label"
+        required: false
+        default: auto
+        type: string
+      storekit_iterations:
+        description: "Runs of the StoreKit suite in one xcodebuild (xcodebuild -test-iterations), 1 to 25"
+        required: false
+        default: "1"
+        type: string
   # billing-nightly.yml (dispatched from main's schedule) runs every job here
   # on feat-cmux-next's tip, the StoreKit slot included; a called workflow sees
   # the caller's workflow_dispatch event, which billing_lane.py routes to every job.
   workflow_call:
+    inputs:
+      runner:
+        required: false
+        default: auto
+        type: string
+      storekit_iterations:
+        required: false
+        default: "1"
+        type: string
 
 permissions:
   contents: read
@@ -173,7 +200,7 @@ permissions:
 concurrency:
   # github.workflow is the caller's name when billing-nightly.yml calls this,
   # so a push or dispatch here never queues against (and cancels) the nightly.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -182,9 +209,13 @@ env:
 
 jobs:
   billing:
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: billing
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 15
+    # The routing App's secrets (the macOS pool pick below) live in this
+    # environment for non-pull-request runs, as in ios-reliability-matrix.yml.
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 25
     permissions:
       contents: read
       # The macOS pool pick reads the queue janitor's pool snapshot (an artifact).
@@ -195,6 +226,10 @@ jobs:
       storekit: ${{ steps.route.outputs.storekit }}
       storekit_kind: ${{ steps.route.outputs.storekit_kind }}
       storekit_path: ${{ steps.route.outputs.storekit_path }}
+      # ios-billing's runner (ios_runner_pool.py, lane billing): an owned pool
+      # label with glaeda-ios-sim, or the iOS lane's Blacksmith macOS 26 default.
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       mac_label: ${{ steps.pool.outputs.label }}
     services:
       postgres:
@@ -212,7 +247,7 @@ jobs:
           --health-retries 30
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # HEAD^1 is the base the pull request merges onto.
           fetch-depth: 2
@@ -236,28 +271,117 @@ jobs:
           PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: python3 scripts/ci/billing_lane.py route
 
-      # The macOS job's runner: the least-loaded Blacksmith macOS 26 size now
-      # (e2e_runner_pool.py, as cloud-chat-proof.yml picks), else the declared
-      # macos_26 pool. Picked here so the lane stays two jobs.
+      # ios-billing's runner. Its StoreKit slot needs an iOS 26 simulator
+      # runtime, which a plain Mac label does not promise: the side lane
+      # (cmux17-glaeda-3, nightly run 45151017348) had no iOS runtime, and the
+      # ultra2 hosts carry only iOS 27.0, which Xcode 26.6 cannot use. So the
+      # job takes the iOS simulator lane's pick (scripts/ci/ios_runner_pool.py,
+      # lane billing, as ios-reliability-matrix.yml and cmux-next-ios-kit.yml
+      # pick): an owned pool label together with glaeda-ios-sim, the label
+      # glaeda puts only on minis with an iOS 26.x runtime, when
+      # CI_PR_POOL_OWNED and CI_IOS_OWNED allow and a simulator mini is free;
+      # else the iOS lane's default (MACOS_RUNNER_TESTS, then
+      # MACOS_RUNNER_IOS, a Blacksmith macOS 26 label, which has iOS 26
+      # runtimes). A re-run takes retry_runs_on (Blacksmith macOS 26). The
+      # picker keeps the default on anything it cannot read, so this step
+      # never fails the lane.
+      # The job token cannot read the runner queue (HTTP 403, so the pick kept
+      # the default); the routing App's token can, as for the other iOS lanes.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: (steps.route.outputs.ios == 'true' || steps.route.outputs.storekit_kind != '') && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          # Queue, job and capacity-snapshot reads use this App's quota.
+          permission-actions: read
+          permission-organization-self-hosted-runners: read
+      - name: Mint the repository routing token
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
       - name: Pick the macOS pool
         id: pool
-        if: ${{ github.run_attempt == 1 && (steps.route.outputs.ios == 'true' || steps.route.outputs.storekit_kind != '') }}
-        continue-on-error: true
-        timeout-minutes: 2
+        if: ${{ steps.route.outputs.ios == 'true' || steps.route.outputs.storekit_kind != '' }}
+        # A picker failure must not skip the web billing steps after it;
+        # ios-billing then takes the Blacksmith macOS 26 fallback in its runs-on.
+        # A refused `runner: owned` (a flake hunt or the nightly) stays red.
+        continue-on-error: ${{ inputs.runner != 'owned' }}
+        timeout-minutes: 3
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          # While Blacksmith macOS is off (vars.CI_BLACKSMITH_MACOS not `on`,
+          # note-350) its labels have no runner, so the job waits for an owned
+          # simulator mini (`owned`) instead of the iOS lane's Blacksmith default.
+          REQUESTED_RUNNER: ${{ inputs.runner || vars.CI_BLACKSMITH_MACOS != 'on' && 'owned' || 'auto' }}
+          RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
         run: |
-          set -uo pipefail
-          label="$(python3 scripts/ci/e2e_runner_pool.py --requested auto \
-            --order "$POOL_ORDER" --max-queued "$POOL_MAX_QUEUED" --owned 0)" || label=""
-          case "$label" in
-            blacksmith-*-macos-26) ;;
-            *) echo "The picker said '${label:-nothing}'; the declared macos_26 pool takes ios-billing."; label="" ;;
-          esac
-          echo "label=$label" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          python3 scripts/ci/ios_runner_pool.py \
+            --lane billing --fork "$FORK_PULL_REQUEST" --requested "$REQUESTED_RUNNER" \
+            --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \
+            --device-family iphone | tee -a "$GITHUB_OUTPUT"
+      # The markers ios-reliability-matrix.yml uploads for an owned pick: the
+      # queue janitor counts the pool and the simulator, and later iOS pickers
+      # read the watch marker to know this run took the fleet.
+      - name: Create the owned-pool marker
+        id: marker
+        if: steps.pool.outputs.persistent == 'true' && github.run_attempt == 1
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+      - name: Upload the persistent pool marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the simulator capacity marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the owned-pool watch marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
 
       # no-cache: setup-bun's binary cache is keyed by the bun version only, and
       # actions/cache stores the path relative to the workspace. An entry saved
@@ -266,6 +390,12 @@ jobs:
       # /home/runner/actions-runner/.bun/bin/bun, and the step then fails with
       # "Unable to locate executable file: /home/runner/.bun/bin/bun" (push run
       # 44618497833). The download is one ~50 MB file.
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.route.outputs.web == 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.route.outputs.web == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -273,12 +403,27 @@ jobs:
           bun-version: "1.4.4"
           no-cache: true
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
-        if: ${{ steps.route.outputs.web == 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        if: ${{ (steps.route.outputs.web == 'true') && steps.bun-warm.outputs.warm != 'true' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         if: ${{ steps.route.outputs.web == 'true' }}
@@ -349,23 +494,67 @@ jobs:
           fi
           exit "$status"
 
+      # The iOS billing packages that scripts/ci/swift-linux-packages.txt lists
+      # (CmuxMobileBilling, cmux#51128) run here, on Linux, in the same swift
+      # container and through the same `package-test-lane.sh suite` as
+      # swift-linux-packages.yml, so ios-billing's Mac runs only what needs
+      # Apple: the unlisted packages and the StoreKit slot (RFD 0051). The
+      # container runs as root, so the step hands Packages/ back to the
+      # runner's user: a persistent runner reuses this workspace.
+      - name: iOS billing unit tests (Linux)
+        if: ${{ !cancelled() && steps.route.outputs.ios == 'true' }}
+        timeout-minutes: 12
+        env:
+          SWIFT_IMAGE: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+        run: |
+          set -euo pipefail
+          rows="$(awk '$1 ~ /^Packages\/iOS\/[^\/]*Billing[^\/]*$/ { print $1, $2 }' scripts/ci/swift-linux-packages.txt)"
+          if [ -z "$rows" ]; then
+            echo "no listed iOS billing package; ios-billing's Mac runs them all"
+            exit 0
+          fi
+          printf '%s\n' "$rows" > "$RUNNER_TEMP/billing-linux-rows.txt"
+          docker run --rm -v "$GITHUB_WORKSPACE:/w" -v "$RUNNER_TEMP:/rt" -w /w \
+            -e CMUX_SWIFTPM_TARGET_LINUX=1 -e OWNER="$(id -u):$(id -g)" "$SWIFT_IMAGE" bash -c '
+              bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
+              status=0
+              while read -r dir targets; do
+                echo "::group::$dir ($targets)"
+                bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+                echo "::endgroup::"
+              done < /rt/billing-linux-rows.txt
+              chown -R "$OWNER" /w/Packages
+              exit "$status"'
+
   ios-billing:
     name: ios-billing
     needs: billing
     # Runs even when a web billing step failed, from the routing billing wrote.
-    # With Blacksmith macOS off (vars.CI_BLACKSMITH_MACOS not `on`) it takes the owned side lane (note-350).
-    if: ${{ !cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || github.run_attempt == 1 && needs.billing.outputs.mac_label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 30
+    # An iOS simulator host from billing's pick (an owned mini with
+    # glaeda-ios-sim; Blacksmith macOS 26 only while vars.CI_BLACKSMITH_MACOS
+    # is `on`, also for a re-run), Blacksmith macOS 26 for a fork: never a
+    # plain Mac label, which may have no iOS 26 runtime for the StoreKit slot.
+    if: ${{ (!cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && vars.CI_BLACKSMITH_MACOS == 'on' && needs.billing.outputs.retry_runs_on || needs.billing.outputs.runs_on || '"blacksmith-6vcpu-macos-26"') }}
+    # The timeout also counts the time an owned mini's glaeda hook holds the job
+    # in "Set up runner" for capacity: nightly run 45336672494 waited about
+    # 26 min there and was cancelled at 30 during checkout. On a mini the job
+    # itself takes about 10 min (checkout, the package tests, the StoreKit
+    # build and simulator boot about 9, the suite about 1), so 60 leaves room
+    # for that wait. A flake hunt's iterations take about 4 minutes each on a
+    # 6 vCPU runner (storekit_iterations is capped at 25 below), plus about
+    # 30 min of hook wait.
+    timeout-minutes: ${{ inputs.storekit_iterations != '' && inputs.storekit_iterations != '1' && 160 || 60 }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      STOREKIT_ITERATIONS: ${{ inputs.storekit_iterations || '1' }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       IOS: ${{ needs.billing.outputs.ios }}
       STOREKIT_KIND: ${{ needs.billing.outputs.storekit_kind }}
       STOREKIT_PATH: ${{ needs.billing.outputs.storekit_path }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -384,6 +573,12 @@ jobs:
             found=1
             package="$(dirname "$manifest")"
             name="$(basename "$package")"
+            # A package scripts/ci/swift-linux-packages.txt lists ran in
+            # billing's "iOS billing unit tests (Linux)" step.
+            if awk -v d="$package" '$1 == d { hit = 1 } END { exit !hit }' scripts/ci/swift-linux-packages.txt; then
+              echo "$package: tested on Linux by the billing job"
+              continue
+            fi
             log_path="$RUNNER_TEMP/$name-tests.log"
             echo "::group::swift test $package"
             python3 scripts/ci/hung_test_watchdog.py --silence-seconds 180 \
@@ -421,9 +616,12 @@ jobs:
         if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: cmux-next-ios-kit
+          key: cmux-next-ios-kit-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Build CmuxMobileLinkFFI.xcframework
         if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
@@ -433,9 +631,10 @@ jobs:
 
       - name: StoreKit Testing (iOS simulator)
         if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
-        # A side-lane Mac (vars.CI_SIDE_LANE_RUNNER, note-350) is not a
-        # glaeda-ios-sim host and has no ready-made iPhone simulator (push run
-        # 44618497833 on ultra2 found none). An existing iOS 26 iPhone is used;
+        # billing's pick puts this job on an iOS simulator host (an owned
+        # glaeda-ios-sim mini or Blacksmith macOS 26); before it, a side-lane
+        # Mac had no ready-made iPhone simulator (push run 44618497833 on
+        # ultra2) and no iOS runtime (run 45151017348). An existing iOS 26 iPhone is used;
         # else this step makes one from an iOS 26 runtime (ios_sim_runtime.py
         # picks the runtime, honoring CMUX_CI_IOS_SIM_RUNTIME, and the iPhone
         # type) and deletes it when the step ends. No iOS 26 runtime fails the
@@ -493,8 +692,17 @@ jobs:
             echo "Using simulator $udid."
           fi
           log_path="$RUNNER_TEMP/storekit-tests.log"
-          common=(-destination "id=$udid,arch=arm64" -enableCodeCoverage NO
-                  -derivedDataPath "$RUNNER_TEMP/dd-storekit"
+          iterations=()
+          if [[ ! "$STOREKIT_ITERATIONS" =~ ^[1-9][0-9]?$ ]] || (( STOREKIT_ITERATIONS > 25 )); then
+            echo "::error::storekit_iterations must be 1 to 25, not '$STOREKIT_ITERATIONS'"
+            exit 1
+          fi
+          if [[ "$STOREKIT_ITERATIONS" != 1 ]]; then
+            iterations=(-test-iterations "$STOREKIT_ITERATIONS")
+            echo "Running the StoreKit suite $STOREKIT_ITERATIONS times."
+          fi
+          common=(-destination "id=$udid,arch=arm64" -enableCodeCoverage NO ${iterations[@]+"${iterations[@]}"}
+                  -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-storekit}"
                   -resultBundlePath "$RUNNER_TEMP/storekit.xcresult")
           cd "$STOREKIT_PATH"
           case "$STOREKIT_KIND" in
@@ -525,3 +733,14 @@ jobs:
           esac
           cd "$GITHUB_WORKSPACE"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" BillingStoreKitTests
+
+      # The count a flake hunt reports, also after a red iteration.
+      - name: StoreKit test case count
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        run: |
+          log_path="$RUNNER_TEMP/storekit-tests.log"
+          [[ -f "$log_path" ]] || exit 0
+          passed="$(grep -cE "^Test Case '-\[BillingStoreKitTests\.BillingStoreKitTests [A-Za-z0-9_]+\]' passed" "$log_path" || true)"
+          failed="$(grep -cE "^Test Case '-\[BillingStoreKitTests\.BillingStoreKitTests [A-Za-z0-9_]+\]' failed" "$log_path" || true)"
+          echo "StoreKit test cases on $RUNNER_NAME: $passed passed, $failed failed over $STOREKIT_ITERATIONS iteration(s)" | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -E "^Test Case '-\[BillingStoreKitTests\.BillingStoreKitTests [A-Za-z0-9_]+\]' failed" "$log_path" | sort | uniq -c || true

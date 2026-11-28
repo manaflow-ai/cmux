@@ -32,6 +32,7 @@ mod link;
 mod mux_binding;
 pub use link::{
     LINK_AWAIT_LIMIT, LinkStatus, link_admin_socket, serve_link_admin, serve_link_cell_admin,
+    serve_link_cell_admin_with_ports,
 };
 pub use mux_binding::{MuxBinding, verify_mux_binding};
 
@@ -129,6 +130,25 @@ pub enum AdminRequest {
     /// with the reason past the deadline. Served only by a link's own socket.
     AwaitReady {
         within_ms: u64,
+    },
+    /// Forward the machine's loopback `host:port` (host default 127.0.0.1) to 127.0.0.1 and a
+    /// port this computer picks ([`crate::link_ports::LinkPorts`]). Served only by a link's own
+    /// socket; the answer is a [`crate::link_ports::LinkForward`].
+    PortForward {
+        port: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace_root: Option<String>,
+    },
+    /// The link's forwards ([`crate::link_ports::LinkForwards`]). Served only by a link's socket.
+    PortList,
+    /// Stop forwarding the machine's `host:port` ([`crate::link_ports::LinkForwardClosed`]).
+    /// Served only by a link's own socket.
+    PortClose {
+        port: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host: Option<String>,
     },
 }
 
@@ -269,7 +289,7 @@ pub async fn serve_admin_with_mux_binding(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }
@@ -793,7 +813,11 @@ async fn dispatch(
             serde_json::to_value(daemon.connection_snapshots().await).map_err(IdentityError::Json)
         }
         AdminRequest::Revoke { device_id } => {
-            auth.revoke(&device_id).await.map(|()| serde_json::json!({}))
+            // The revoked device's record (name, fingerprint, revoked_at_unix):
+            // an older client printed the reply as is, and `{}` said nothing.
+            auth.revoke(&device_id)
+                .await
+                .and_then(|record| serde_json::to_value(record).map_err(IdentityError::Json))
         }
         AdminRequest::Disconnect { device_id, session_id } => {
             match SessionId::from_hex(&session_id) {
@@ -813,7 +837,11 @@ async fn dispatch(
         AdminRequest::ShutdownLifecycle { lifecycle_id: requested_lifecycle_id } => {
             request_shutdown(lifecycle_id, Some(&requested_lifecycle_id), owner_shutdown)
         }
-        AdminRequest::LinkState | AdminRequest::AwaitReady { .. } => {
+        AdminRequest::LinkState
+        | AdminRequest::AwaitReady { .. }
+        | AdminRequest::PortForward { .. }
+        | AdminRequest::PortList
+        | AdminRequest::PortClose { .. } => {
             Err(IdentityError::Invalid("link requests are served by a link's own socket".into()))
         }
     };

@@ -22,8 +22,13 @@
 //! - Working tree, per file, between the seed's WORK tree, the machine's
 //!   and this Mac's working tree now (as a seed would send it): the
 //!   machine's version (or its delete) where this Mac's is unchanged, this
-//!   Mac's where the machine's is unchanged, a conflict where both changed
-//!   differently. No path that reaches a repository or a hook comes back
+//!   Mac's where the machine's is unchanged. Where both changed it
+//!   differently, cmux-sync's three-tree module decides (RFD 0155): text
+//!   edits merge by line (diff3) and a clean merge is written; overlapping
+//!   or binary edits put the machine's version at the path and this Mac's
+//!   beside it as `NAME.cmux-sync-conflict` (the answer's `conflict_files`);
+//!   an edit against a delete keeps the edit (`kept_edits`). None of these
+//!   refuses the pull. No path that reaches a repository or a hook comes back
 //!   ([`super::names::carries_repository_or_hook`]), nor a symlink or a
 //!   submodule the machine changed.
 //!
@@ -31,7 +36,8 @@
 //! secrets and nested repositories never come back: the export leaves them
 //! out of its WORK.
 //!
-//! On any conflict nothing here changes ([`SeedPulled::Conflict`]). Otherwise files move into place
+//! On any conflict left (HEAD, the index, a hook, a symlink) nothing here changes ([`SeedPulled::Conflict`]) but `refs/cmux/carry/<branch>/*`,
+//! which keep the machine's commits and uncommitted work as a second branch to merge. Otherwise files move into place
 //! through [`super::place::Transaction`], then the branch moves by
 //! compare-and-swap and the index follows; any failure puts back what
 //! changed. The answer's `base` (the machine's HEAD, INDEX and WORK) is the
@@ -47,14 +53,19 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
 use cmux_json::JsonSet as _;
+use cmux_sync::three_tree::{self, Decision, Resolution};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use super::git_back::{self, GitBase, checked, local, quarantine_git};
 use super::local::{GitDirs, permissions_of};
+use super::merge::{CONFLICT_SUFFIX, TEXT_MAX};
 use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::Remote;
 use super::{names, pull};
+
+/// Where a conflicting pull keeps the machine's work ([`Quarantine::keep`]).
+pub(crate) const CARRY_REFS: &str = "refs/cmux/carry";
 
 /// How long the export may run.
 const EXPORT_DEADLINE: Duration = Duration::from_secs(30 * 60);
@@ -139,6 +150,17 @@ type TreeEntry = (String, String);
 /// Each changed path with its entry on either side (None: absent).
 type TreeDiff = BTreeMap<String, (Option<TreeEntry>, Option<TreeEntry>)>;
 
+/// What a planned working-tree path gets: the machine's entry (None: deleted), or the bytes of a
+/// clean three-way merge with their mode.
+enum Source {
+    Blob(Option<TreeEntry>),
+    Merged(Vec<u8>, String),
+}
+
+/// How many conflict file names a path gets: `NAME.cmux-sync-conflict`, then
+/// `NAME.2.cmux-sync-conflict` up to this (as `cmux link sync pull`'s).
+const CONFLICT_NAMES: u32 = 9;
+
 /// What happens to one working-tree path.
 enum Step {
     Write { relative: String, staged: String, expected: Option<Expected> },
@@ -162,6 +184,43 @@ pub(crate) fn is_sha(text: &str) -> bool {
         && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// Whether every one of `shas` names a commit in `folder`'s repository, read
+/// with one `git cat-file --batch-check` (a Bring Back pulls twice, before
+/// and after the freeze, and three `cat-file -e` runs were each pull's base
+/// check).
+fn commits_present(folder: &Path, shas: &[&String]) -> anyhow::Result<bool> {
+    let mut asked: Vec<&str> = shas.iter().map(|sha| sha.as_str()).collect();
+    asked.dedup();
+    if asked.iter().any(|sha| !is_sha(sha)) {
+        return Ok(false);
+    }
+    let mut command = local(folder);
+    command
+        .args(["cat-file", "--batch-check=%(objecttype)"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let name = crate::link::spans::git_name(command.get_args());
+    let output = crate::link::spans::time(&name, || -> std::io::Result<_> {
+        let mut child = command.spawn()?;
+        let mut stdin =
+            child.stdin.take().ok_or_else(|| std::io::Error::other("git cat-file has no stdin"))?;
+        let lines: String = asked.iter().map(|sha| format!("{sha}^{{commit}}\n")).collect();
+        let wrote = stdin.write_all(lines.as_bytes());
+        drop(stdin);
+        let output = child.wait_with_output()?;
+        wrote?;
+        Ok(output)
+    })
+    .context("cannot run git")?;
+    if !output.status.success() {
+        bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
+    }
+    let answers = String::from_utf8_lossy(&output.stdout);
+    let types: Vec<&str> = answers.lines().collect();
+    Ok(types.len() == asked.len() && types.iter().all(|kind| *kind == "commit"))
+}
+
 /// Pulls the machine's changes to the seeded folder `remote_root` since
 /// `base` into the working copy at `local`.
 pub(crate) fn seed_pull(
@@ -170,16 +229,14 @@ pub(crate) fn seed_pull(
     remote_root: &str,
     base: &SeedBase,
 ) -> anyhow::Result<SeedPulled> {
+    let mut laps = crate::link::spans::Laps::new("pull");
     let folder = std::fs::canonicalize(local_folder)
         .with_context(|| format!("cannot open {}", local_folder.display()))?;
     let dirs = GitDirs::of(&folder)?.context("the folder is not a git working copy")?;
-    for sha in [&base.head, &base.index, &base.work] {
-        let present =
-            checked(local(&folder).args(["cat-file", "-e"]).arg(format!("{sha}^{{commit}}")));
-        if present.is_err() {
-            return Err(NoSeedBase.into());
-        }
+    if !commits_present(&folder, &[&base.head, &base.index, &base.work])? {
+        return Err(NoSeedBase.into());
     }
+    laps.mark("verify_base");
     let mut remote = Remote::connect(socket)?;
     let (parent, _) = super::remote::split(remote_root)?;
     let nanos = std::time::SystemTime::now()
@@ -192,6 +249,7 @@ pub(crate) fn seed_pull(
     );
     let since = json!({ "since_work": base.work, "since_head": base.head });
     let exported = export(&mut remote, remote_root, since, &remote_bundle)?;
+    laps.mark("export");
     let new_base = json!({
         "head": exported.head, "index": exported.index, "work": exported.work,
         "stash": exported.stash,
@@ -224,9 +282,11 @@ pub(crate) fn seed_pull(
     let downloaded = download(&mut remote, &remote_bundle, &bundle);
     let _ = remote.delete(&[remote_bundle]);
     downloaded?;
+    laps.mark("download");
     let quarantine = staging.path.join("quarantine.git");
     git_back::quarantined(&quarantine, &dirs.common)?;
     receive(&quarantine, &bundle, &exported)?;
+    laps.mark("receive");
 
     // The branch and the staged changes are read on both sides of the
     // snapshot the merge decides from, so the decision and the check in
@@ -240,6 +300,7 @@ pub(crate) fn seed_pull(
         );
     }
     let hooks = pull::hook_folders(&folder)?;
+    laps.mark("read_here");
     let q = Quarantine(&quarantine);
     let mut conflicts = Vec::new();
     let mut reasons = Vec::new();
@@ -295,15 +356,17 @@ pub(crate) fn seed_pull(
     // The working tree.
     let theirs = q.diff(&base.work, &exported.work)?;
     let ours = q.diff(&base.work, &here.work)?;
+    laps.mark("decide");
     let root = Dir::open(&folder)?;
-    let mut planned: Vec<(String, Option<TreeEntry>, Option<TreeEntry>)> = Vec::new();
+    let mut planned: Vec<(String, Option<TreeEntry>, Source)> = Vec::new();
+    // Paths either side changed, so a conflict file never takes one of their names.
+    let changed: std::collections::BTreeSet<String> =
+        theirs.keys().chain(ours.keys()).cloned().collect();
+    let mut asides: Vec<(String, TreeEntry)> = Vec::new();
+    let (mut merged, mut conflict_files, mut kept_edits) = (Vec::new(), Vec::new(), Vec::new());
     for (relative, (base_entry, machine)) in theirs {
         let here_entry = ours.get(&relative).map_or(base_entry.clone(), |(_, here)| here.clone());
         if here_entry == machine {
-            continue;
-        }
-        if here_entry != base_entry {
-            conflict(&relative, None);
             continue;
         }
         if !names::safe_relative(&relative) || names::carries_repository_or_hook(&relative, &hooks)
@@ -314,22 +377,98 @@ pub(crate) fn seed_pull(
         let regular = |entry: &Option<TreeEntry>| {
             entry.as_ref().is_none_or(|(mode, _)| matches!(mode.as_str(), "100644" | "100755"))
         };
-        if !regular(&machine) || !regular(&here_entry) {
+        if !regular(&machine) || !regular(&here_entry) || !regular(&base_entry) {
             conflict(&relative, Some("a symlink or submodule changed; it stays as it is".into()));
             continue;
         }
-        planned.push((relative, here_entry, machine));
+        // Both changed it differently: the three-tree module (cmux-sync) settles it, so one
+        // file never refuses the whole pull. A delete never beats an edit.
+        let found =
+            match three_tree::decide(base_entry.as_ref(), here_entry.as_ref(), machine.as_ref()) {
+                Decision::Nothing | Decision::Push(_) | Decision::RecordSynced(_) => continue,
+                Decision::Apply(_) => {
+                    planned.push((relative, here_entry, Source::Blob(machine)));
+                    continue;
+                }
+                Decision::Conflict(found) => found,
+            };
+        let texts = match &found {
+            three_tree::Conflict::Content { local, remote } => {
+                let base_text = match &base_entry {
+                    Some((_, id)) => q.text_blob(id)?,
+                    None => Some(Vec::new()),
+                };
+                match (base_text, q.text_blob(&local.1)?, q.text_blob(&remote.1)?) {
+                    (Some(base), Some(here), Some(there)) => Some((base, here, there)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let (keep, aside) = match three_tree::resolve(base_entry.as_ref(), &found, texts.is_some())
+        {
+            Resolution::KeepEdit(edit) => {
+                kept_edits.push(relative.clone());
+                if here_entry.is_none() {
+                    // This Mac deleted it, the machine edited it: the edit comes back.
+                    planned.push((relative, None, Source::Blob(Some(edit))));
+                }
+                // Otherwise the machine deleted this Mac's edit: the file stays, and the
+                // next push restores it there.
+                continue;
+            }
+            Resolution::ConflictFile { keep, aside } => (keep, aside),
+            Resolution::ThreeWay { base, local, remote } => {
+                let mode = match (&base, &local.0, &remote.0) {
+                    (_, here, there) if here == there => Some(there.clone()),
+                    (Some((base, _)), here, there) if here == base => Some(there.clone()),
+                    (Some((base, _)), here, there) if there == base => Some(here.clone()),
+                    _ => None,
+                };
+                if let (Some(mode), Some((base, here, there))) = (mode, &texts) {
+                    let mut options = diffy::MergeOptions::new();
+                    options.set_conflict_style(diffy::ConflictStyle::Diff3);
+                    if let Ok(bytes) = options.merge_bytes(base, here, there) {
+                        merged.push(relative.clone());
+                        planned.push((relative, here_entry, Source::Merged(bytes, mode)));
+                        continue;
+                    }
+                }
+                // Overlapping edits (or permissions both changed): a conflict file.
+                (remote, local)
+            }
+        };
+        // The machine's version takes the path; this Mac's is kept beside it.
+        let Some(side) = free_conflict_name(&root, &relative, |name| {
+            changed.contains(name) || asides.iter().any(|(taken, _)| taken == name)
+        })?
+        else {
+            conflict(&relative, Some("every conflict file name for it is taken".into()));
+            continue;
+        };
+        conflict_files.push(side.clone());
+        asides.push((side, aside));
+        planned.push((relative, here_entry, Source::Blob(Some(keep))));
     }
     if !conflicts.is_empty() {
         conflicts.sort();
         conflicts.dedup();
+        // Nothing here moves, but the machine's work is not left behind: its commits and its
+        // uncommitted files stay as refs of their own, a second branch to merge (RFD 0155 goal 5).
+        match q.keep(&folder, &exported) {
+            Ok(at) => reasons.push(format!(
+                "the machine's work is kept at {at}/head (its commits) and {at}/work (with its \
+                 uncommitted files); merge or check it out with git"
+            )),
+            Err(error) => reasons.push(format!("the machine's work was not kept here: {error:#}")),
+        }
         return Ok(SeedPulled::Conflict(conflicts, reasons));
     }
 
     // Stage the machine's files and read what each replaces here.
     let mut steps = Vec::new();
     let mut bytes = 0u64;
-    for (relative, here_entry, machine) in planned {
+    for (relative, here_entry, source) in planned {
         let expected = match &here_entry {
             Some((_, blob)) => match disk_file(&root, &folder, &staging, &relative, blob)? {
                 Some(expected) => Some(expected),
@@ -340,21 +479,34 @@ pub(crate) fn seed_pull(
             },
             None => None,
         };
-        match machine {
-            Some((mode, blob)) => {
+        match source {
+            Source::Blob(Some((mode, blob))) => {
                 let staged_name = staging.stage(&quarantine, &blob, &mode)?;
                 bytes += std::fs::metadata(staging.path.join(&staged_name))?.len();
                 steps.push(Step::Write { relative, staged: staged_name, expected });
             }
-            None => {
+            Source::Blob(None) => {
                 if let Some(expected) = expected {
                     steps.push(Step::Delete { relative, expected });
                 }
             }
+            Source::Merged(merged_bytes, mode) => {
+                bytes += merged_bytes.len() as u64;
+                let staged_name = staging.put(&merged_bytes, &mode)?;
+                steps.push(Step::Write { relative, staged: staged_name, expected });
+            }
         }
     }
+    // This Mac's side of each conflict, as a new file beside it (never replacing one).
+    for (side, (mode, blob)) in asides {
+        let staged_name = staging.stage(&quarantine, &blob, &mode)?;
+        bytes += std::fs::metadata(staging.path.join(&staged_name))?.len();
+        steps.push(Step::Write { relative: side, staged: staged_name, expected: None });
+    }
+    laps.mark("stage");
     // Only objects so far: this repository gets the machine's commits.
     q.fetch_into(&folder, &exported)?;
+    laps.mark("fetch_into");
     // Deletes first, so a file may take the place of a folder it emptied.
     steps.sort_by_key(|step| matches!(step, Step::Write { .. }));
     let mut transaction = Transaction::new(&folder, &staging.path)?;
@@ -378,6 +530,7 @@ pub(crate) fn seed_pull(
         return undone(transaction, &staging, error);
     }
     transaction.finish();
+    laps.mark("apply");
     Ok(SeedPulled::Done(json!({
         "ok": true,
         "unchanged": false,
@@ -391,7 +544,45 @@ pub(crate) fn seed_pull(
         "head": exported.head,
         "base": new_base,
         "left_out": exported.left_out,
+        "merged": merged,
+        "conflict_files": conflict_files,
+        "kept_edits": kept_edits,
     })))
+}
+
+/// The first conflict file name beside `relative` that is free: no file, folder or link here and
+/// not `taken` (a path the pull changes, or another conflict file of this pull). None when all
+/// [`CONFLICT_NAMES`] are taken.
+fn free_conflict_name(
+    root: &Dir,
+    relative: &str,
+    taken: impl Fn(&str) -> bool,
+) -> anyhow::Result<Option<String>> {
+    let (folder, name) = match relative.rsplit_once('/') {
+        Some((folder, name)) => (Some(folder), name),
+        None => (None, relative),
+    };
+    let parent = place::parent_of(root, relative)?;
+    for n in 1..=CONFLICT_NAMES {
+        let side = if n == 1 {
+            format!("{name}{CONFLICT_SUFFIX}")
+        } else {
+            format!("{name}.{n}{CONFLICT_SUFFIX}")
+        };
+        let path = folder.map_or(side.clone(), |folder| format!("{folder}/{side}"));
+        if taken(&path) {
+            continue;
+        }
+        let free = match &parent {
+            Some((dir, _)) => matches!(dir.entry(&side)?, Entry::Missing),
+            // The folder is not here yet: the transaction makes it.
+            None => true,
+        };
+        if free {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
 }
 
 /// The machine at `socket`'s export of `remote_root` since `base`, its bundle streamed to `to`
@@ -497,15 +688,25 @@ fn export(
         .context("the export answered no job")?
         .to_string();
     let deadline = Instant::now() + EXPORT_DEADLINE;
+    let mut wait = crate::link::spans::PollWait::up_to(EXPORT_POLL);
     let status = loop {
-        let status = remote.call("git.seed.status", json!({ "job": job })).map_err(refused)?;
+        let status = remote
+            .call(
+                "git.seed.status",
+                json!({ "job": job, "wait_ms": crate::link::seed_cli::STATUS_HOLD_MS }),
+            )
+            .map_err(refused)?;
         if status.get("state").and_then(Value::as_str) != Some("running") {
+            crate::link::spans::remote("git.seed.export", &status);
             break status;
         }
         if Instant::now() > deadline {
             bail!("the machine's export did not finish");
         }
-        std::thread::sleep(EXPORT_POLL);
+        // A machine that held the answer while the export ran is asked again at once.
+        if status.get("waited").and_then(Value::as_bool) != Some(true) {
+            wait.sleep("seed.export poll");
+        }
     };
     let text = |name: &str| status.get(name).and_then(Value::as_str);
     if text("state") != Some("done") {
@@ -625,6 +826,17 @@ impl Quarantine<'_> {
         Ok(String::from_utf8_lossy(&checked(quarantine_git(self.0).args(args))?).trim().to_string())
     }
 
+    /// The blob `id`'s bytes when it is text a line merge can hold: no NUL byte and at most
+    /// [`TEXT_MAX`]. None for a binary or bigger one.
+    fn text_blob(&self, id: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        let size: u64 = self.text(&["cat-file", "-s", id])?.parse().context("a blob size")?;
+        if size > TEXT_MAX {
+            return Ok(None);
+        }
+        let bytes = checked(quarantine_git(self.0).args(["cat-file", "blob", id]))?;
+        Ok((!bytes.contains(&0)).then_some(bytes))
+    }
+
     fn is_ancestor(&self, old: &str, new: &str) -> bool {
         quarantine_git(self.0)
             .args(["merge-base", "--is-ancestor", old, new])
@@ -681,6 +893,27 @@ impl Quarantine<'_> {
             changed.insert(path, (entry(old_mode, old_id), entry(new_mode, new_id)));
         }
         Ok(changed)
+    }
+
+    /// A pull that conflicts keeps the machine's HEAD, INDEX and WORK here as
+    /// `refs/cmux/carry/<branch>/{head,index,work}` (`detached` for a detached HEAD), the newest
+    /// export replacing the last. Only those refs change: never a branch, the index or a file.
+    fn keep(&self, folder: &Path, exported: &Exported) -> anyhow::Result<String> {
+        let branch = exported
+            .head_ref
+            .as_deref()
+            .and_then(|name| name.strip_prefix("refs/heads/"))
+            .unwrap_or("detached");
+        let at = format!("{CARRY_REFS}/{branch}");
+        checked(local(folder).args(["check-ref-format", &format!("{at}/head")]))
+            .with_context(|| format!("{at} is not a ref name"))?;
+        self.fetch_into(folder, exported)?;
+        let named =
+            [("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+        for (name, sha) in named {
+            checked(local(folder).args(["update-ref", &format!("{at}/{name}"), sha]))?;
+        }
+        Ok(at)
     }
 
     /// Fetches the machine's HEAD, INDEX and WORK commits into the working
@@ -981,6 +1214,24 @@ impl Staging {
         Ok((path, sha256))
     }
 
+    /// Writes `bytes` (a three-way merge) to a new file here with the tree's `mode`; its name here.
+    fn put(&self, bytes: &[u8], mode: &str) -> anyhow::Result<String> {
+        let number = self.files.get() + 1;
+        self.files.set(number);
+        let name = format!("merged-{number}");
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(self.path.join(&name))?;
+        out.write_all(bytes)?;
+        let bits = if mode == "100755" { 0o755 } else { 0o644 };
+        out.set_permissions(std::fs::Permissions::from_mode(bits))?;
+        out.sync_all()?;
+        Ok(name)
+    }
+
     /// Writes the blob `id` of the quarantine to a new file here with the
     /// tree's `mode` (0644 or 0755); its name here.
     fn stage(&self, quarantine: &Path, id: &str, mode: &str) -> anyhow::Result<String> {
@@ -1020,5 +1271,37 @@ impl Drop for Staging {
             return;
         }
         let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod commits_present_tests {
+    use super::*;
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = local(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    }
+
+    #[test]
+    fn one_batch_answers_the_base_check() {
+        let dir = tempfile::tempdir().unwrap();
+        git(dir.path(), &["init", "-q"]);
+        std::fs::write(dir.path().join("a"), "a\n").unwrap();
+        git(dir.path(), &["add", "a"]);
+        git(dir.path(), &["commit", "-qm", "one"]);
+        let head = git(dir.path(), &["rev-parse", "HEAD"]);
+        let tree = git(dir.path(), &["rev-parse", "HEAD^{tree}"]);
+        let gone = "0".repeat(head.len());
+        assert!(commits_present(dir.path(), &[&head, &head, &head]).unwrap());
+        assert!(!commits_present(dir.path(), &[&head, &gone, &head]).unwrap());
+        assert!(!commits_present(dir.path(), &[&head, &tree]).unwrap());
+        assert!(!commits_present(dir.path(), &[&"HEAD\nHEAD".to_string()]).unwrap());
     }
 }

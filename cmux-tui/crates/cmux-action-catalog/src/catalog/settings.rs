@@ -266,6 +266,23 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "action live-swift-stop",
         ..Action::DEFAULT
     },
+    // Update Status: one read of the running build, the staged update and whether a relaunch
+    // installs it now (`UpdaterService.statusAnswer`). A CLI run answers the fields
+    // (`cmux settings update-status --json`); a palette run shows the one line as a toast.
+    Action {
+        id: "updates.status",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.status", "Update Status"),
+        hint: Some(t("ActionCatalog", "action.updates.status.hint", "The running build, the staged update and whether a relaunch installs it now.")),
+        description: Some("Reads the running build, the staged update (if any) and relaunch readiness (ready, held and why, installing, or nothing staged). Changes nothing."),
+        keywords: &["update", "status", "version", "build", "staged", "relaunch", "restart", "ready", "idle", "nightly"],
+        category: "settings",
+        symbol: "info.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings update-status",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "updates.whatsNew",
         group: GROUP,
@@ -339,6 +356,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CHANNEL],
         cli_name: "settings switch-update-channel",
         main_menu: Some("app"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -356,6 +374,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -472,6 +491,42 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.uturn.backward",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action app-try-undo",
+        ..Action::DEFAULT
+    },
+    // The recovery key (customization capability matrix row `recovery-hotkey`): one fixed chord
+    // that runs `cmux customize revert`, so a look that broke the window is undone without
+    // finding Settings or a terminal. Its handler runs the bundled CLI's verb (the engine is
+    // cmux-customize `try_on.rs`), as Settings' Revert Now does. The chord is one no other
+    // default, macOS or Ghostty takes (`tests/default_keymap_conflicts.rs`). A person's
+    // keybindings can still rebind it: the catalog has no unbindable flag, and safe mode
+    // (`cmux safe-mode on`) loads the defaults with no customization.
+    Action {
+        id: "customize.revert",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.revert", "Undo Look Change"),
+        hint: Some(t("ActionCatalog", "action.customize.revert.hint", "Stop trying on a look and put back what was there before.")),
+        description: Some("Runs `cmux customize revert`: ends the look being tried on and puts back what was there before."),
+        keywords: &["customize", "customization", "look", "theme", "revert", "undo", "put back", "broken", "recover", "reset", "try on"],
+        default_shortcut: Some(Shortcut { key: "z", modifiers: CTRL | OPT | CMD }),
+        category: "settings",
+        symbol: "arrow.uturn.backward.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-revert",
+        ..Action::DEFAULT
+    },
+    // The settings history's undo (settings-history-v1) as the person: the newest change of any
+    // writer (Settings, an agent, the CLI, a hand edit), user-only rows included. The CLI's own
+    // `cmux settings undo` and MCP `settings_undo` are its other surfaces.
+    Action {
+        id: "settings.undo",
+        group: GROUP,
+        title: t("ActionCatalog", "action.settings.undo", "Undo Settings Change"),
+        keywords: &["settings", "undo", "revert", "put back", "recover", "history", "cmux-next.json", "customization"],
+        category: "settings",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action settings-undo",
         ..Action::DEFAULT
     },
     Action {

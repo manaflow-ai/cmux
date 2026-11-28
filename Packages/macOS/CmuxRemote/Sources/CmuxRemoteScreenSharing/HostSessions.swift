@@ -24,6 +24,8 @@ final class HostSessions {
         var viewerID: String
         var viewerName: String
         var scope: SessionScope
+        /// The hub admitted it as the person's own device (``SessionTicket/isOwnAccount``): no consent here gates it.
+        var ownAccount = false
         var connected: Bool
 
         var fields: [String: Any] {
@@ -39,12 +41,14 @@ final class HostSessions {
     var permits: (SessionScope) -> Bool = { _ in true }
     var changed: () -> Void = {}
 
-    /// `session.ticket` for the host role.
+    /// `session.ticket` for the host role. The person's own device, as the hub authenticated it, serves
+    /// with no consent read, as the app's host does (Leo, 2026-11-16, ask-da398bba67); other tickets need it.
     func serve(_ ticket: SessionTicket) {
         guard ticket.role == .host, let hub = hub() else { return }
-        guard permits(ticket.scope) else {
+        guard Self.admits(ticket, permits: permits) else {
             logger.info("session ticket refused: this Mac's consent does not allow it")
-            end(ticket.sessionId, reason: "failed", hub: hub)
+            // Says why, so the viewer reads it rather than a failed stream (the app's reason).
+            end(ticket.sessionId, reason: "consent_required", hub: hub)
             return
         }
         if let current = session, current.id != ticket.sessionId {
@@ -64,11 +68,12 @@ final class HostSessions {
         }
         let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
         let host = ScreenStreamHost(name: Host.current().localizedName ?? "Mac", viewOnly: ticket.scope == .view,
-                                    backend: { ScreenCaptureBackend(log: log) }, log: log)
+                                    backend: { ScreenCaptureBackend(log: log, rules: .bundled) }, rules: .bundled, log: log)
         let (events, sink) = AsyncStream.makeStream(of: ScreenStreamHost.Event.self, bufferingPolicy: .bufferingNewest(64))
         host.onEvent = { sink.yield($0) }
         self.host = host
-        session = Session(id: ticket.sessionId, viewerID: ticket.peer.id, viewerName: ticket.peer.name, scope: ticket.scope, connected: false)
+        session = Session(id: ticket.sessionId, viewerID: ticket.peer.id, viewerName: ticket.peer.name, scope: ticket.scope,
+                          ownAccount: ticket.isOwnAccount, connected: false)
         let id = ticket.sessionId
         eventTask = Task { [weak self, weak host] in
             for await event in events {
@@ -90,10 +95,20 @@ final class HostSessions {
         closeLocal()
     }
 
-    /// The local consent changed: a session it no longer allows stops.
+    /// The local consent changed: a session it no longer allows stops; the person's own device's never does.
     func consentChanged() {
-        guard let current = session, !permits(current.scope) else { return }
+        guard let current = session, Self.consentStops(current, permits: permits) else { return }
         stop(reason: "host_stopped")
+    }
+
+    /// Whether this Mac serves `ticket` under its consent now: the person's own device always, others as it allows.
+    static func admits(_ ticket: SessionTicket, permits: (SessionScope) -> Bool) -> Bool {
+        ticket.isOwnAccount || permits(ticket.scope)
+    }
+
+    /// Whether a consent change stops `session`: one it no longer allows, never the person's own device's.
+    static func consentStops(_ session: Session, permits: (SessionScope) -> Bool) -> Bool {
+        !session.ownAccount && !permits(session.scope)
     }
 
     /// Stop Sharing This Mac: the hub hears it first, then the stream closes.

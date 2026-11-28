@@ -1,3 +1,5 @@
+import CmuxNextBridge
+public import CmuxNextCloud
 import Foundation
 
 /// What a CLI or agent run of a Cloud action hears back. Keys live in
@@ -84,6 +86,7 @@ public extension CloudStrings {
 
     /// `cloud deliver-secrets` while another delivery to the same machine runs.
     static var secretsDeliveryRunning: String {
+        // retry-prompt-ok: a CLI secrets delivery (writes secrets to a machine); the caller re-runs it
         String(localized: "cloud.cli.secretsDeliveryRunning",
                defaultValue: "Secrets are already being delivered to this machine. Try again when that delivery finishes.",
                table: "Cloud", bundle: .localizedModule)
@@ -145,6 +148,7 @@ public extension CloudStrings {
 
     /// `cloud deliver-secrets` to an acpmux peer this Mac reaches without ssh (a tailnet link).
     static func secretsNoSSHRoute(_ machine: String) -> String {
+        // retry-prompt-ok: a CLI secrets delivery (writes secrets to a machine) needs Add Machine first
         String(format: String(localized: "cloud.cli.secretsNoSSHRoute",
                               defaultValue: "This Mac reaches %@ without ssh, so its secrets can't be delivered. Add it with Add Machine, then try again.",
                               table: "Cloud", bundle: .localizedModule), machine)
@@ -220,6 +224,21 @@ public extension CloudStrings {
     /// The desktop workspace's name: the machine's title, then "Desktop".
     static func desktopWorkspaceName(_ machine: String) -> String {
         String(format: String(localized: "cloud.desktop.workspaceName", defaultValue: "%@ Desktop", table: "Cloud", bundle: .localizedModule), machine)
+    }
+
+    /// The desktop workspace's name when the machine has no name a person reads (a chat machine's `chat-<hex>`).
+    static var desktopUntitled: String {
+        String(localized: "cloud.desktop.untitled", defaultValue: "Desktop", table: "Cloud", bundle: .localizedModule)
+    }
+
+    /// `machine`'s desktop workspace and tab name, never a raw id (Leo 2026-11-22, of "chat-800dd580cab0487c Desktop"):
+    /// the machine's own name (cmux-cloud-machine `humanName`, nil for a start-chat machine's generated `chat-<hex>`),
+    /// else the first of `chats` (its workspaces' titles, which name themselves from their chat as a local one does)
+    /// that is no id, else "Desktop". The tab's trailing word says Cloud, so the name never needs to.
+    static func desktopWorkspaceName(_ machine: CloudMachine, chats: [String]) -> String {
+        if let human = machine.facts.humanName { return desktopWorkspaceName(human) }
+        let chat = chats.first { !$0.isEmpty && $0 != machine.title && !AgentTurnStates.isOpaqueName($0) }
+        return chat.map(desktopWorkspaceName) ?? desktopUntitled
     }
 
     /// A machine made shell-only, or one with no address on its Cloud network yet.

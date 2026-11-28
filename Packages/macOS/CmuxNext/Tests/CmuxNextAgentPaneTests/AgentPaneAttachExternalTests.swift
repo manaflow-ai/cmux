@@ -17,6 +17,7 @@ struct AgentPaneAttachExternalTests {
 
     private static func model() -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost())
+        model.hasHandshake = true
         model.onLocalPaths = { true }
         return model
     }
@@ -152,17 +153,28 @@ struct AgentPaneAttachExternalTests {
         #expect(try Data(contentsOf: saved) == Data([3]))
     }
 
-    /// A push that waits for the page's client runs once, when the page says its client is ready, and
-    /// not when it says it is not.
-    @Test func aPushForAPageStillLoadingWaitsForItsClient() async {
+    /// The push for held files waits for the page's client, and goes again each time the client is
+    /// ready while the files are still held: a command sent to a page whose connection then restarts
+    /// is lost, and the opened image waited for the next file sent (screenshot-into-chat probe, open
+    /// door). Once the page takes them, a later reconnect sends nothing.
+    @Test func heldFilesAreSentAgainOnEachReadyClientUntilTaken() async {
         let model = Self.model()
         var ran = 0
-        model.whenClientReady = { ran += 1 }
+        model.sendHeldExternal = { ran += 1 }
+        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        #expect(ran == 0)
+        model.droppedPaths.hold(external: [URL(fileURLWithPath: "/tmp/a.png")], claimed: nil)
         _ = await Self.ask(model, "pane.clientReady", ["ready": false])
         #expect(ran == 0)
         _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        #expect(ran == 1)
+        _ = await Self.ask(model, "pane.clientReady", ["ready": false])
         _ = await Self.ask(model, "pane.clientReady", ["ready": true])
-        #expect(ran == 1 && model.whenClientReady == nil)
+        #expect(ran == 2)
+        _ = await Self.ask(model, "chat.attach.external")
+        #expect(!model.droppedPaths.holdsExternal)
+        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        #expect(ran == 2)
     }
 
     /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
@@ -189,6 +201,17 @@ struct AgentPaneAttachExternalTests {
 
     /// Files that come while a new chat opens for earlier ones join them: one new chat, not two;
     /// a chat that could not start leaves nothing waiting.
+    /// The chat that took files answers when it took them, so the screenshot-into-chat probe times a door from
+    /// the app's stamp, not its 250 ms reads of the composer.
+    @Test func theReadbackOfTheChatThatTookFilesCarriesWhenItTookThem() {
+        let at = Date(timeIntervalSince1970: 1_795_350_000.25)
+        let state = AgentPaneExternalAttach.stamped(AgentPaneExternalAttach.noComposer, attachedAt: at)
+        #expect(state.objectValue?["attached_at_ms"] == .number(1_795_350_000_250))
+        #expect(state.objectValue?["attachments"] == .array([]))
+        #expect(AgentPaneExternalAttach.stamped(AgentPaneExternalAttach.noComposer, attachedAt: nil) == AgentPaneExternalAttach.noComposer)
+        #expect(AgentPaneExternalAttach.stamped(.null, attachedAt: at) == .null)
+    }
+
     @Test func filesWhileANewChatOpensJoinIt() {
         let route = AgentPaneExternalAttach()
         var opened = 0
@@ -203,5 +226,47 @@ struct AgentPaneAttachExternalTests {
         let refused = AgentPaneExternalAttach()
         refused.attach([URL(fileURLWithPath: "/tmp/a.png")], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
         #expect(!refused.waitsForChat)
+    }
+
+    @Test func aCaptureHasNoStaleSessionButComposerHistoryRemains() throws {
+        let old = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "old-session"),
+                                             source: .bundled(URL(filePath: "/dev/null"))))
+        let route = AgentPaneExternalAttach()
+        route.attach([URL(fileURLWithPath: "/tmp/old.png")], claimed: nil, target: old, openChat: { _ in false }, show: { _ in })
+
+        let newFile = URL(fileURLWithPath: "/tmp/new.png")
+        route.attach([newFile], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
+        #expect(route.waitingFiles == [newFile])
+        #expect(route.session(for: newFile) == nil)
+        #expect(route.session(for: URL(fileURLWithPath: "/tmp/old.png")) == "old-session")
+    }
+
+    /// Files whose chat never came, or was not made, are not lost: they go with the next files (the
+    /// open door's image after a cold launch, then the service's). A chat opened for files that have
+    /// since gone with a later one takes none.
+    @Test func filesWhoseChatNeverCameGoWithTheNextOnes() {
+        var clock = ContinuousClock.now
+        let route = AgentPaneExternalAttach(now: { clock })
+        var callbacks: [@MainActor (AgentPaneView?) -> Void] = []
+        let open: (@escaping @MainActor (AgentPaneView?) -> Void) -> Bool = { made in
+            callbacks.append(made)
+            return true
+        }
+        let a = URL(fileURLWithPath: "/tmp/shot-open.png"), b = URL(fileURLWithPath: "/tmp/shot-service.png")
+        let c = URL(fileURLWithPath: "/tmp/shot-share.png")
+        route.attach([a], claimed: nil, target: nil, openChat: open, show: { _ in })
+        clock += AgentPaneExternalAttach.openingLimit + .seconds(5)
+        route.attach([b], claimed: nil, target: nil, openChat: open, show: { _ in })
+        #expect(callbacks.count == 2)
+        #expect(route.waitingFiles == [a, b])
+        callbacks[0](nil) // the first chat's late failure leaves the files to the second
+        #expect(route.waitingFiles == [a, b] && route.waitsForChat)
+        callbacks[1](nil) // not made: kept for the next files
+        #expect(!route.waitsForChat && route.waitingFiles == [a, b])
+        route.attach([c], claimed: nil, target: nil, openChat: open, show: { _ in })
+        #expect(callbacks.count == 3 && route.waitingFiles == [a, b, c])
+        let refused = AgentPaneExternalAttach()
+        refused.attach([a], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
+        #expect(!refused.waitsForChat && refused.waitingFiles == [a])
     }
 }

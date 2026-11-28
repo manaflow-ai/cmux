@@ -12,14 +12,16 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `computer-use-activity` (local owner connections, macOS), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-scheduled-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `computer-use-activity` (local owner connections, macOS), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Control disconnect notice | No command; sent to a client another participant (or the client itself) disconnected with `detach-client` | `client-disconnected-by` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
+| Cloud machine state watch | Verified app `apps-machine-state-watch` with `apps-v1` | `apps-cloud-machine` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -46,6 +48,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `feed-reports-changed` | subscribe (owner clients) | none | capability `feed-client-v1` |
 | `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
+| `apps-cloud-machine` | control (verified app's machine state watch) | `machine` | capability `apps-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
 | `computer-use-activity` | subscribe (local Unix connections, not page relays) | machine | capability `remote-host-v1` (macOS) |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
@@ -53,6 +56,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+| `conversation-scheduled-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-scheduled-v1` |
 | `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
 | `conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `chief-live-v1` |
 | `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
@@ -90,6 +94,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `client-disconnected-by` | control (targeted) | session | protocol 12 additive; only to the disconnected client, before its connection closes |
 | `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
@@ -673,6 +678,21 @@ published after a `conversation-inbox-op` commit, only to the connections
 whose principal is `participant` (the person's own clients; an agent never
 sees the person's pins). Not a conversation change: it carries no `rev` and
 never reaches `conversation.events` or the remote relay.
+
+### conversation-scheduled-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-scheduled-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-scheduled-v1` |
+
+`object{event:"conversation-scheduled-changed", conversation:string, participant:string, scheduled?:object, removed?:{id, reason:"sent"|"cancelled", seq?}}`,
+published when one of `participant`'s Send Later messages is created,
+changed, failed, sent or cancelled (`conversation-scheduled-op` and the
+owner's sender), only to the connections whose principal is `participant`.
+A sent message's `conversation-changed` comes first. Never reaches
+`conversation.events` or the remote relay.
 
 ### conversation-run-changed
 
@@ -1529,6 +1549,34 @@ Example:
 {"event":"daemon-shutdown"}
 ```
 
+### client-disconnected-by
+
+| Field | Value |
+| --- | --- |
+| event | `client-disconnected-by` |
+| status | implemented control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"client-disconnected-by",by?:SizeDetachActor}
+```
+
+Meaning: Sent on the control queue of a client that a participant disconnected with
+`detach-client` (the whole client, not one view), before its connection closes. It is sent
+even when the client has not attached a terminal yet, so a client with no stream still learns
+why it was closed. `by` names the participant that asked (`user_id`, `display_name`,
+`device_name`); it is absent when the request named nobody. A client that receives it does not
+reconnect by itself. Each attached stream of the client also gets `detached` with
+`reason:"disconnected-by"`.
+
+Example:
+
+```json
+{"event":"client-disconnected-by","by":{"display_name":"Lawrence","device_name":"iPhone"}}
+```
+
 ### terminal-input-unclaimed
 
 | Field | Value |
@@ -1558,6 +1606,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### phone-open-link
+
+| Field | Value |
+| --- | --- |
+| event | `phone-open-link` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"phone-open-link",terminal_id:string,url:string}
+```
+
+Meaning: A program in terminal `terminal_id` asked a browser for `url` while this phone drove
+the terminal (`offer-link-to-phone`, [commands.md](commands.md#offer-link-to-phone)). Sent on the
+control queue of one connection of that phone that is attached to the terminal and declared
+`phone-open-link-v1` in `set-client-info`. The phone opens the page in its own browser; the
+Mac does not open it. Never replayed.
+
+Example:
+
+```json
+{"event":"phone-open-link","terminal_id":"term_0123456789abcdef0123456789abcdef","url":"https://github.com/login/device"}
+```
+
 ### device-setup-step
 
 | Field | Value |
@@ -1575,7 +1649,7 @@ object{event:"device-setup-step",device:string,step:string,
 
 Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
 on the control queue of the connection that asked, before the request's reply. The fields are
-the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `daemon`, `login-item`,
 `start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
 
 Example:
@@ -1811,6 +1885,8 @@ object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
 
 Without `attach-output-coalesce-v1`, each PTY read is one `output` event. A connection that declared `attach-output-coalesce-v1` in `set-client-info` before a bytes attach (see `attach-surface`, `output_coalesce_ms`) gets at most one `output` per interval (default 16.667 ms): the bytes of one interval concatenated in order, the first bytes after an idle interval at once, at most about 1 MiB per event, and any held bytes before any other attach event. Its `scroll-changed` events follow the same interval (the newest position). The event's shape is unchanged.
+
+`attach-frames-v1` (local Unix connections only; refused on a WebSocket and the remote entry): a connection that declared it in `set-client-info` gets each plain `output` of its byte attach and its snapshot viewer as a binary OUTPUT frame instead of this line, in the same order among the stream's JSON lines. A frame starts with byte `0xFF` (never the first byte of a JSON line) and a 16-byte little-endian header: `u8 0xFF`, `u8 kind` (1 = OUTPUT), `u16 stream` (0: the connection's only attach), `u32 len`, `u64 offset` (the terminal stream offset of the payload's first byte; a snapshot viewer's JSON `offset` is the end, so the first frame after a READY starts at the READY's `offset`), then `len` raw PTY bytes and no newline. `output` with `colors`, and every other event, stays a JSON line. Wire details: `plans/cmux-next/app-daemon-connection-DESIGN.md` section 3.2.
 
 Example:
 
@@ -2198,6 +2274,16 @@ Request:
 ```
 
 Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.
+
+## apps-cloud-machine
+
+A targeted event on the verified app connection whose `apps-machine-state-watch`
+names the machine. The daemon holds that machine's Cloud state socket:
+`{event:"apps-cloud-machine", machine:"…", kind:"record", record:{…}}` carries
+the platform's machine record; `kind:"live"` says the socket is up (the app stops
+reading the machine); `kind:"lost"` says it closed (the app reads the machine
+again until a later `live`). Nothing is sent after the list replaces or drops the
+machine, or after the connection closes. No bearer or raw frame is included.
 
 ## agent-inventory-changed
 

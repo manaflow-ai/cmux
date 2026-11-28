@@ -69,6 +69,36 @@ enum ExtensionHandlers {
                 ?? BrowserExtensionCommand(extensionID: id, name: name, keyCode: 0, modifiers: 0)
             guard !name.isEmpty, store.run(command, in: tab) else { throw ActionFailure(message: ExtensionStrings.commandFailed) }
         })
+        // An extension's context menu rows that open a page: its home page, its details in
+        // chrome://extensions, its origin's site settings. Chrome opens them in a new foreground tab.
+        for (id, operation) in [("browser.extension.homePage", ExtensionMenuOperation.homePage),
+                                ("browser.extension.details", .manageExtension), ("browser.extension.webPermissions", .webPermissions)] {
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { invocation in
+                let extensionID = try menuExtensionID(context, invocation)
+                guard let url = ExtensionMenuRouter.page(for: operation, extensionID: extensionID), let pane = context.scope(invocation).pane else {
+                    throw ActionFailure(message: ExtensionStrings.needsPane)
+                }
+                pane.newBrowserTab(url: url, engine: BrowserEngineTag.cef.rawValue)
+                return .done
+            })
+        }
+        // Site access: Chromium's own action menu for the extension (site access, pin, options, remove).
+        registry.bindEffect("browser.extension.siteAccess", requires: nil, effect: { invocation in
+            let entry = try chromiumEntry(context, invocation)
+            let extensionID = try menuExtensionID(context, invocation)
+            (entry.tab as? any BrowserExtensionActionHosting)?.showExtensionActionMenu(extensionID, atScreenPoint: NSEvent.mouseLocation)
+            return .done
+        })
+    }
+
+    /// The `extension` argument of an extension context menu row: the menu passes the extension's id; a typed
+    /// name or id is matched against the tab's extensions when it has a Chromium store.
+    private static func menuExtensionID(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> String {
+        let text = invocation["extension"]?.stringValue ?? ""
+        let store = ((try? context.page(invocation))?.tab as? CEFTab)?.extensionStore
+        let id = store?.extensionInfo(matching: text)?.id ?? text
+        guard !id.isEmpty else { throw ActionFailure(message: ExtensionStrings.unknownExtension(text)) }
+        return id
     }
 
     private static func bindToggle(_ registry: ActionRegistry, _ context: AppActionContext, _ id: ActionID,

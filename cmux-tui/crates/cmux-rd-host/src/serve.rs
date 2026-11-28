@@ -7,6 +7,8 @@
 //!   {"session":"<hub session id>","peer_key":"<viewer session key, 64 hex>",
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null,
+//!    "max_kbps":null,"cursor":null (the viewer's Customize wishes, src/serve_wish.rs),
+//!    "window":null (or a window id from the `windows` line: share that one window),
 //!    "capture":"x11"|"portal" (Linux, optional)}
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
@@ -15,7 +17,8 @@
 //!   {"exclude_windows":[123,456]}: the app's window ids (CGWindowID) the capture leaves out,
 //!   the whole list each time, sent before the capture starts and on every change (macOS)
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
-//!   viewer), then {"candidate":".."}, {"candidates_done":true},
+//!   viewer), then {"candidate":".."}, {"candidates_done":true} (sent once this side's host
+//!   candidates are known, the app answers then; reflexive and relayed candidates may follow it),
 //!   {"connected":true}, {"path":{"kind":"direct_wan","rtt_ms":3.2}},
 //!   and last {"ended":"<reason>"}.
 //!
@@ -26,10 +29,11 @@
 use crate::args::Opts;
 use crate::capture_backend::CaptureBackend;
 use crate::carrier::{Carrier, Incoming, LinkCarrier, MediaQueueStats};
-use crate::stream::{MediaSession, SessionCfg};
+use crate::stream::{MediaSession, OpenedDesktop, SessionCfg};
 use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::service::{negotiate, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
@@ -37,15 +41,11 @@ use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
-use std::net::SocketAddr;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
 /// How long the viewer has to connect and say hello after the host starts.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-/// Datagram size inside the link: the rd shard size minus the seal overhead fits one
-/// 1280-byte IPv6 minimum MTU path with headroom for a relay's framing.
-const MAX_DATAGRAM: usize = 1152 - cmux_rd_link::SEAL_OVERHEAD;
 
 #[derive(Deserialize)]
 struct Viewer {
@@ -55,6 +55,9 @@ struct Viewer {
 
 #[derive(Deserialize)]
 struct Setup {
+    /// Raw signed peer marker: omission preserves the legacy protocol.
+    #[serde(default)]
+    peer_carrier: crate::carrier::LinkMode,
     session: String,
     peer_key: String,
     viewer: Viewer,
@@ -64,12 +67,24 @@ struct Setup {
     /// The hub's TURN relays, for a relayed path when no direct one works.
     #[serde(default)]
     turn: Vec<crate::carrier::TurnSetup>,
+    /// TCP and TLS relays, used after the UDP ones, for a network that blocks UDP.
+    #[serde(default)]
+    turn_stream: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     display: Option<String>,
     #[serde(default)]
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// The viewer's bitrate cap in kbit/s (`a=cmux-rd-max-kbps`; src/serve_wish.rs).
+    #[serde(default)]
+    max_kbps: Option<u32>,
+    /// Whether the stream shows the cursor (`a=cmux-rd-cursor`; none: it does).
+    #[serde(default)]
+    cursor: Option<bool>,
+    /// Share this one window (an id from the `windows` app line) instead of a display.
+    #[serde(default)]
+    window: Option<u32>,
     /// This side reaches the viewer through TURN alone.
     #[serde(default)]
     relay_only: bool,
@@ -79,6 +94,18 @@ struct Setup {
     /// The person sharing turned clipboard text sync on for this session (default off).
     #[serde(default)]
     clipboard: bool,
+    /// The profile the viewer asks for (`standard` or `ultra`, the person's choice).
+    #[serde(default)]
+    encode_profile: Option<String>,
+}
+
+/// The session's profile: the viewer's choice, else `--encode-profile`, else standard. A
+/// profile this host does not know runs standard, so a newer viewer still gets a picture.
+fn session_profile(opts: &Opts, setup: &Setup) -> Result<EncodeProfile, String> {
+    match setup.encode_profile.as_deref() {
+        Some(asked) => Ok(EncodeProfile::parse(asked).unwrap_or_default()),
+        None => opts.encode_profile(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -140,23 +167,49 @@ fn session_display(opts: &Opts, setup: &Setup) -> String {
     }
 }
 
-/// Linux's display list for the viewer's picker: the X screen's size (one display; an X
-/// screen spans every monitor). A portal session learns its size only once the person picks
+/// Linux's display list for the viewer's picker: the whole X screen first (an X screen spans
+/// every monitor), then each RandR monitor when it has two or more (`x11_view::listing`; the
+/// viewer's pick is the index). A portal session learns its size only once the person picks
 /// the screen, so its list is empty until the stream starts; an X display that cannot be
 /// opened says why.
 #[cfg(target_os = "linux")]
-fn linux_displays(capture: CaptureBackend, display: &str) -> AppLine {
+fn linux_displays(capture: CaptureBackend, display: &str, pick: Option<&str>) -> AppLine {
     let listed = match capture {
         CaptureBackend::X11 => x11rb::connect(Some(display))
             .map_err(|e| format!("X display {display}: {e}"))
             .map(|(conn, screen)| {
                 let root = &x11rb::connection::Connection::setup(&conn).roots[screen];
-                vec![(u32::from(root.width_in_pixels), u32::from(root.height_in_pixels))]
+                let size = (u32::from(root.width_in_pixels), u32::from(root.height_in_pixels));
+                let monitors = crate::x11_view::monitors(&conn, root.root, size);
+                let sizes =
+                    crate::x11_view::listing(size, &monitors).iter().map(|r| (r.w, r.h)).collect();
+                // The windows the viewer may share one of (the setup line's `window`).
+                let windows = crate::x11_window::list(&conn, root.root, size)
+                    .into_iter()
+                    .map(|w| cmux_rd_proto::app_line::LineWindow {
+                        id: w.id,
+                        title: w.title,
+                        width: w.rect.w,
+                        height: w.rect.h,
+                    })
+                    .collect();
+                (sizes, windows)
             }),
-        CaptureBackend::Portal => capture.available().map(|()| Vec::new()),
+        // The portal shares what the person picks in its own dialog.
+        CaptureBackend::Portal => capture.available().map(|()| (Vec::new(), Vec::new())),
     };
     match listed {
-        Ok(sizes) => AppLine { displays: Some(sizes), current: Some(0), ..AppLine::default() },
+        Ok((sizes, windows)) => {
+            // The viewer's pick is current when it is on the list (else the share refuses it).
+            let current =
+                pick.and_then(|w| w.trim().parse::<usize>().ok()).filter(|&i| i < sizes.len());
+            AppLine {
+                displays: Some(sizes),
+                windows: Some(windows),
+                current: Some(current.unwrap_or(0)),
+                ..AppLine::default()
+            }
+        }
         Err(e) => AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -204,6 +257,7 @@ impl ServeCarrier {
     fn pump_app(&mut self) -> Result<(), String> {
         for later in self.app.read()? {
             if later.stop {
+                self.link.invalidate();
                 return Err("stopped by the host".into());
             }
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
@@ -283,7 +337,7 @@ const WAN_START_KBPS: u32 = 8_000;
 const LAN_START_KBPS: u32 = 30_000;
 /// A round trip under this counts as LAN when the path's class does not say so (a peer
 /// first learned during the handshake is classed `direct_wan`).
-const LAN_RTT_US: u64 = 5_000;
+const LAN_RTT_US: u64 = cmux_rd_core::cc::LAN_RTT_US;
 
 /// The start bitrate when `--start-kbps` is not given, from the current path's class and
 /// medium (wire names) and round trip; never above `max_kbps`. A relay is never LAN.
@@ -319,11 +373,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     io::stdin().lock().read_line(&mut first)?;
     let setup: Setup = serde_json::from_str(&first).map_err(|e| format!("setup line: {e}"))?;
     let peer_key = unhex32(&setup.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let stun: Vec<SocketAddr> = setup
-        .stun
-        .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&setup.stun, setup.relay_only);
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
@@ -344,12 +394,17 @@ pub fn run(opts: &Opts) -> Res<()> {
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
-    say(linux_displays(capture, &display));
+    say(linux_displays(capture, &display, setup.display.as_deref()));
     #[cfg(target_os = "macos")]
-    match crate::desktop::displays() {
-        Ok((sizes, current)) => {
-            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
-        }
+    match crate::desktop::displays(&display) {
+        Ok((sizes, current, ids)) => say(AppLine {
+            displays: Some(sizes),
+            // The windows the viewer may share one of (the setup line's `window`).
+            windows: Some(crate::desktop::windows()),
+            current: Some(current),
+            display_ids: (!ids.is_empty()).then_some(ids),
+            ..AppLine::default()
+        }),
         Err(e) => say(AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -369,9 +424,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         // address, so a Mac with Ethernet and Wi-Fi on one subnet sends from Wi-Fi when asked
         // (scripts/screen-share-vs.py --link wifi). The app never passes it.
         bind: opts.str_or("link-bind", "0.0.0.0:0").parse()?,
-        turn: crate::carrier::turn_servers(&setup.turn),
+        turn: crate::carrier::turn_servers_with_stream(&setup.turn, &setup.turn_stream),
         relay_only: setup.relay_only,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
         libc::fcntl(
@@ -381,18 +439,151 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+        link: LinkCarrier::new(net, crate::wg_carrier::Role::Host, setup.peer_carrier)?,
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, &display, capture, view_only, &mut carrier) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
     };
-    let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
-    say(AppLine { ended: Some(reason), ..AppLine::default() });
+    if let Some(fallback) = carrier.link.take_fallback() {
+        say(AppLine { fallback: Some(fallback), ..AppLine::default() });
+    } else {
+        let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
+        say(AppLine { ended: Some(reason), ..AppLine::default() });
+    }
     // Dropping the carrier closes the link (the viewer sees the close at once).
     drop(carrier);
     Ok(())
+}
+
+/// What this session shares, for the app and for checks that compare the viewer's pick with
+/// the picture that arrives (`capturing`): the setup line's pick, the source it resolved to and
+/// the streamed size, in the mode this host applies (a `view` scope is view whatever the viewer
+/// asked).
+fn capturing_line(
+    setup: &Setup,
+    rect: Option<[u32; 4]>,
+    (width, height): (u32, u32),
+    mode: Mode,
+) -> AppLine {
+    AppLine {
+        capturing: Some(cmux_rd_proto::app_line::LineCapturing {
+            source: if setup.window.is_some() { "window" } else { "display" }.into(),
+            display: setup.display.clone(),
+            window: setup.window,
+            rect,
+            width,
+            height,
+            max_width: setup.max_width,
+            mode: match mode {
+                Mode::Control => "control",
+                Mode::View => "view",
+            }
+            .into(),
+            scope: setup.scope.clone(),
+        }),
+        ..AppLine::default()
+    }
+}
+
+/// When `candidates_done` goes to the app, which answers then: at the first host candidate
+/// (one is known at once, so a session never waits for STUN or TURN), or when gathering ends
+/// for a side with none (relay only). Once.
+#[derive(Default)]
+struct AnswerGate {
+    ready: bool,
+    said: bool,
+}
+
+impl AnswerGate {
+    fn candidate(&mut self, kind: cmux_rd_link::net::CandidateKind) {
+        self.ready |= kind == cmux_rd_link::net::CandidateKind::Host;
+    }
+
+    fn gathered(&mut self) {
+        self.ready = true;
+    }
+
+    /// True once, when the answer can go.
+    fn due(&mut self) -> bool {
+        self.ready && !std::mem::replace(&mut self.said, true)
+    }
+}
+
+/// The session's settings known before the viewer's hello: the frame rate, profile and bitrate
+/// cap from the setup line and the options. The start bitrate is the off-LAN one until the path
+/// is known (the capture opens at it during the handshake; the session sets the path's before
+/// the first frame), and two frames in flight until the round trip is.
+fn session_cfg(
+    opts: &Opts,
+    setup: &Setup,
+    display: &str,
+    capture: CaptureBackend,
+    show_cursor: bool,
+) -> Res<SessionCfg> {
+    let display = display.to_owned();
+    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
+    // Ultra (the viewer's choice or `--encode-profile ultra`): frames at that rate up to 120,
+    // a higher ceiling, and the encoder's ultra settings. Standard (the default) is unchanged.
+    let encode_profile = session_profile(opts, setup)?;
+    let max_fps = encode_profile.stream_fps(max_fps);
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
+    // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
+    // one cap, the congestion controller's `max_bps`.
+    let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
+    // `--pin-kbps N` (bench builds) holds the controller at N: start, floor and ceiling.
+    let pin_kbps = crate::host::pin_kbps(opts)?;
+    let max_kbps =
+        pin_kbps.unwrap_or_else(|| crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps));
+    let start_kbps = match pin_kbps {
+        Some(pin) => pin,
+        None => crate::serve_wish::start_kbps(
+            opts.num_or("start-kbps", default_start_kbps(None, None, None, max_kbps))?,
+            max_kbps,
+        ),
+    };
+    Ok(SessionCfg {
+        display,
+        display_pick: setup.display.clone(),
+        window: setup.window,
+        max_fps,
+        encode_profile,
+        start_kbps,
+        max_kbps,
+        pin_kbps,
+        preset: String::new(),
+        profile: opts.str_or("profile", "high"),
+        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
+        content: "screen".into(),
+        openh264_lib: None,
+        threads: crate::encoder::default_threads(),
+        // `--stats-every-ms 100` (the bench's 100 ms rate series); 100 ms is the floor.
+        stats_every_ms: opts.num_or("stats-every-ms", 1000u64)?,
+        settle_us: crate::host::DEFAULT_SETTLE_US,
+        upstream_record: None,
+        upstream_record_max_bytes: 0,
+        max_width: setup.max_width,
+        show_cursor,
+        // On by default: the frame that shows an input's effect goes out at once instead of
+        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
+        input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--ltr 1` offers LTR loss recovery where this host encodes with
+        // VideoToolbox; the session keeps it only when the viewer negotiates `video.ltr`.
+        ltr: cfg!(target_os = "macos") && opts.flag("ltr"),
+        // Off by default: `--rtt-tail-probe 1` probes a lost newest frame after a round
+        // trip instead of 250 ms (design D6), for measuring before it ships.
+        rtt_tail_probe: opts.flag_or("rtt-tail-probe", false),
+        // Off by default: `--resolution-ladder 1` makes the picture smaller, not blurrier,
+        // below the bits-per-pixel floor (design D5), with `--max-qp N` as its QP ceiling.
+        resolution_ladder: opts.flag_or("resolution-ladder", false),
+        max_qp: crate::host::ladder_max_qp(opts)?,
+        // Set from the path's round trip once the viewer starts.
+        frames_in_flight: 2,
+        capture,
+        sharp_text: false,
+    })
 }
 
 /// Waits for the link and the viewer's hello and start, then streams.
@@ -407,27 +598,45 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // The answer goes as soon as this side's host candidates are known: the reflexive and
+    // relayed ones trickle after it (the app relays them as candidates), so the viewer no longer
+    // waits for a STUN round trip and the TURN allocations (3 s at most, `RELAY_GATHER_US`)
+    // before it can even start its handshake. Relay only has no host candidate: it waits for
+    // the relay's, as before.
+    let mut answer = AnswerGate::default();
+    // The session's settings that do not wait for the viewer: they come from the setup line and
+    // the options. The path's (start bitrate, frames in flight) are set once the viewer starts.
+    let show_cursor = crate::serve_wish::show_cursor(setup.cursor);
+    let mut cfg = session_cfg(opts, setup, display, capture, show_cursor)?;
+    // The capture and encoder open once the answer has gone, while it crosses the hub and the
+    // link shakes hands, not after the viewer's start: ScreenCaptureKit's start and its first
+    // frame (or X11's, or the portal's) no longer sit between the link and the first frame. An
+    // open error waits for the viewer's start, where it ended the session before. It opens for
+    // the cursor this host offers; a viewer that negotiates the other choice gets it reopened.
+    let mut desktop: Option<Res<OpenedDesktop>> = None;
     // The current path's class and medium (wire names), from the last path change.
     let mut path_kind: Option<&'static str> = None;
     let mut path_medium: Option<&'static str> = None;
     // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
     // descriptor never sees them.
     carrier.pump_app()?;
-    while hello.is_none() || start.is_none() {
+    while hello.is_none() || start.is_none() || !carrier.link.media_ready() {
         let left = CONNECT_TIMEOUT.saturating_sub(started.elapsed());
         if left.is_zero() {
             return Ok("the viewer did not connect within 30 s".into());
         }
-        crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos() as u64))?;
+        crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos().min(25_000_000) as u64))?;
         carrier.pump_app().map_err(|e| e.to_string())?;
-        for event in carrier.link.net.events() {
+        for event in carrier.link.events() {
+            if let Some(line) = event.phase_line() {
+                println!("{line}");
+            }
             match event {
                 NetEvent::Candidate(c) => {
-                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
+                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() });
+                    answer.candidate(c.kind);
                 }
-                NetEvent::CandidatesDone => {
-                    say(AppLine { candidates_done: true, ..AppLine::default() })
-                }
+                NetEvent::CandidatesDone => answer.gathered(),
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
                     say(AppLine { connected: true, ..AppLine::default() })
                 }
@@ -435,11 +644,14 @@ fn serve_session(
                     match serde_json::from_slice::<Control>(&record) {
                         Ok(h @ Control::Hello { .. }) => hello = Some(h),
                         Ok(s @ Control::Start { .. }) => start = Some(s),
+                        Ok(Control::Stop | Control::Ended { .. } | Control::Refused { .. }) => {
+                            return Ok("viewer stopped or refused the session".into());
+                        }
                         _ => {}
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
-                    return Ok("viewer closed the link".into())
+                    return Ok("viewer closed the link".into());
                 }
                 NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
                     // The path's class picks the start bitrate.
@@ -454,7 +666,19 @@ fn serve_session(
                 _ => {}
             }
         }
+        // After the whole batch: the reflexive candidate that came with the host ones still
+        // goes in the answer itself.
+        if answer.due() {
+            say(AppLine { candidates_done: true, ..AppLine::default() });
+        }
         carrier.report_paths();
+        if carrier.link.retry_ready() {
+            return Ok("carrier retry acknowledged".into());
+        }
+        if answer.said && desktop.is_none() {
+            let cursor = show_cursor && crate::desktop::reports_cursor();
+            desktop = Some(OpenedDesktop::open(&cfg, cursor));
+        }
     }
     let (Some(Control::Hello { service, caps, .. }), Some(Control::Start { key, mode })) =
         (hello, start)
@@ -471,9 +695,30 @@ fn serve_session(
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    if crate::desktop::reports_cursor() {
+    if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // LTR only when asked for (`--ltr 1`, default off) and where this host encodes with
+    // VideoToolbox, as `cmux-rd host` does; OpenH264 hosts and viewers without the cap keep
+    // IDR recovery.
+    if cfg!(target_os = "macos") && opts.flag("ltr") {
+        host_caps.push(cmux_rd_core::service::caps::LTR);
+    }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(cmux_rd_core::service::caps::FEC_BLOCKS);
+    if crate::desktop::scales_pictures() {
+        host_caps.push(cmux_rd_core::service::caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&opts.str_or("codec", crate::host::DEFAULT_CODEC)) {
+        host_caps.push(cmux_rd_core::service::caps::H264_BASELINE);
+    }
+    // A viewer whose person turned on sharper Linux text gets OpenH264's screen usage.
+    if crate::stream::offers_sharp_text(&opts.str_or("codec", crate::host::DEFAULT_CODEC)) {
+        host_caps.push(cmux_rd_core::service::caps::SHARP_TEXT);
+    }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
     // Clipboard text only when the app's setup turned it on and this host has a clipboard it
     // can watch (macOS). A `view` scope session still never applies or sends one: it never
     // holds control (clipboard.rs).
@@ -511,54 +756,41 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
-    let display = display.to_owned();
-    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
-    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    let max_kbps = opts.num_or("max-kbps", 50_000)?;
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
-    )?;
-    let cfg = SessionCfg {
-        display,
-        max_fps,
-        start_kbps,
-        max_kbps,
-        preset: String::new(),
-        profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
-        content: "screen".into(),
-        openh264_lib: None,
-        threads: crate::encoder::default_threads(),
-        stats_every_ms: 1000,
-        settle_us: crate::host::DEFAULT_SETTLE_US,
-        upstream_record: None,
-        upstream_record_max_bytes: 0,
-        max_width: setup.max_width,
-        // On by default: the frame that shows an input's effect goes out at once instead of
-        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
-        input_frame_now: opts.flag_or("input-frame-now", true),
-        // Enough frames in flight to cover the path's round trip, at least two: the next
-        // frame encodes while the last one waits for its acknowledgement.
-        frames_in_flight: carrier
-            .link
-            .rtt_us
-            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
-            .max(2),
-        capture,
+    // A pinned rate (`--pin-kbps`) keeps its start; else the path sets it.
+    if cfg.pin_kbps.is_none() {
+        cfg.start_kbps = crate::serve_wish::start_kbps(
+            opts.num_or(
+                "start-kbps",
+                default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, cfg.max_kbps),
+            )?,
+            cfg.max_kbps,
+        );
+    }
+    // Enough frames in flight to cover the path's round trip, at least two: the next
+    // frame encodes while the last one waits for its acknowledgement.
+    cfg.frames_in_flight = carrier
+        .link
+        .rtt_us
+        .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, cfg.max_fps))
+        .max(2);
+    let desktop = match desktop {
+        Some(opened) => opened?,
+        None => OpenedDesktop::open(&cfg, crate::stream::wants_cursor(&negotiated.caps))?,
     };
-    let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
+    let max_datagram = carrier.link.max_datagram();
+    let mut media = MediaSession::on_desktop(desktop, &cfg, max_datagram, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),
         width,
         height,
-        max_datagram: MAX_DATAGRAM,
-        carrier: "link".into(),
+        max_datagram,
+        carrier: carrier.link.wire_name().into(),
         service: negotiated.service.clone(),
         caps: negotiated.caps.clone(),
     })?;
     carrier.send_control(&Control::Started { session })?;
+    say(capturing_line(setup, media.source_rect(), (width, height), mode));
     let reason = media.run(carrier, &mut table, session, &principal);
     media.release_input();
     media.close_upstreams();
@@ -567,134 +799,5 @@ fn serve_session(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serve_preserves_frame_boundaries_before_the_link_connects() {
-        let local = KeyPair::generate().unwrap();
-        let peer = KeyPair::generate().unwrap();
-        let net = Net::start(NetConfig {
-            role: Role::Responder,
-            session: b"serve-queue-test".to_vec(),
-            local,
-            expected_remote: peer.public,
-            stun: Vec::new(),
-            bind: "127.0.0.1:0".parse().unwrap(),
-            turn: Vec::new(),
-            relay_only: false,
-        })
-        .unwrap();
-        let mut carrier = ServeCarrier {
-            link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
-            app: AppLines { buf: Vec::new() },
-        };
-        carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();
-        carrier.send_datagram_frame(vec![vec![3]], true).unwrap();
-        let stats = carrier.media_queue_stats().unwrap();
-        assert_eq!(stats.queue_frames, 1);
-        assert_eq!(stats.queue_datagrams, 1);
-        assert_eq!(stats.dropped_replaced_frames, 1);
-        assert_eq!(stats.dropped_replaced_datagrams, 2);
-    }
-
-    #[test]
-    fn clipboard_sync_is_off_unless_the_setup_turns_it_on() {
-        let base = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
-        let off: Setup = serde_json::from_str(base).expect("setup");
-        assert!(!off.clipboard);
-        let on = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","clipboard":true}"#;
-        let on: Setup = serde_json::from_str(on).expect("setup");
-        assert!(on.clipboard);
-    }
-
-    /// A writer that keeps what reached it only at a flush, as a pipe's reader sees it.
-    #[derive(Default)]
-    struct Piped {
-        pending: Vec<u8>,
-        flushed: Vec<u8>,
-    }
-
-    impl Write for Piped {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.pending.extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.flushed.append(&mut self.pending);
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn every_app_line_reaches_the_pipe_whole_and_flushed() {
-        let mut out = Piped::default();
-        let lines = [
-            AppLine { displays: Some(vec![(1920, 1080)]), current: Some(0), ..AppLine::default() },
-            AppLine { key: Some("ab".repeat(32)), ..AppLine::default() },
-            AppLine { candidate: Some("host 192.168.1.4:51000".into()), ..AppLine::default() },
-            AppLine { candidates_done: true, ..AppLine::default() },
-        ];
-        for (i, line) in lines.iter().enumerate() {
-            write_line(&mut out, line).unwrap();
-            // Nothing waits in a buffer: the reader has every line so far, each ended by one newline.
-            assert!(out.pending.is_empty());
-            let read: Vec<&[u8]> =
-                out.flushed.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
-            assert_eq!(read.len(), i + 1);
-            assert_eq!(AppLine::decode(read[i]).as_ref(), Some(line));
-        }
-        assert_eq!(out.flushed.last(), Some(&b'\n'));
-    }
-
-    #[test]
-    fn portal_sessions_control_only_with_a_remote_desktop_grant() {
-        // Without the grant the portal drops input: a control session there would not be one.
-        let x11 = CaptureBackend::X11.applies_input_with(false);
-        assert!(view_only_for("view", x11).unwrap());
-        assert!(!view_only_for("control", x11).unwrap());
-        let portal = CaptureBackend::Portal.applies_input_with(false);
-        assert!(view_only_for("view", portal).unwrap());
-        assert!(view_only_for("control", portal).unwrap());
-        let granted = CaptureBackend::Portal.applies_input_with(true);
-        assert!(view_only_for("view", granted).unwrap());
-        assert!(!view_only_for("control", granted).unwrap());
-        assert!(view_only_for("full", x11).is_err());
-    }
-
-    #[test]
-    fn a_lan_path_starts_at_the_lan_bitrate() {
-        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 50_000), 30_000);
-        assert_eq!(default_start_kbps(Some("direct_wan"), Some("lan"), None, 50_000), 30_000);
-        assert_eq!(default_start_kbps(Some("direct_wan"), Some("link"), None, 50_000), 30_000);
-        // A peer learned in the handshake is classed WAN; a sub-5 ms round trip is LAN.
-        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(1_200), 50_000), 30_000);
-        assert_eq!(default_start_kbps(None, None, Some(4_999), 50_000), 30_000);
-    }
-
-    #[test]
-    fn other_paths_keep_the_old_start_and_max_caps_both() {
-        assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
-        assert_eq!(
-            default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
-            8_000
-        );
-        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);
-        // A relay is never LAN, whatever its round trip.
-        assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);
-        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 20_000), 20_000);
-        assert_eq!(default_start_kbps(None, None, None, 4_000), 4_000);
-    }
-
-    #[test]
-    fn later_lines_carry_the_excluded_windows() {
-        let later: Later = serde_json::from_str(r#"{"exclude_windows":[123,456]}"#).unwrap();
-        assert_eq!(later.exclude_windows, Some(vec![123, 456]));
-        assert!(!later.stop && later.candidate.is_none());
-        let emptied: Later = serde_json::from_str(r#"{"exclude_windows":[]}"#).unwrap();
-        assert_eq!(emptied.exclude_windows, Some(Vec::new()));
-        let stop: Later = serde_json::from_str(r#"{"stop":true}"#).unwrap();
-        assert_eq!(stop.exclude_windows, None);
-    }
-}
+#[path = "serve_tests.rs"]
+mod tests;

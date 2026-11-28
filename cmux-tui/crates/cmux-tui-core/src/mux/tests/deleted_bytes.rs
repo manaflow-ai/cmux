@@ -155,7 +155,7 @@ fn a_deleted_terminal_command_leaves_no_bytes() {
         let done =
             mux.workspace_registry.lock().unwrap().checkpoint_terminal_command_deletes().unwrap();
         if !done {
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::sleep(Duration::from_millis(20));
         }
         done
     });
@@ -193,6 +193,7 @@ fn a_revoked_agent_token_leaves_no_bytes() {
 
 /// `app.storage.delete` and an app's uninstall (`clear`): the value was in
 /// `apps-storage.sqlite`.
+#[cfg(unix)]
 #[test]
 fn a_deleted_app_storage_value_leaves_no_bytes() {
     use crate::apps::storage::Storage;
@@ -203,20 +204,30 @@ fn a_deleted_app_storage_value_leaves_no_bytes() {
 
     let deleted = marker("app-storage-delete");
     storage
-        .call("app.a", "app.storage.set", &serde_json::json!({ "key": "secret", "value": deleted }))
+        .call(
+            "app.a",
+            "app.storage.set",
+            &serde_json::json!({ "key": "secret", "value": deleted }),
+            false,
+        )
         .unwrap();
     storage
         .call(
             "app.a",
             "app.storage.set",
             &serde_json::json!({ "key": "kept", "value": "still here" }),
+            false,
         )
         .unwrap();
     assert_written("app-storage-delete", &database, deleted.as_bytes());
-    storage.call("app.a", "app.storage.delete", &serde_json::json!({ "key": "secret" })).unwrap();
+    storage
+        .call("app.a", "app.storage.delete", &serde_json::json!({ "key": "secret" }), false)
+        .unwrap();
     assert_gone("app-storage-delete", residue(&database, deleted.as_bytes()));
     assert_eq!(
-        storage.call("app.a", "app.storage.get", &serde_json::json!({ "key": "kept" })).unwrap(),
+        storage
+            .call("app.a", "app.storage.get", &serde_json::json!({ "key": "kept" }), false)
+            .unwrap(),
         serde_json::json!("still here"),
         "the delete took only the key it named"
     );
@@ -227,6 +238,7 @@ fn a_deleted_app_storage_value_leaves_no_bytes() {
             "app.b",
             "app.storage.set",
             &serde_json::json!({ "key": "secret", "value": uninstalled }),
+            false,
         )
         .unwrap();
     assert_written("app-storage-clear", &database, uninstalled.as_bytes());

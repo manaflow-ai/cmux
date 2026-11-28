@@ -34,6 +34,10 @@ use crate::surge_triage::{self as triage, Batch, Decision, Line, Owners};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
+/// The record a read appends (`inbox_thread`, the team read and ack): `{threadId, promptIds,
+/// wholeThread?}`.
+pub(crate) const READ_KIND: &str = "inbox_read";
+
 /// How long a pass waits after its first call, so one pass takes a burst.
 pub(crate) const DEBOUNCE: Duration = Duration::from_secs(30);
 pub(crate) const PROVENANCE_KIND: &str = "surge_digest";
@@ -76,7 +80,7 @@ pub(super) fn resume_after_restore(session: &Session) {
         return;
     }
     let Some(hub) = session.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
-    let held = hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).cloned();
+    let held = hub.session_get(&session.id);
     if let Some(session) = held {
         hub.schedule_surge_triage(&session);
     }
@@ -160,6 +164,11 @@ pub(crate) struct Journal {
     pub(super) inherited: bool,
     /// `needs_this_session` items: prompt id to thread, while unread.
     pub(super) open: BTreeMap<String, String>,
+    /// Held messages filed fyi by rule ([`triage::Held::fyi_by_rule`]) until their triage
+    /// record is read: an older pass's `needs_this_session` for one never opens it.
+    pub(super) fyi: BTreeSet<String>,
+    /// Held messages that need the person ([`triage::needs_person`]), by prompt id.
+    pub(super) person: BTreeSet<String>,
 }
 
 impl Journal {
@@ -170,7 +179,26 @@ impl Journal {
                 if let Some(h) = triage::held_from_inbox(msg)
                     && !self.held.iter().any(|x| x.prompt_id == h.prompt_id)
                 {
+                    if h.fyi_by_rule() {
+                        self.fyi.insert(h.prompt_id.clone());
+                    }
+                    if h.needs_person(super::presence::owner_name()) {
+                        self.person.insert(h.prompt_id.clone());
+                    }
                     self.held.push(h);
+                }
+            }
+            // A read lowers needYou: a thread read (`wholeThread`) closes every open item of
+            // that thread so far, an item read closes that item.
+            READ_KIND => {
+                let ids = msg.get("promptIds").and_then(Value::as_array);
+                for id in ids.into_iter().flatten().filter_map(Value::as_str) {
+                    self.open.remove(id);
+                }
+                if msg.get("wholeThread").and_then(Value::as_bool) == Some(true)
+                    && let Some(thread) = msg.get("threadId").and_then(Value::as_str)
+                {
+                    self.open.retain(|_, t| t != thread);
                 }
             }
             triage::GRANT_KIND => self.grants.apply(msg),
@@ -179,6 +207,8 @@ impl Journal {
                 if !done.is_empty() {
                     self.held.retain(|h| !done.contains(&h.prompt_id));
                 }
+                let fyi: BTreeSet<String> =
+                    done.iter().filter(|id| self.fyi.remove(*id)).cloned().collect();
                 if let Some(d) = msg.get("digestDelivered").and_then(Value::as_str) {
                     self.owed.remove(d);
                     self.delivered.insert(d.to_owned());
@@ -209,6 +239,7 @@ impl Journal {
                 for line in triage::record_lines(msg) {
                     if line.category == triage::Category::NeedsThisSession
                         && line.repeat_of.is_none()
+                        && !fyi.contains(&line.prompt_id)
                     {
                         self.open.insert(line.prompt_id.clone(), line.thread_id.clone());
                     }
@@ -393,6 +424,12 @@ impl Hub {
         *self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()) = triager;
     }
 
+    /// Turns surge admission on or off for this hub, whatever the settings file says (tests).
+    #[cfg(test)]
+    pub(crate) fn set_surge_inbox(&self, on: Option<bool>) {
+        *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) = on;
+    }
+
     /// `session`'s journal, read up to its newest record: the cached one past its cursor, or,
     /// after a restart, the chat's records once.
     fn surge_journal(&self, session: &Session) -> Result<Journal, RpcError> {
@@ -413,7 +450,7 @@ impl Hub {
             // its `forked` marker, all of it when a crash left none.
             journal.inherited = session.meta().fork_seq.is_some();
         }
-        let kinds = ["inbox", triage::RECORD_KIND, triage::GRANT_KIND, "forked"];
+        let kinds = ["inbox", triage::RECORD_KIND, triage::GRANT_KIND, READ_KIND, "forked"];
         let mut newest = journal.cursor;
         self.scan_kinds_after_and_kept(session, journal.cursor, &kinds, &mut |e: EventRecord| {
             newest = newest.max(e.seq);
@@ -520,7 +557,7 @@ impl Hub {
                 let mut record = triage::triaged_record(batch, d, Some(&id));
                 triage::set_key(&mut record, "at", json!(now));
                 journal.read(triage::RECORD_KIND, &record, now);
-                let open = self.surge_open_topics(session, journal);
+                let open = self.surge_need_you(session, journal);
                 self.surge_persist(session, record, open)?;
             }
         }
@@ -541,7 +578,7 @@ impl Hub {
             let into = triage::digest_id(&session.id, &all);
             let record = json!({"coalesced": ids, "into": into, "items": []});
             journal.read(triage::RECORD_KIND, &record, crate::store::now_ms());
-            let open = self.surge_open_topics(session, journal);
+            let open = self.surge_need_you(session, journal);
             self.surge_persist(session, record, open)?;
         }
         let owed: Vec<(String, Vec<Line>)> = journal
@@ -568,8 +605,14 @@ impl Hub {
                 triage::set_key(&mut marker, "redirected", json!(redirected));
             }
             journal.read(triage::RECORD_KIND, &marker, crate::store::now_ms());
-            let open = self.surge_open_topics(session, journal);
+            let open = self.surge_need_you(session, journal);
             self.surge_persist(session, marker, open)?;
+        }
+        // needYou as the journal counts it now: a read since, or a rule that files what an
+        // older pass opened as fyi, lowers it with no new item.
+        let open = self.surge_need_you(session, journal);
+        if open != session.inbox().surge_counts_need_you() {
+            self.surge_persist(session, json!({"items": []}), open)?;
         }
         Ok(if undecided > 0 {
             PassEnd::Undecided
@@ -578,6 +621,30 @@ impl Hub {
         } else {
             PassEnd::Done
         })
+    }
+
+    /// After a read: needYou counted again now, not at the next pass. A thread read whose
+    /// items all left memory (`trim` lets held ones go first) wrote no read record, so one is
+    /// written here; then a changed count is journaled, which the chat row reads.
+    pub(crate) fn surge_after_read(&self, session: &Session, thread: Option<&str>) {
+        if !self.surge_inbox_on() && session.inbox().surge_counts_need_you() == 0 {
+            return;
+        }
+        let Ok(mut journal) = self.surge_journal(session) else { return };
+        if let Some(thread) = thread
+            && journal.open.values().any(|t| t == thread)
+        {
+            let msg = json!({"threadId": thread, "promptIds": [], "wholeThread": true});
+            self.append(session, "mux", READ_KIND, msg.clone());
+            journal.read(READ_KIND, &msg, crate::store::now_ms());
+        }
+        let open = self.surge_need_you(session, &mut journal);
+        if open != session.inbox().surge_counts_need_you() {
+            let _ = self.persist_surge_triage(session, json!({"items": []}), open);
+        }
+        let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
+        // A pass that took the journal meanwhile puts its own back; it reads these records then.
+        all.entry(session.id.clone()).or_insert(journal);
     }
 
     /// Distinct threads with a `needs_this_session` item the chat has not read; read ones
@@ -590,6 +657,35 @@ impl Hub {
             }
         }
         let threads: BTreeSet<&String> = journal.open.values().collect();
+        threads.len() as u64
+    }
+
+    /// The undecided held messages the journal counts, and the record seq it read through:
+    /// what the held bar's count is, fork-aware and once per prompt id (`Counts::settle_held`).
+    /// It reads the cached projection's tail, and puts it back unless a pass cached a newer one.
+    pub(crate) fn surge_held_now(&self, session: &Session) -> Option<(u64, u64)> {
+        let cached = {
+            let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
+            all.remove(&session.id)
+        };
+        let mut journal = cached.unwrap_or_default();
+        self.surge_journal_tail(session, &mut journal).ok()?;
+        let now = (journal.held.len() as u64, journal.cursor);
+        let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
+        all.entry(session.id.clone()).or_insert(journal);
+        Some(now)
+    }
+
+    /// The held bar's "need you": the open topics with a message that needs the person
+    /// ([`triage::needs_person`]), not every one this chat's agent must act on.
+    fn surge_need_you(&self, session: &Session, journal: &mut Journal) -> u64 {
+        self.surge_open_topics(session, journal);
+        let threads: BTreeSet<&String> = journal
+            .open
+            .iter()
+            .filter(|(id, _)| journal.person.contains(*id))
+            .map(|(_, thread)| thread)
+            .collect();
         threads.len() as u64
     }
 
@@ -723,7 +819,9 @@ impl Hub {
         }
     }
 
-    /// The decisions of `batch`, through `harness` (None: the default harness).
+    /// The decisions of `batch`, through `harness` (None: the default harness). With harness
+    /// magic `consensus` on, [`CONSENSUS_VOTES`] calls run at once and only what most of them
+    /// agree on is decided ([`triage::majority`]); the rest stays held for a later pass.
     pub(crate) async fn surge_triage_batch(
         self: &Arc<Self>,
         harness: Option<&str>,
@@ -733,28 +831,109 @@ impl Hub {
         if batch.messages.is_empty() {
             return Vec::new();
         }
-        let prompt = triage::prompt(batch);
-        let triager = self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let answer = match triager {
-            Some(triage_with) => triage_with(prompt),
-            None => {
-                let timeout = Duration::from_millis(triage::TIMEOUT_MS);
-                match self.complete_own(harness, prompt, triage::MAX_TOKENS, timeout).await {
-                    Ok(text) => Some(text),
-                    Err(e) => {
-                        tracing::info!(
-                            recipient = %batch.recipient,
-                            batch = %batch.batch_id,
-                            reason = e.reason(),
-                            "surge triage: no model answer; its messages stay held for a later pass"
-                        );
-                        None
-                    }
-                }
-            }
-        };
-        triage::decide(batch, answer.as_deref(), owners)
+        let votes = if consensus_enabled() { CONSENSUS_VOTES } else { 1 };
+        self.surge_triage_voted(harness, batch, owners, votes).await
     }
+
+    /// [`Self::surge_triage_batch`] with `votes` calls: one is the plain single call.
+    pub(crate) async fn surge_triage_voted(
+        self: &Arc<Self>,
+        harness: Option<&str>,
+        batch: &Batch,
+        owners: &Owners,
+        votes: usize,
+    ) -> Vec<Option<Decision>> {
+        let prompt = triage::prompt(batch);
+        if votes <= 1 {
+            let answer = self.surge_triage_answer(harness, prompt, batch).await;
+            return triage::decide(batch, answer.as_deref(), owners);
+        }
+        let calls = (0..votes).map(|_| self.surge_triage_answer(harness, prompt.clone(), batch));
+        let ballots: Vec<Vec<Option<Decision>>> = futures::future::join_all(calls)
+            .await
+            .iter()
+            .map(|a| triage::decide(batch, a.as_deref(), owners))
+            .collect();
+        let kept = triage::majority(&ballots);
+        tracing::info!(
+            recipient = %batch.recipient,
+            batch = %batch.batch_id,
+            votes,
+            messages = batch.messages.len(),
+            decided = kept.iter().filter(|d| d.is_some()).count(),
+            split = triage::split_count(&ballots, &kept),
+            "surge triage: consensus"
+        );
+        kept
+    }
+
+    /// One answer for `prompt`: the test triager's, or the harness's small model's (None: the
+    /// call failed or timed out).
+    async fn surge_triage_answer(
+        self: &Arc<Self>,
+        harness: Option<&str>,
+        prompt: String,
+        batch: &Batch,
+    ) -> Option<String> {
+        let triager = self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(triage_with) = triager {
+            return triage_with(prompt);
+        }
+        let timeout = Duration::from_millis(triage::TIMEOUT_MS);
+        match self
+            .complete_own(
+                harness,
+                prompt,
+                triage::MAX_TOKENS,
+                timeout,
+                super::complete::ModelFallback::SmallOnly,
+            )
+            .await
+        {
+            Ok(text) => Some(text),
+            Err(e) => {
+                tracing::info!(
+                    recipient = %batch.recipient,
+                    batch = %batch.batch_id,
+                    reason = e.reason(),
+                    "surge triage: no model answer; its messages stay held for a later pass"
+                );
+                None
+            }
+        }
+    }
+}
+
+/// RFD 0158 §16's harness magic: surge triage decides by majority of [`CONSENSUS_VOTES`] cheap
+/// calls, not one. Its name in the setting, kill switch and stamp.
+pub(crate) const CONSENSUS_FEATURE: &str = "consensus";
+
+/// The calls a consensus decision takes (RFD 0158 §16: "three cheap votes ... majority wins").
+pub(crate) const CONSENSUS_VOTES: usize = 3;
+
+/// Whether consensus is on: the environment's `ACPMUX_HM_CONSENSUS` (`0` off, `1` on), then
+/// `agents.harnessMagic.consensus.enabled` (off unless `true`).
+pub(crate) fn consensus_enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
+    match env.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("0" | "false" | "off" | "no") => return false,
+        Some("1" | "true" | "on" | "yes") => return true,
+        _ => {}
+    }
+    doc.and_then(|d| {
+        crate::user_settings::value(d, &super::harness_magic::setting_key(CONSENSUS_FEATURE))
+    })
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+}
+
+/// [`consensus_enabled_with`] now.
+pub(crate) fn consensus_enabled() -> bool {
+    let doc = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => Some(doc),
+        _ => None,
+    };
+    let env = std::env::var(super::harness_magic::env_key(CONSENSUS_FEATURE)).ok();
+    consensus_enabled_with(doc.as_ref(), env.as_deref())
 }
 
 #[cfg(test)]

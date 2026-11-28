@@ -10,7 +10,10 @@ import CmuxNextWakeups
 /// native drop nor a paste of files, so it can't fill this.
 ///
 /// Each record answers once, within ``lifetime``, and only for the same files: as many as the page
-/// names, with the same names in any order. Any other ask uses it up and answers nothing.
+/// names, with the same names in any order. Any other ask uses it up and answers nothing. The last
+/// few records of a kind are kept (``heldLimit``), each dated by its gesture, so two fast drops or
+/// pastes of files with the same names each get their own: the page says when it took its gesture
+/// (`gestureAt`), and its ask takes the newest record made by then, never a later gesture's.
 public final class AgentPaneDroppedPaths {
     /// Which gesture brought the files in. A drop's record and a paste's are kept apart, so one never
     /// answers for the other. `choose`: the person's pick in the page's file input (+ > Attach files,
@@ -36,11 +39,17 @@ public final class AgentPaneDroppedPaths {
     private struct Record {
         var items: [Item]
         var at: TimeInterval
+        /// When the gesture happened, on the wall clock the page's `Date.now()` reads.
+        var madeAt: TimeInterval
         var id: UUID
         var expiry: DemandTimer
     }
 
-    private var held: [Kind: Record] = [:]
+    /// The records of each kind, oldest first, at most ``heldLimit``.
+    private var held: [Kind: [Record]] = [:]
+    /// How many gestures of one kind may wait for their page's ask at once: far more than a person
+    /// makes within a twin read or the page's other work.
+    nonisolated static let heldLimit = 8
     /// What the last drop's or paste's pasteboard said about where its contents came from, for the
     /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs,
     /// how many items it held, and the app it says wrote it. Kept apart from ``held``, since each
@@ -77,23 +86,25 @@ public final class AgentPaneDroppedPaths {
         self.wall = wall
     }
 
-    /// Records the file URLs a drop or paste brought in, in place of the last ones of that kind; none
-    /// clears it. Finder may put a file reference URL (`file:///.file/id=…`) on the pasteboard: it is
-    /// kept as the file's path.
-    public func stash(_ urls: [URL], kind: Kind) {
-        held.removeValue(forKey: kind)?.expiry.cancel()
+    /// Records the file URLs a drop or paste brought in, after the last ones of that kind; none
+    /// records a gesture with no files, which answers nothing. Finder may put a file reference URL
+    /// (`file:///.file/id=…`) on the pasteboard: it is kept as the file's path. `madeAt` (seconds
+    /// since 1970): when the gesture happened, for one recorded after its page took it (a Chromium
+    /// drop: the drag's entry); now otherwise.
+    public func stash(_ urls: [URL], kind: Kind, madeAt: TimeInterval? = nil) {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        guard !paths.isEmpty else { return }
         // A preview's file of any size is pinned: its copy is a clone, never read into memory.
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
             return Item(url: url, needsSnapshot: needsSnapshot, snapshot: needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil)
         }
         let id = UUID(), expiry = DemandTimer(owner: "agent-pane.droppedPaths.expiry")
-        held[kind] = Record(items: items, at: now(), id: id, expiry: expiry)
+        var records = held[kind] ?? []
+        records.append(Record(items: items, at: now(), madeAt: madeAt ?? wall(), id: id, expiry: expiry))
+        while records.count > Self.heldLimit { records.removeFirst().expiry.cancel() }
+        held[kind] = records
         expiry.schedule(after: .seconds(Self.lifetime)) { @MainActor [weak self] in
-            guard self?.held[kind]?.id == id else { return }
-            self?.held[kind] = nil
+            self?.held[kind]?.removeAll { $0.id == id }
         }
     }
 
@@ -136,15 +147,30 @@ public final class AgentPaneDroppedPaths {
 
     /// The recorded URLs of `kind` for the files `names` names (WebKit's `File.name`, the URL's last
     /// component), in the order of `names`; nil when there are none, they are older than
-    /// ``lifetime``, or they are other files. Either way the record is used up.
-    public func take(_ kind: Kind, names: [String]) -> [URL]? {
-        guard let items = takeItems(kind, names: names), !items.contains(where: \.needsSnapshot) else { return nil }
+    /// ``lifetime``, or they are other files. Either way the record is used up. `gestureAt` (the
+    /// page's clock when it took the gesture, seconds since 1970): the newest record made by then
+    /// answers, so a late ask never takes a newer gesture's files and leaves that gesture its own.
+    /// Nil (an older page): the newest record, and the older ones go with it.
+    public func take(_ kind: Kind, names: [String], gestureAt: TimeInterval? = nil) -> [URL]? {
+        guard let items = takeItems(kind, names: names, gestureAt: gestureAt), !items.contains(where: \.needsSnapshot) else { return nil }
         return items.map(\.url)
     }
 
     /// The same one-shot record with the pinned recording bytes for the model's local upload.
-    func takeItems(_ kind: Kind, names: [String]) -> [Item]? {
-        guard let record = held.removeValue(forKey: kind) else { return nil }
+    func takeItems(_ kind: Kind, names: [String], gestureAt: TimeInterval? = nil) -> [Item]? {
+        guard var records = held[kind] else { return nil }
+        let record: Record
+        if let gestureAt {
+            guard let index = records.lastIndex(where: { $0.madeAt <= gestureAt + Self.gestureSlack }) else { return nil }
+            record = records.remove(at: index)
+        } else {
+            // An older page: the newest record only, and none older is left for a later ask.
+            guard let newest = records.popLast() else { return nil }
+            record = newest
+            records.forEach { $0.expiry.cancel() }
+            records.removeAll()
+        }
+        held[kind] = records.isEmpty ? nil : records
         record.expiry.cancel()
         guard now() - record.at <= Self.lifetime, record.items.count == names.count else { return nil }
         // WebKit hands the page the pasteboard's files in its order: a folder and a zip of the same
@@ -166,6 +192,9 @@ public final class AgentPaneDroppedPaths {
         guard !urls.isEmpty else { return }
         external = ((external?.urls ?? []) + urls, claimed ?? external?.claimed)
     }
+
+    /// Whether files ``hold(external:claimed:)`` held are still untaken.
+    var holdsExternal: Bool { external != nil }
 
     /// The files ``hold(external:claimed:)`` holds, once.
     func takeExternal() -> (urls: [URL], claimed: String?)? {
@@ -195,7 +224,7 @@ public final class AgentPaneDroppedPaths {
     /// copies so the next chat cannot consume or open the prior chat's recording.
     func clearForSessionChange() {
         generation = UUID()
-        held.values.forEach { $0.expiry.cancel() }
+        held.values.joined().forEach { $0.expiry.cancel() }
         held.removeAll()
         sourced.removeAll()
         external = nil

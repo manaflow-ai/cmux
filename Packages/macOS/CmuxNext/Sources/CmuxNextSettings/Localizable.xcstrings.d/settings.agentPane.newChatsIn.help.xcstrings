@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.newChatsIn.help" : {
+      "comment" : "Settings > Agent Chat > Start New Chats In: what the row does",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ينسخ السحاب مشروعك إلى جهازك السحابي. يمكن لمحرر المحادثة تغيير ذلك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud kopira vaš projekat na vašu Cloud mašinu. Polje za pisanje chata to može promijeniti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud kopierer dit projekt til din Cloud-maskine. En chats skrivefelt kan ændre det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud kopiert dein Projekt auf deine Cloud-Maschine. Das Eingabefeld eines Chats kann das ändern."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud copies your project to your Cloud machine. A chat's composer can change it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud copia tu proyecto a tu máquina Cloud. El editor de un chat puede cambiarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud copie votre projet sur votre machine Cloud. Le champ de saisie d'une discussion peut le changer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud copia il progetto sulla tua macchina Cloud. Il compositore di una chat può cambiarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud を選ぶと、プロジェクトを自分の Cloud マシンにコピーします。チャットの入力欄で変更できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud ចម្លងគម្រោងរបស់អ្នកទៅម៉ាស៊ីន Cloud របស់អ្នក។ ប្រអប់សរសេររបស់ការជជែកអាចប្តូរវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud는 프로젝트를 내 Cloud 머신에 복사합니다. 채팅의 입력창에서 바꿀 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud kopierer prosjektet ditt til Cloud-maskinen din. Skrivefeltet i en chat kan endre det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud kopiuje projekt na Twoją maszynę Cloud. Pole wiadomości czatu może to zmienić."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud copia seu projeto para sua máquina Cloud. O editor de um chat pode mudar isso."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud копирует проект на вашу машину Cloud. В поле ввода чата это можно изменить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud จะคัดลอกโปรเจกต์ของคุณไปยังเครื่อง Cloud ของคุณ ช่องพิมพ์ของแชตเปลี่ยนค่านี้ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud, projenizi Cloud makinenize kopyalar. Bir sohbetin yazma alanı bunu değiştirebilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud копіює ваш проєкт на вашу машину Cloud. Поле введення чату може це змінити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud sao chép dự án của bạn sang máy Cloud. Ô soạn của cuộc trò chuyện có thể đổi điều này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 会把你的项目复制到你的 Cloud 机器上。聊天的输入框可以更改此设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 會把專案複製到你的 Cloud 機器。聊天的輸入框可以更改。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

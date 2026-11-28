@@ -28,7 +28,6 @@ pub const HISTORY_KINDS: &[&str] = &[
     "agent_thought_chunk",
     "tool_call",
     "tool_call_update",
-    "plan",
     "turn_started",
     "turn_result",
     "turn_end",
@@ -99,7 +98,7 @@ pub struct ForkView {
     /// first, `hub/retention.rs`, `hub/cold_archive.rs`), then this, then the inner store's own
     /// locks (`LocalStore`'s writers', then its cold lock). This view takes no session lock under
     /// it, and nothing under the inner store's locks takes it.
-    dropping: RwLock<()>,
+    dropping: crate::worker_lock::RwLock<()>,
 }
 
 thread_local! {
@@ -149,6 +148,22 @@ struct Refs {
     fenced: HashMap<String, usize>,
 }
 
+/// How long a write of a fork's history waits for that fork's first save, and a new fork for a
+/// move or delete of its chat to end.
+const FORK_SAVE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// A fork reserved and not saved yet, past [`FORK_SAVE_WAIT`]: its history has nowhere to go.
+#[derive(Debug)]
+struct ForkUnsaved;
+
+impl std::fmt::Display for ForkUnsaved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a fork of this chat is still being made, so the chat's history cannot be written into it yet")
+    }
+}
+
+impl std::error::Error for ForkUnsaved {}
+
 fn is_history(kind: &str) -> bool {
     HISTORY_KINDS.contains(&kind)
 }
@@ -168,12 +183,57 @@ impl ForkView {
         Held::Shared(self.dropping.read().unwrap_or_else(|e| e.into_inner()))
     }
 
+    /// `f` under `dropping` ([`Self::exclusive`]), run again while a fork it must write is still
+    /// being made ([`ForkUnsaved`]: reserved, its meta not saved yet). That fork saves in moments,
+    /// under this same lock, so the lock is let go between tries, for at most
+    /// [`FORK_SAVE_WAIT`]. A caller already under the lock (nested) gets one try: waiting there
+    /// would hold off the very save it waits for.
+    fn exclusive_awaiting_forks<T>(&self, mut f: impl FnMut() -> Result<T>) -> Result<T> {
+        use cmux_tui_util::retry::{Attempt, Patience};
+        Patience::new("a fork of this chat to be saved", FORK_SAVE_WAIT)
+            .quiet()
+            .spaced(std::time::Duration::from_millis(10), std::time::Duration::from_millis(200))
+            .run(|| {
+                let held = self.exclusive();
+                let nested = matches!(held, Held::Nested);
+                f().map_err(|e| {
+                    if !nested && e.is::<ForkUnsaved>() {
+                        Attempt::Retry(e)
+                    } else {
+                        Attempt::Fail(e)
+                    }
+                })
+            })
+    }
+
+    /// [`Self::reserve_reference`]'s wait for a move or delete of the chat (`fenced`) to end.
+    fn exclusive_unfenced(&self, chat: &str) -> Result<Held<'_>> {
+        use cmux_tui_util::retry::{Attempt, Patience};
+        Patience::new("a move or delete of the chat to end", FORK_SAVE_WAIT)
+            .quiet()
+            .spaced(std::time::Duration::from_millis(10), std::time::Duration::from_millis(200))
+            .run(|| {
+                let held = self.exclusive();
+                let nested = matches!(held, Held::Nested);
+                let fenced =
+                    self.refs.read().unwrap_or_else(|e| e.into_inner()).fenced.contains_key(chat);
+                match (fenced, nested) {
+                    (false, _) => Ok(held),
+                    (true, false) => Err(Attempt::Retry(())),
+                    (true, true) => Err(Attempt::Fail(())),
+                }
+            })
+            .map_err(|()| {
+                anyhow::anyhow!("the chat is being moved or deleted, so it cannot be forked now")
+            })
+    }
+
     fn exclusive(&self) -> Held<'_> {
         if HELD.with(|h| h.replace(true)) {
             return Held::Nested;
         }
         #[cfg(test)]
-        if let Err(std::sync::TryLockError::WouldBlock) = self.dropping.try_write() {
+        if self.dropping.write_would_wait() {
             super::log_sync::note(&NOTE_DROPPING_WAIT, "waits");
         }
         Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
@@ -217,8 +277,17 @@ impl ForkView {
     /// chat goes, or before its files are read or moved as files. Nothing for a session that
     /// references none. A failure leaves the reference as it was.
     pub fn materialize(&self, id: &str) -> Result<()> {
-        let _dropping = self.exclusive();
-        self.materialize_locked(id)
+        // Most chats reference no history: that is read under a shared hold, so asking for one's
+        // folder does not wait for a long read of any chat to end (a move's begin waited seconds
+        // for a pack's read of a large log). No write of a reference runs under a shared hold,
+        // so a chat that names none here would name none under the exclusive one either.
+        {
+            let _reading = self.shared();
+            if self.reference(id)?.is_none() {
+                return Ok(());
+            }
+        }
+        self.exclusive_awaiting_forks(|| self.materialize_locked(id))
     }
 
     /// [`ForkView::materialize`] under `dropping`.
@@ -230,7 +299,7 @@ impl ForkView {
         // takes as already there. Its first save comes under `dropping` too, so the chat waits
         // for that save (review of #37020).
         let Some(mut meta) = self.inner.load(id)? else {
-            anyhow::bail!("a fork of this chat is still being made: try again");
+            return Err(ForkUnsaved.into());
         };
         let Some(mut writer) = self.inner.history_writer(id)? else {
             anyhow::bail!("this store cannot hold a fork's history");
@@ -366,6 +435,23 @@ impl Store for ForkView {
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
         self.save_with(meta, |meta| self.inner.save_kept(meta))
     }
+    /// The inner store's digest when the metadata goes through as it is; a fork's save may
+    /// rewrite its history fields first (`save_with`), so that one gives none.
+    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
+        if meta.history_from.is_some() {
+            return match keep {
+                ShowAfter::Durable => self.save(meta),
+                ShowAfter::Written => self.save_kept(meta),
+            }
+            .map(|()| None);
+        }
+        let digest = self.inner.save_digest(meta, keep)?;
+        self.note(meta);
+        Ok(digest)
+    }
+    fn digest(&self, meta: &SessionMeta) -> Option<MetaDigest> {
+        self.inner.digest(meta)
+    }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         self.inner.append(id, record)
     }
@@ -377,11 +463,12 @@ impl Store for ForkView {
     /// default stages through this view, which stages nothing for a store with no segments (the
     /// memory store), and the cut never happened.
     fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
-        let _dropping = self.exclusive();
-        for fork in self.forks_of(id)? {
-            self.materialize_locked(&fork)?;
-        }
-        self.inner.truncate_after(id, after)
+        self.exclusive_awaiting_forks(|| {
+            for fork in self.forks_of(id)? {
+                self.materialize_locked(&fork)?;
+            }
+            self.inner.truncate_after(id, after)
+        })
     }
     /// What a chat keeps while a journal restore holds it (`hub/restore_writer.rs`): the
     /// store's own, beside its log. The trait's default keeps nothing across a restart.
@@ -580,6 +667,49 @@ impl Store for ForkView {
             Some(_) => Ok(()),
         }
     }
+    /// A fork's view joins two logs: it keeps no inbox point, and its inbox restore reads it whole.
+    fn inbox_point(&self, id: &str) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.inbox_point(id),
+            _ => None,
+        }
+    }
+    fn save_inbox_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_inbox_point(id, bytes),
+            Some(_) => Ok(()),
+        }
+    }
+    /// A fork's view joins two logs: an adoption of it reads it whole (`hub/hosts/checkpoint.rs`).
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.adoption_checkpoint(id),
+            _ => None,
+        }
+    }
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_adoption_checkpoint(id, bytes),
+            Some(_) => Ok(()),
+        }
+    }
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_heads_from(id, from, hint, visit);
+        }
+        self.scan_heads(id, &mut |head| head.seq < from || visit(head, None))
+    }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.tail_after(id, after) };
@@ -591,6 +721,17 @@ impl Store for ForkView {
         })?;
         let (own, own_last) = self.inner.tail_after(id, after.max(r.through_seq))?;
         Ok((count + own, if own > 0 { own_last } else { last }))
+    }
+    /// A fork's own log alone takes its store's read; one that shows its chat's history reads
+    /// the joined view back (`scan_back`).
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        {
+            let _held = self.shared();
+            if self.reference(id)?.is_none() {
+                return self.inner.newest_window(id, before, n);
+            }
+        }
+        newest_window_by_scan(self, id, before, n)
     }
     fn scan_kinds(
         &self,
@@ -819,24 +960,70 @@ impl Store for ForkView {
     fn is_cold(&self, id: &str) -> bool {
         self.inner.is_cold(id)
     }
+    /// No `dropping` needed: the offload's commit runs under the inner store's cold lock and
+    /// skips a chat that has a segment again, so a fork's write of `id`'s history (which
+    /// rehydrates it first) between the upload and the commit leaves the archive in place.
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        self.inner.offload_cold(id)
+    }
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        self.inner.register_cloud_root()
+    }
+    fn cloud_configured(&self) -> bool {
+        self.inner.cloud_configured()
+    }
+    fn offloaded(&self, id: &str) -> bool {
+        self.inner.offloaded(id)
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         self.inner.on_rehydrate(hook)
+    }
+    /// A cold segment keeps every byte and reads back in place (`store/cold_segments.rs`): a fork
+    /// that shows the chat's records keeps its reference and reads them through the archive.
+    /// Segment `000000`, a fork's own history, never goes cold.
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        self.inner.stage_cold_segments(id, max, level)
+    }
+    fn prepare_cold_segments(&self, id: &str, staged: &StagedColdSegments) -> Result<bool> {
+        self.inner.prepare_cold_segments(id, staged)
+    }
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        self.inner.commit_cold_segments(id, staged)
+    }
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        self.inner.settle_cold_segments(id)
+    }
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        self.inner.warm_cold_segments(id)
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        self.inner.on_segment_sealed(hook)
+    }
+    fn on_log_grown(&self, hook: SealHook) {
+        self.inner.on_log_grown(hook)
     }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
     fn release_history(&self, id: &str) -> Result<()> {
-        let _dropping = self.exclusive();
-        for fork in self.forks_of(id)? {
-            self.materialize_locked(&fork)?;
-        }
-        *self
-            .refs
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .fenced
-            .entry(id.to_owned())
-            .or_default() += 1;
-        Ok(())
+        self.exclusive_awaiting_forks(|| {
+            for fork in self.forks_of(id)? {
+                self.materialize_locked(&fork)?;
+            }
+            // Under the same hold as the writes: no fork reserves between them and the fence.
+            *self
+                .refs
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .fenced
+                .entry(id.to_owned())
+                .or_default() += 1;
+            Ok(())
+        })
     }
     fn end_release(&self, id: &str) {
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
@@ -850,13 +1037,14 @@ impl Store for ForkView {
     /// A chat that forks reference goes only once each holds its history itself. Under
     /// `dropping`, as a reservation is: a fork being made is either known here or refused.
     fn delete(&self, id: &str) -> Result<()> {
-        let _dropping = self.exclusive();
-        for fork in self.forks_of(id)? {
-            self.materialize_locked(&fork)?;
-        }
-        self.inner.delete(id)?;
-        self.refs.write().unwrap_or_else(|e| e.into_inner()).by_fork.remove(id);
-        Ok(())
+        self.exclusive_awaiting_forks(|| {
+            for fork in self.forks_of(id)? {
+                self.materialize_locked(&fork)?;
+            }
+            self.inner.delete(id)?;
+            self.refs.write().unwrap_or_else(|e| e.into_inner()).by_fork.remove(id);
+            Ok(())
+        })
     }
     /// Its files as files: a fork's history is in them first. None when it cannot be written
     /// there: a caller that read, moved or removed the files would take a fork without its
@@ -888,13 +1076,14 @@ impl Store for ForkView {
     /// one after writes the history into the fork first (review of #37020: the reference was
     /// known only once the fork's meta was saved, after a delete or compaction could pass it).
     fn reserve_reference(&self, fork: &str, reference: &HistoryRef) -> Result<()> {
-        let _dropping = self.exclusive();
+        // Its folder is being replaced or removed: a fork now would read what comes after. A
+        // move ends in moments, so the fork waits for it; after a delete the chat is gone.
+        let _dropping = self.exclusive_unfenced(&reference.session)?;
         anyhow::ensure!(self.inner.load(&reference.session)?.is_some(), "the chat is gone");
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
-        // Its folder is being replaced or removed: a fork now would read what comes after.
         anyhow::ensure!(
             !refs.fenced.contains_key(&reference.session),
-            "the chat is being moved or deleted: try again"
+            "the chat is being moved or deleted, so it cannot be forked now"
         );
         refs.known.insert(fork.to_owned());
         refs.by_fork.insert(fork.to_owned(), reference.clone());

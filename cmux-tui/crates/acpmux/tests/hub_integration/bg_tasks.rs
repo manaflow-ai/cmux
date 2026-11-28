@@ -4,7 +4,7 @@
 //! under its own runner: the chat hibernates with it running, it keeps running, and once a prompt
 //! wakes the agent, `bg/output` reads what it wrote meanwhile. Its output is bounded.
 
-use super::session_hibernate::{Rig, alive, rig};
+use super::session_hibernate::{Rig, alive, rig, rig_with_env};
 use super::*;
 
 async fn start(r: &mut Rig, id: &str, command: &str) -> Value {
@@ -289,6 +289,22 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     r.until("a child that ignored SIGTERM outlived the stop", || !alive(child)).await;
 }
 
+/// A task that ends on SIGTERM stops at once: the stop waits out no fixed grace (it took 5 s
+/// a stop, every stop, while the runner slept the whole grace before looking).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_stop_of_a_task_that_ends_on_sigterm_returns_well_inside_the_grace() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "quick").await;
+    let task = start(&mut r, &id, "echo up; sleep 600").await["id"].as_str().unwrap().to_owned();
+    r.until("the task never started", || text(&r, &id, &task).ends_with('\n')).await;
+    let at = std::time::Instant::now();
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    assert!(at.elapsed() < acpmux::bg_run::GRACE / 2, "the stop took {:?}", at.elapsed());
+}
+
 /// The processes under `root` (pid, process group, command name), from `ps`.
 #[cfg(unix)]
 fn under(root: u32) -> Vec<(u32, u32, String)> {
@@ -505,14 +521,18 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let quiet = json!({"sessionId": id, "command": "echo quiet; exit 0", "notify": false});
     let quiet = r.c.request(method::MUX_BG_START, quiet).await.unwrap();
     let quiet = quiet["id"].as_str().unwrap().to_owned();
-    // The pause keeps it running past the start's answer, which reads its state (a bare `seq`
-    // can end first on a busy runner, and the answer then says it exited).
-    let loud = json!({"sessionId": id, "command": "seq 1 30; sleep 0.5; exit 3",
+    // The task holds its end until the test has read the start's answer: the answer reads the
+    // task's state when it is built, and a bare `seq 1 30` had often ended by then on a loaded
+    // runner, so the answer said "failed".
+    let go = acpmux::config::home().join("loud-may-end");
+    let command = format!("seq 1 30; until [ -e '{}' ]; do sleep 0.01; done; exit 3", go.display());
+    let loud = json!({"sessionId": id, "command": command,
         "description": "count to thirty", "notify": true});
     let task = r.c.request(method::MUX_BG_START, loud).await.unwrap();
     assert_eq!((task["status"].as_str(), task["notify"].as_bool()), (Some("running"), Some(true)));
     assert_eq!(task["summary"], "Background command running: count to thirty", "{task}");
     let loud = task["id"].as_str().unwrap().to_owned();
+    std::fs::write(&go, "").unwrap();
     r.until("the quiet task never ended", || state(&r, &id, &quiet) == "exited").await;
     r.until("the task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
     let dir = acpmux::config::home().join("bg").join(&id);
@@ -531,6 +551,64 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
     let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
     assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
+}
+
+/// A task that dies under nobody's stop still brings its end to its chat: one SIGKILLed from
+/// outside says it was killed and by which signal, and one whose runner itself was SIGKILLed (no
+/// exit is ever written) says it was lost. The watch learns both from the runner's lock, which
+/// the kernel frees when the runner dies; nothing polls. Leo, 2026-10-24: "dont we have hooks
+/// that can listen on success/fails? you guys know how to do background processes"
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_that_dies_tells_its_chat_how_it_died() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "dead-tasks").await;
+    let dir = acpmux::config::home().join("bg").join(&id);
+    let start = |description: &str| {
+        // `exec`: the record's pid is the sleep itself, so a SIGKILL to it ends the task's
+        // output pipe too.
+        json!({"sessionId": id, "command": "echo up; exec sleep 300",
+            "description": description, "notify": true})
+    };
+    let killed = r.c.request(method::MUX_BG_START, start("killed task")).await.unwrap();
+    let killed = killed["id"].as_str().unwrap().to_owned();
+    let lost = r.c.request(method::MUX_BG_START, start("lost task")).await.unwrap();
+    let lost = lost["id"].as_str().unwrap().to_owned();
+    let pid = |task: &str| acpmux::bg_run::read_record(&dir, task).map(|t| t.pid).unwrap_or(0);
+    r.until("the tasks never recorded their pids", || pid(&killed) > 0 && pid(&lost) > 0).await;
+
+    // SAFETY: kill on pids this test's tasks recorded.
+    assert_eq!(unsafe { libc::kill(pid(&killed) as i32, libc::SIGKILL) }, 0);
+    r.until("the killed task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
+    let end = ends(&r.hub, &id).remove(0);
+    let expected = format!("Background command killed: killed task (signal {})", libc::SIGKILL);
+    assert!(end.contains(&expected), "{end}");
+
+    // The lost task's runner is its parent; kill it, then its orphaned sleep.
+    let task = pid(&lost);
+    let ppid = std::process::Command::new("ps")
+        .args(["-o", "ppid=", "-p", &task.to_string()])
+        .output()
+        .unwrap();
+    let runner: i32 = String::from_utf8_lossy(&ppid.stdout).trim().parse().unwrap();
+    assert!(runner > 1, "the task's runner was not its parent: {runner}");
+    // SAFETY: kill on the runner this test's task named as its parent, then on that task.
+    assert_eq!(unsafe { libc::kill(runner, libc::SIGKILL) }, 0);
+    r.until("the lost task's end never reached its chat", || ends(&r.hub, &id).len() == 2).await;
+    unsafe { libc::kill(task as i32, libc::SIGKILL) };
+    let end = ends(&r.hub, &id).remove(1);
+    assert!(end.contains("Background command lost: lost task"), "{end}");
+    assert!(end.contains("its runner ended without recording an exit"), "{end}");
+    for task in [&killed, &lost] {
+        r.until("a dead task's end was never marked sent", || {
+            acpmux::bg_run::notified_path(&dir, task).exists()
+        })
+        .await;
+    }
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
+    assert_eq!(statuses, [&json!("failed"), &json!("failed")], "{list}");
 }
 
 /// A task its own agent stops brings no end to the chat: the stop's answer told that agent how it
@@ -606,6 +684,100 @@ async fn a_task_end_its_agent_read_mid_turn_brings_no_notice_after_it() {
     assert!(acpmux::bg_run::notified_path(&dir, &read).exists(), "a restart would owe it");
 }
 
+/// fake_agent.py runs a turn whose prompt holds this until it is cancelled: an agent's message
+/// carries a sender line after its words, so it is no bare "until-cancel".
+#[cfg(unix)]
+const HOLD: (&str, &str) = ("FAKE_UNTIL_CANCEL_IN", "hold-this-turn");
+
+/// Starts a turn in chat `id` that another agent's message started (no agent's message steers
+/// into the person's own turn, `inbox.rs`), running until it is cancelled; returns that agent's
+/// connection, which must outlive the turn.
+#[cfg(unix)]
+async fn agents_turn(r: &mut Rig, id: &str) -> TestClient {
+    let lead = new_session(&mut r.c, "lead").await;
+    let mut from = acpmux_caller(&r.hub, &lead).await;
+    from.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hold-this-turn"}]}),
+    )
+    .await;
+    let session = r.hub.resolve(id).unwrap();
+    r.until("the agent's turn never started", || session.turn().is_some_and(|t| !t.persons)).await;
+    from
+}
+
+/// A task that ends while its chat's turn runs goes into that turn, read at its next tool step,
+/// instead of a turn of its own once the turn ends: 92 of 382 such turns in a day did nothing
+/// (cmuxterm-hq `tools/transcript-analytics/tx_noop_turns.py`, 2026-11-24). It is sent once and
+/// marked sent, and the turn runs on.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_that_ends_mid_turn_steers_into_that_turn() {
+    let mut r =
+        rig_with_env(PermissionPolicy::ApproveAll, &[("FAKE_CLAUDE_STEER", "1"), HOLD]).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "steered-end").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let _lead = agents_turn(&mut r, &id).await;
+    let start =
+        json!({"sessionId": id, "command": "seq 1 5", "description": "mid-turn", "notify": true});
+    let task = agent.request(method::MUX_BG_START, start).await.unwrap();
+    let task = task["id"].as_str().unwrap().to_owned();
+    r.until("the end never reached the running turn", || ends(&r.hub, &id).len() == 1).await;
+    let session = r.hub.resolve(&id).unwrap();
+    assert!(session.turn().is_some(), "the turn ended before the end went in");
+    let events = r.hub.events(&id, 0, 10_000).unwrap();
+    let end = events
+        .iter()
+        .find(|e| e.kind == "user_message" && e.msg["promptId"] == format!("bg-done-{task}"))
+        .expect("the end's prompt");
+    assert_eq!(end.msg["steer"], true, "the end waited behind the turn: {:?}", end.msg);
+    let dir = acpmux::config::home().join("bg").join(&id);
+    r.until("the steered end was never marked sent", || {
+        acpmux::bg_run::notified_path(&dir, &task).exists()
+    })
+    .await;
+    r.hub.cancel(&session).await.unwrap();
+    // No turn of its own after the turn: the end went in once.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(ends(&r.hub, &id).len(), 1);
+    assert!(session.queue().is_empty(), "{:?}", session.queue().len());
+}
+
+/// A steered end the turn never read (it ended first) comes as a turn of its own after it,
+/// once: nothing is lost by steering.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_end_the_turn_never_read_comes_after_it() {
+    let env = [("FAKE_CLAUDE_STEER", "1"), ("FAKE_STEER_NO_TURN_AT_END", "1"), HOLD];
+    let mut r = rig_with_env(PermissionPolicy::ApproveAll, &env).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "unread-end").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let _lead = agents_turn(&mut r, &id).await;
+    let start =
+        json!({"sessionId": id, "command": "seq 1 5", "description": "unread", "notify": true});
+    let task = agent.request(method::MUX_BG_START, start).await.unwrap();
+    let task = task["id"].as_str().unwrap().to_owned();
+    r.until("the end was never steered", || ends(&r.hub, &id).len() == 1).await;
+    let session = r.hub.resolve(&id).unwrap();
+    r.hub.cancel(&session).await.unwrap();
+    let dir = acpmux::config::home().join("bg").join(&id);
+    r.until("the unread end never ran as a turn of its own", || {
+        let events = r.hub.events(&id, 0, 10_000).unwrap();
+        events.iter().any(|e| {
+            e.kind == "user_message"
+                && e.msg["promptId"] == format!("bg-done-{task}")
+                && e.msg["steer"] != true
+        })
+    })
+    .await;
+    r.until("the end was never marked sent", || {
+        acpmux::bg_run::notified_path(&dir, &task).exists()
+    })
+    .await;
+}
+
 /// Waits up to 20 s for `done`.
 async fn until_true(what: &str, done: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
@@ -676,4 +848,72 @@ async fn a_task_end_is_sent_once_across_a_restart() {
     assert!(acpmux::bg_run::notified_path(&bg, &second).exists());
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A chat runs as many tasks as it starts: no count cap refuses one (Leo, 2026-11-22, on
+/// "acpmux background task cap of 32": "shouldn't have these arbitrary caps yo"). Twice the old
+/// cap of 32 run at once, half of them with `notify`, whose watch threads (a small stack each)
+/// still bring every end to the chat once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "many").await;
+    let go = acpmux::config::home().join("many-may-end");
+    let command = format!("until [ -e '{}' ]; do sleep 0.05; done; echo done", go.display());
+    const TASKS: usize = 64;
+    let mut ids = Vec::new();
+    for i in 0..TASKS {
+        let params = json!({"sessionId": id, "command": command, "notify": i % 2 == 0});
+        let task = r.c.request(method::MUX_BG_START, params).await;
+        let task = task.unwrap_or_else(|e| panic!("start {i} of {TASKS} was refused: {e:?}"));
+        assert_eq!(task["state"], "running", "start {i}: {task}");
+        ids.push(task["id"].as_str().unwrap().to_owned());
+    }
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let running = list["tasks"].as_array().unwrap().iter().filter(|t| t["state"] == "running");
+    assert_eq!(running.count(), TASKS, "{list}");
+    std::fs::write(&go, "").unwrap();
+    r.until("not every task ended", || ids.iter().all(|t| state(&r, &id, t) == "exited")).await;
+    // 32 ends at once outrun the chat's reply period, so the receiver's surge rate holds most
+    // of them in its inbox (`hub/inbox_surge.rs`) instead of running a turn each: an end has
+    // reached its chat when a turn or a held inbox message names its task.
+    let notified: Vec<&String> = ids.iter().step_by(2).collect();
+    r.until("not every notify task's end reached its chat", || {
+        let seen = reached(&r.hub, &id);
+        notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str())))
+    })
+    .await;
+    let seen = reached(&r.hub, &id);
+    for quiet in ids.iter().skip(1).step_by(2) {
+        assert!(
+            !seen.iter().any(|t| t.contains(quiet.as_str())),
+            "{quiet} had no notify: {seen:?}"
+        );
+    }
+    let bg = acpmux::config::home().join("bg").join(&id);
+    for (i, task) in ids.iter().enumerate() {
+        let marked = acpmux::bg_run::notified_path(&bg, task).exists();
+        assert_eq!(
+            marked,
+            i % 2 == 0,
+            "{task}: a notify task's end is marked sent, a quiet one's is not"
+        );
+    }
+}
+
+/// The task ends chat `id` took: as a turn's message, or held by the surge rate in its inbox.
+fn reached(hub: &Hub, id: &str) -> Vec<String> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    let held = |e: &&acpmux::store::EventRecord| {
+        e.kind == "inbox" && e.msg["surgeHeld"].as_bool() == Some(true)
+    };
+    events
+        .iter()
+        .filter(|e| e.kind == "user_message" || held(e))
+        .filter_map(|e| e.msg["text"].as_str())
+        .filter(|t| t.contains("Background command"))
+        .map(str::to_owned)
+        .collect()
 }
