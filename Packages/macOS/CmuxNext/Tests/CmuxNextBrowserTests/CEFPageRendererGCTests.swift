@@ -86,6 +86,25 @@ import Testing
         #expect(renderers.collected == [4, 4, 4])
     }
 
+    @Test func aHideWithNoCloseGetsTheQuietCheck() async {
+        // Mac infinite-tabs c0a6c29c: two hidden chat pages, no chat closed, 125.7 MB used; a collection left 43.2.
+        let renderers = Renderers()
+        renderers.used = [4: 126 * Self.mb]
+        let gc = CEFPageRendererGC(
+            pages: { [Page(browser: 4, isCmuxPage: true, rendererClients: [7])] },
+            heapUsed: { renderers.used[$0] },
+            collect: { browser in
+                renderers.collected.append(browser)
+                renderers.used[browser] = 43 * Self.mb
+            })
+        gc.pageHidden()
+        #expect(gc.stats["hides"] == 1)
+        #expect(gc.stats["closes"] == nil)
+        await gc.check(quiet: true)
+        #expect(renderers.collected == [4, 4])
+        #expect(gc.stats["last_live_mb"] == 43)
+    }
+
     @Test func readsUsedSizeAndTheScheme() async {
         #expect(await CEFPageRendererGC.usedSize(#"{"usedSize":142032280,"totalSize":181190656}"#) == 142_032_280)
         #expect(await CEFPageRendererGC.usedSize("{}") == nil)
