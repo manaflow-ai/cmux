@@ -22,3 +22,11 @@ pub(crate) mod record_mirror;
 pub(crate) mod records;
 pub(crate) mod renderer_grant;
 pub(crate) mod unadoptable;
+
+/// Stack for a host thread that only waits and does small, shallow work
+/// (child wait, signal relay, record syncs, the record-root watch). Every
+/// terminal runs its own host, so a thousand open tabs hold a thousand of
+/// each; an explicit bound keeps their reservation small (goal
+/// infinite-items-flat). The parser, PTY reader and client threads keep the
+/// default stack: they run the terminal and its serialization.
+pub(crate) const LIGHT_HOST_THREAD_STACK_BYTES: usize = 256 * 1024;

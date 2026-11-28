@@ -10,9 +10,10 @@
 //! terminal the daemon could never adopt again.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use crate::panic_free::RecoverPoison;
 
@@ -21,10 +22,21 @@ use crate::panic_free::RecoverPoison;
 /// than grow without bound.
 pub(crate) const MAX_QUEUED_REPLY_BYTES: usize = 1 << 20;
 
+/// A writer thread with no answer to write for this long ends and hands its
+/// PTY write back; the next answer starts a new one. Programs ask in bursts
+/// (a shell's startup DA, a TUI's launch), so an idle terminal holds no
+/// thread (goal infinite-items-flat: per-host threads cost stack and arena
+/// pages in every one of a thousand hosts).
+pub(crate) const REPLY_WRITER_IDLE: Duration = Duration::from_secs(10);
+
+/// The writer thread's stack: it only copies answer bytes to the PTY.
+const REPLY_WRITER_STACK_BYTES: usize = 256 * 1024;
+
 /// Hands answers to the writer thread; the parser never blocks on the PTY.
 pub(crate) struct PtyReplies {
-    writer: Mutex<Writer>,
+    writer: Arc<Mutex<Writer>>,
     queued: Arc<AtomicUsize>,
+    idle: Duration,
 }
 
 /// One batch of answer bytes written against the PTY input.
@@ -33,7 +45,8 @@ type WriteFn = Box<dyn Fn(&[u8]) + Send>;
 /// Where answers go. Most programs never ask the terminal anything, so the
 /// writer thread starts with the first answer, not with the host.
 enum Writer {
-    /// No answer yet: the PTY write the thread will run.
+    /// No answer yet (or the last thread retired idle): the PTY write the
+    /// next thread will run.
     Idle(WriteFn),
     /// The writer thread's queue.
     Running(Sender<Vec<u8>>),
@@ -46,55 +59,32 @@ impl PtyReplies {
     /// against the PTY input (blocking while the program does not read).
     /// The thread (`terminal-host-replies`) starts with the first answer.
     pub(crate) fn start(write: impl Fn(&[u8]) + Send + 'static) -> Self {
-        Self {
-            writer: Mutex::new(Writer::Idle(Box::new(write))),
-            queued: Arc::new(AtomicUsize::new(0)),
-        }
+        Self::start_with_idle(write, REPLY_WRITER_IDLE)
     }
 
-    /// The writer thread's queue, starting the thread on the first answer.
-    /// `None` when there is no thread: answers are written inline as before.
-    fn sender(&self) -> Option<Sender<Vec<u8>>> {
-        let mut writer = self.writer.lock().recover_poison();
-        match std::mem::replace(&mut *writer, Writer::Inline) {
-            Writer::Running(sender) => {
-                *writer = Writer::Running(sender.clone());
-                Some(sender)
-            }
-            Writer::Inline => None,
-            Writer::Idle(write) => {
-                let (sender, receiver) = channel::<Vec<u8>>();
-                let worker_queued = self.queued.clone();
-                let spawned =
-                    thread::Builder::new().name("terminal-host-replies".into()).spawn(move || {
-                        while let Ok(bytes) = receiver.recv() {
-                            write(&bytes);
-                            worker_queued.fetch_sub(bytes.len(), Ordering::AcqRel);
-                        }
-                    });
-                match spawned {
-                    Ok(_) => {
-                        *writer = Writer::Running(sender.clone());
-                        Some(sender)
-                    }
-                    Err(error) => {
-                        eprintln!(
-                            "terminal-host: no thread for query answers; writing them inline: {error}"
-                        );
-                        None
-                    }
-                }
-            }
+    fn start_with_idle(write: impl Fn(&[u8]) + Send + 'static, idle: Duration) -> Self {
+        Self {
+            writer: Arc::new(Mutex::new(Writer::Idle(Box::new(write)))),
+            queued: Arc::new(AtomicUsize::new(0)),
+            idle,
         }
     }
 
     /// Queue `bytes` for the program. False when they were dropped: the
     /// queue is over [`MAX_QUEUED_REPLY_BYTES`] or the writer is gone.
+    ///
+    /// The queue is fed under the writer lock, the lock the idle thread
+    /// retires under, so an answer never lands in a queue nobody reads.
     pub(crate) fn send(&self, bytes: Vec<u8>, inline: impl FnOnce(&[u8])) -> bool {
         if bytes.is_empty() {
             return true;
         }
-        let Some(sender) = self.sender() else {
+        let mut writer = self.writer.lock().recover_poison();
+        if matches!(*writer, Writer::Idle(_)) {
+            self.spawn_writer(&mut writer);
+        }
+        let Writer::Running(sender) = &*writer else {
+            drop(writer);
             inline(&bytes);
             return true;
         };
@@ -113,6 +103,65 @@ impl PtyReplies {
             return false;
         }
         true
+    }
+
+    /// Start the writer thread on `writer` (which holds `Idle`). Leaves
+    /// `Running`, or `Inline` when no thread could start.
+    fn spawn_writer(&self, writer: &mut Writer) {
+        let Writer::Idle(write) = std::mem::replace(writer, Writer::Inline) else { return };
+        let (sender, receiver) = channel::<Vec<u8>>();
+        let slot = self.writer.clone();
+        let queued = self.queued.clone();
+        let idle = self.idle;
+        let spawned = thread::Builder::new()
+            .name("terminal-host-replies".into())
+            .stack_size(REPLY_WRITER_STACK_BYTES)
+            .spawn(move || run_writer(write, receiver, &slot, &queued, idle));
+        match spawned {
+            Ok(_) => *writer = Writer::Running(sender),
+            Err(error) => {
+                eprintln!(
+                    "terminal-host: no thread for query answers; writing them inline: {error}"
+                );
+            }
+        }
+    }
+}
+
+/// The writer thread: writes queued answers until none came for `idle`,
+/// then puts `write` back in `slot` and ends.
+fn run_writer(
+    write: WriteFn,
+    receiver: Receiver<Vec<u8>>,
+    slot: &Mutex<Writer>,
+    queued: &AtomicUsize,
+    idle: Duration,
+) {
+    let write_one = |bytes: Vec<u8>| {
+        write(&bytes);
+        queued.fetch_sub(bytes.len(), Ordering::AcqRel);
+    };
+    loop {
+        match receiver.recv_timeout(idle) {
+            Ok(bytes) => write_one(bytes),
+            Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Timeout) => {
+                let mut writer = slot.lock().recover_poison();
+                match receiver.try_recv() {
+                    // Queued in the meantime: write it (lock released) and
+                    // wait again.
+                    Ok(bytes) => {
+                        drop(writer);
+                        write_one(bytes);
+                    }
+                    Err(TryRecvError::Disconnected) => return,
+                    Err(TryRecvError::Empty) => {
+                        *writer = Writer::Idle(write);
+                        return;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -151,5 +200,29 @@ mod tests {
             assert_eq!(bytes, expected);
             assert_eq!(name.as_deref(), Some("terminal-host-replies"));
         }
+    }
+
+    #[test]
+    fn an_idle_writer_thread_ends_and_the_next_answer_restarts_it() {
+        let (written, received) = channel::<Vec<u8>>();
+        let replies = PtyReplies::start_with_idle(
+            move |bytes| {
+                let _ = written.send(bytes.to_vec());
+            },
+            Duration::from_millis(20),
+        );
+        assert!(replies.send(b"one".to_vec(), |_| panic!("written inline")));
+        assert_eq!(received.recv_timeout(Duration::from_secs(10)).unwrap(), b"one");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !matches!(*replies.writer.lock().recover_poison(), Writer::Idle(_)) {
+            assert!(std::time::Instant::now() < deadline, "the idle writer never retired");
+            thread::sleep(Duration::from_millis(5));
+        }
+        for answer in [b"two".to_vec(), b"three".to_vec()] {
+            assert!(replies.send(answer, |_| panic!("written inline")));
+        }
+        assert_eq!(received.recv_timeout(Duration::from_secs(10)).unwrap(), b"two");
+        assert_eq!(received.recv_timeout(Duration::from_secs(10)).unwrap(), b"three");
+        assert_eq!(replies.queued.load(Ordering::Acquire), 0);
     }
 }

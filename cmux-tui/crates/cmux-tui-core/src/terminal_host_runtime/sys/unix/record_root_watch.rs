@@ -41,13 +41,16 @@ pub(crate) fn follow_record_root_removal(
             Err(error) => return Err(error),
         },
     };
-    std::thread::Builder::new().name("terminal-host-record-root".into()).spawn(move || {
-        let Some(watch) = watch else { return on_removed() };
-        match watch.wait() {
-            Ok(()) => on_removed(),
-            Err(error) => eprintln!("terminal-host: the record directory watch ended: {error}"),
-        }
-    })?;
+    std::thread::Builder::new()
+        .name("terminal-host-record-root".into())
+        .stack_size(crate::terminal_host_runtime::shared::LIGHT_HOST_THREAD_STACK_BYTES)
+        .spawn(move || {
+            let Some(watch) = watch else { return on_removed() };
+            match watch.wait() {
+                Ok(()) => on_removed(),
+                Err(error) => eprintln!("terminal-host: the record directory watch ended: {error}"),
+            }
+        })?;
     Ok(())
 }
 
