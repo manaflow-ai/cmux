@@ -153,7 +153,9 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         var accountID: String
     }
 
-    public init(directory: URL, minimumWriteInterval: Duration? = .seconds(2)) {
+    /// `minimumWriteInterval` defaults to nil (write every save) so a store a test makes keeps
+    /// the old timing; the app's `standard` store spaces writes 2 s apart.
+    public init(directory: URL, minimumWriteInterval: Duration? = nil) {
         self.directory = directory
         self.minimumWriteInterval = minimumWriteInterval
     }
@@ -164,7 +166,8 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     public static let standard: LiveSnapshotStore = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return LiveSnapshotStore(directory: base.appending(path: "cmux-mobile-live", directoryHint: .isDirectory))
+        return LiveSnapshotStore(directory: base.appending(path: "cmux-mobile-live", directoryHint: .isDirectory),
+                                 minimumWriteInterval: .seconds(2))
     }()
 
     public var lastFirstScreenRead: FirstScreenRead? { lock.withLock { firstScreenRead } }
