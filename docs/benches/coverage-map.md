@@ -258,9 +258,8 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/cloud-page-first-row.bench.tsx` | cloud page | no |
 | `webviews/bench/daemon-gate-relink.bench.tsx` | daemon relink | no |
 | `webviews/bench/diff-*.bench.ts*` | diff viewer | no (perf cron) |
-| `webviews/bench/diff-stream.bench.ts` (`diff-stream`) | diff stream, the Diff view area's `run` | via `for-paths --run` |
-| `webviews/test/diff-find-scale.test.ts` (`diff-find-scale`) | diff find op counts, oracle, budgets | webviews tests |
-| `webviews/bench/model-picker-search.bench.ts` (`model-picker-search`) | model picker keystroke at 5,000 models | via `for-paths --run` |
+| `webviews/bench/diff-stream.bench.ts` | diff stream (`diff-stream`), the Diff view area's `run`; its find op counts, oracle and budgets are `diff-find-scale` in `webviews/test/diff-find-scale.test.ts` (webviews tests) | via `for-paths --run` |
+| `webviews/bench/model-picker-search.bench.ts` | model picker keystroke at 5,000 models (`model-picker-search`) | via `for-paths --run` |
 | `webviews/bench/new-tab-*.bench.ts*` | new tab | no |
 | `webviews/bench/*-visible-only.bench.ts` | page virtualization | no |
 | `webviews/bench/apps-catalog-*.bench.ts` | apps catalog | no |
@@ -279,6 +278,8 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/turn-end-fold-timing.bench.ts` | streaming | no |
 | `webviews/bench/hidden-stream-heap.bench.ts` | memory | no |
 | `webviews/bench/state-growth.bench.ts` | memory | no |
+| `webviews/bench/renderer-idle-growth.bench.ts` | agent pane renderer memory while idle (RFD 0062) | no |
+| `webviews/bench/webkit-push-growth.bench.ts` | WebKit memory per agent pane push (RFD 0062) | no |
 | `webviews/bench/page-row-store.bench.ts` | row store | no |
 | `webviews/bench/height-index.bench.ts` | row store | no |
 | `webviews/bench/virtual-list-item-keys.bench.ts` | lists | no |
