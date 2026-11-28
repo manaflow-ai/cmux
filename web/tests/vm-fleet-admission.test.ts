@@ -111,3 +111,13 @@ describe("team quota alert", () => {
     expect(alertTeamQuotaUsage({ provider: PROVIDER, billingTeamId: "team-2", activeAfter: 50, limit: null, now: 1 })).toBe(false);
   });
 });
+
+test("fleet refusals and the 429 throttle wait for capacity, other errors do not", async () => {
+  const { createWaitStateForCause } = await import("../services/vms/createWait");
+  noteProviderStartRefusal(PROVIDER, CAPACITY_REFUSAL, 5_000_000);
+  const refused = failure(await Effect.runPromiseExit(admitFleetCapacity(repoLive(0).repo, { provider: PROVIDER, now: 5_001_000, env: {} })));
+  expect(createWaitStateForCause(refused)).toBe("waiting_for_capacity");
+  expect(createWaitStateForCause({ status: 429, message: "infrastructure overloaded: VM start capacity reached" })).toBe("waiting_for_capacity");
+  expect(createWaitStateForCause({ status: 429, message: "rate limited" })).toBeNull();
+  expect(createWaitStateForCause(new Error("socket hang up"))).toBeNull();
+});
