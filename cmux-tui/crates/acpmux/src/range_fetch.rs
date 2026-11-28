@@ -442,6 +442,6 @@ async fn stream_to_counting(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "range_fetch_tests.rs"]
 mod tests;

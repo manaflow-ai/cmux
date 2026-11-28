@@ -347,6 +347,6 @@ pub fn spawn_at_daemon_start(home: PathBuf) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cmux_rd_tests.rs"]
 mod tests;

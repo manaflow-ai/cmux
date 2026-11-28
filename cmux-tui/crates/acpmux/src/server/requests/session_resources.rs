@@ -78,7 +78,7 @@ pub(crate) fn describe(root: Option<Option<u32>>) -> Value {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
 

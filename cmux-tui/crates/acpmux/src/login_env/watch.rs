@@ -201,7 +201,7 @@ fn run(
 }
 
 // The tests read the inotify (Linux) and kqueue (macOS) sources: elsewhere the module is empty.
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, acpmux_tests_rest, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
 

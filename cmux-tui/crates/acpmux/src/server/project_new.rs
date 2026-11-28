@@ -155,6 +155,6 @@ fn git_init(
     init
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "project_new_tests.rs"]
 mod tests;

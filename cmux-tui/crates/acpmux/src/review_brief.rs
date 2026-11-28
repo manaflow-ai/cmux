@@ -683,6 +683,6 @@ fn push_capped<T>(list: &mut Vec<T>, item: T, cap: usize) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "review_brief_tests.rs"]
 mod tests;

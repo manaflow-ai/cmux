@@ -132,6 +132,6 @@ fn handoff(cmux: &std::path::Path, session: Option<&str>) -> Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tui_entry_tests.rs"]
 mod tests;

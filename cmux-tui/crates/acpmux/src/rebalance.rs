@@ -541,6 +541,6 @@ pub fn moved_to(out: &Value) -> Result<(String, String), String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "rebalance_tests.rs"]
 mod tests;

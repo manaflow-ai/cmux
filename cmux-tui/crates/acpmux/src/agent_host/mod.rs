@@ -29,14 +29,14 @@ pub mod host {
 #[cfg(unix)]
 pub mod custody;
 pub mod link;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod persisted_format_tests;
 #[cfg(unix)]
 pub(crate) mod proc_table;
 pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod record_write_tests;
 pub(crate) mod scope;
 pub(crate) mod scope_kill;

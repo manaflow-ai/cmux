@@ -1522,7 +1522,7 @@ pub fn registry_value(reg: &Registry, which: &dyn Fn(&str) -> Option<String>) ->
     json!({"agents": agents})
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod endpoint_lock_tests {
     use super::*;
 

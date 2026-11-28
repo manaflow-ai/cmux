@@ -224,6 +224,6 @@ pub(super) async fn forward(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "media_forward_tests.rs"]
 mod tests;

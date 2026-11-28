@@ -233,6 +233,6 @@ pub fn clean_rewrite(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| cut(text, MAX_REWRITE_CHARS))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_coach_tests.rs"]
 mod tests;

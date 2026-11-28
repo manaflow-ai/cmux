@@ -422,6 +422,6 @@ fn collect_files(root: &Path, rel: &Path, depth: usize, out: &mut Vec<PathBuf>) 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_guidance_tests.rs"]
 mod tests;

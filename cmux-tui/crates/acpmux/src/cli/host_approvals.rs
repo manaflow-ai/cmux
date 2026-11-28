@@ -492,6 +492,6 @@ impl PhonePlan {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_approvals_tests.rs"]
 mod tests;

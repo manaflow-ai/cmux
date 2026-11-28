@@ -560,7 +560,7 @@ impl Drop for DirWatch {
     }
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, acpmux_tests_rest, any(target_os = "linux", target_os = "macos")))]
 mod identity_tests {
     use super::DirWatch;
     use std::sync::mpsc;
@@ -627,7 +627,7 @@ mod identity_tests {
     }
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, acpmux_tests_rest, any(target_os = "linux", target_os = "macos")))]
 mod record_tests {
     use super::RecordWatch;
     use std::path::{Path, PathBuf};

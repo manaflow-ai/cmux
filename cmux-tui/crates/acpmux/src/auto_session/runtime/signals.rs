@@ -77,6 +77,6 @@ pub(super) fn read(event: &HubEvent) -> Option<Signal> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "signals_tests.rs"]
 mod tests;

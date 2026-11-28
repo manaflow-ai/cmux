@@ -95,6 +95,6 @@ pub(super) async fn run(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "route_death_tests.rs"]
 mod tests;

@@ -110,6 +110,6 @@ pub(super) fn is_own_machine_name(host: &str) -> bool {
     NAME.as_str() != "host" && host.eq_ignore_ascii_case(&NAME)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "own_host_segment_tests.rs"]
 mod segment_tests;

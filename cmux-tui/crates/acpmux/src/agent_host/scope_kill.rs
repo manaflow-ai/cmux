@@ -54,7 +54,7 @@ pub(crate) fn end_own_scope() {
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn end_own_scope() {}
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

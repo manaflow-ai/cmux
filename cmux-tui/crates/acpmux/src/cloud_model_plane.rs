@@ -404,6 +404,6 @@ pub fn fill_map(env: &mut BTreeMap<String, String>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_model_plane_tests.rs"]
 mod tests;

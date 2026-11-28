@@ -242,6 +242,6 @@ pub(crate) async fn run() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_update_watch_tests.rs"]
 mod tests;

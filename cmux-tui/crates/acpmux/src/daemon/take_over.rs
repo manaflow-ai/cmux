@@ -270,6 +270,6 @@ async fn take_over_holder(
     Ok(Some(pid))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "take_over_launchd_job_tests.rs"]
 mod launchd_job_tests;

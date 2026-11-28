@@ -860,14 +860,14 @@ pub(crate) struct ListGuard {
     pub(crate) hold: std::sync::OnceLock<RequestHold>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "list_guard_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "list_scale_tests.rs"]
 mod scale_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stream_tell_tests.rs"]
 mod stream_tell_tests;

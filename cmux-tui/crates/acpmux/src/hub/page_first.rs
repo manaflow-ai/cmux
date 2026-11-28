@@ -749,6 +749,6 @@ fn excludes_closed(params: &Value) -> bool {
         .is_some_and(|values| values.iter().any(|value| value.as_str() == Some("closed")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "page_window_tests.rs"]
 mod window_tests;

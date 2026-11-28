@@ -377,6 +377,6 @@ fn on_frame(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "link_sweep_tests.rs"]
 mod sweep_tests;

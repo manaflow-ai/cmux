@@ -154,6 +154,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_closed_bound_tests.rs"]
 mod tests;

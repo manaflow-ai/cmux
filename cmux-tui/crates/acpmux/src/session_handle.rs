@@ -86,6 +86,6 @@ pub(crate) fn shown_matches(shown: &str, value: &str) -> bool {
         && if cut { value.len() > head.len() && value.starts_with(&head) } else { value == head }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_handle_display_tests.rs"]
 mod display_tests;

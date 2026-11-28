@@ -885,6 +885,6 @@ fn enabled_in(gate: &FolderGate, folder: &str, id: &str, sha: &str) -> bool {
     })
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "folder_profiles_tests.rs"]
 mod tests;

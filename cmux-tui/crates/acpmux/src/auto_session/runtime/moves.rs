@@ -271,6 +271,6 @@ impl<C: AutoCloud + 'static> Ctx<C> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "moves_tests.rs"]
 mod tests;

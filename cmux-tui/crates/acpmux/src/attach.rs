@@ -788,6 +788,6 @@ pub fn strip(request: &mut Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "attach_tests.rs"]
 mod tests;

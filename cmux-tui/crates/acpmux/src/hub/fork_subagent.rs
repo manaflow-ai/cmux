@@ -620,6 +620,6 @@ pub(super) fn check_mode(meta: &SessionMeta, mode: &str) -> Result<(), RpcError>
     Err(super::fork_before::refused("fork.mode_unknown", &why))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fork_subagent_tests.rs"]
 mod tests;

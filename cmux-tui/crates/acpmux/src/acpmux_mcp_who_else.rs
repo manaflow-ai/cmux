@@ -218,6 +218,6 @@ characters of text. For all of it: detail: true.)",
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_who_else_tests.rs"]
 mod tests;

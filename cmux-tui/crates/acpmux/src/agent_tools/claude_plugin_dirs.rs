@@ -61,6 +61,6 @@ pub fn is_cmux_tui_plugin(folder: &Path) -> bool {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "claude_plugin_dirs_tests.rs"]
 mod tests;

@@ -55,6 +55,6 @@ pub(crate) fn leave_out_body(msg: &mut Value) {
     fields.insert(BODY_LEFT_OUT.into(), json!(text_len.saturating_add(parts_len)));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "ephemeral_tests.rs"]
 mod tests;

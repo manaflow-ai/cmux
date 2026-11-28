@@ -678,6 +678,6 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 // The tests fake the `cmux` CLI with a shell script.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "hosted_mcp_tests.rs"]
 mod tests;

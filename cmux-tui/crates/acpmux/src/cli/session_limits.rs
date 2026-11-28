@@ -54,6 +54,6 @@ pub fn describe(l: &Value) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_limits_tests.rs"]
 mod tests;

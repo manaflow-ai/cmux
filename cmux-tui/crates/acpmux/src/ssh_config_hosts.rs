@@ -338,6 +338,6 @@ fn ssh_config_words(line: &str) -> Vec<String> {
     words
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "ssh_config_hosts_tests.rs"]
 mod tests;

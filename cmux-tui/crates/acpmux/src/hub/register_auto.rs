@@ -239,6 +239,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "register_auto_tests.rs"]
 mod tests;

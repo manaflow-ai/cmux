@@ -112,7 +112,7 @@ fn stored_name(path: &Path) -> Option<std::ffi::OsString> {
 }
 
 // canonical_path is None on Windows.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
 

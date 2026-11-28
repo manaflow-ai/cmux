@@ -223,6 +223,6 @@ pub fn vm_host_line(name: Option<&str>, v: &Value) -> String {
     format!("{who}: vmHost {state} ({why})")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "peer_status_tests.rs"]
 mod tests;

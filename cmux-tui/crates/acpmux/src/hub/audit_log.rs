@@ -1129,7 +1129,7 @@ pub(crate) fn verify(entries: &[Value]) -> Value {
     json!({"ok": true, "entries": entries.len()})
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

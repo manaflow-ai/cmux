@@ -279,6 +279,6 @@ pub(crate) fn reading_at(level: crate::host_pressure::Level) -> Reading {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "auto_evacuate_tests.rs"]
 mod tests;

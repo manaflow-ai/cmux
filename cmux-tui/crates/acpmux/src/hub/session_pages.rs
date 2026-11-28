@@ -417,7 +417,7 @@ fn fnv(basis: u64, bytes: impl Iterator<Item = u8>) -> u64 {
     bytes.fold(basis, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 
@@ -744,6 +744,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "session_pages_bench_tests.rs"]
 mod narrow_read_tests;

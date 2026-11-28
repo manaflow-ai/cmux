@@ -170,6 +170,6 @@ pub(crate) async fn answer_question(session: &str, args: &[String], json_out: bo
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "permission_tests.rs"]
 mod tests;

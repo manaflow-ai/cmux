@@ -220,7 +220,7 @@ pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     Some(a.cmp(&b))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod pipe_tests {
     /// A control one pipe leaves open never hides the other pipe's lines.
     #[test]

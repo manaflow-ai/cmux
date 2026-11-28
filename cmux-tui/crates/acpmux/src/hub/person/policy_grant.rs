@@ -194,6 +194,6 @@ impl crate::hub::Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "policy_grant_tests.rs"]
 mod tests;

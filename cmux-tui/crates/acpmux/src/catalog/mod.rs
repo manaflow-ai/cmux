@@ -409,10 +409,10 @@ impl CatalogService {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "log_lock_tests.rs"]
 mod log_lock_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "feed_tests.rs"]
 mod feed_tests;

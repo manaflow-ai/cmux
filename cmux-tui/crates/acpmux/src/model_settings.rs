@@ -104,7 +104,7 @@ pub fn text_model() -> Option<String> {
     document().as_ref().and_then(text_model_from_doc)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
     use serde_json::json;

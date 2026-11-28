@@ -442,6 +442,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "lane_report_reads_tests.rs"]
 mod tests;

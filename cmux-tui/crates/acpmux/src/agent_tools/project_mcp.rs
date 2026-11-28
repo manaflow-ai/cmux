@@ -285,6 +285,6 @@ fn unmodeled_mcp_policy(policy: &Value) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "project_mcp_tests.rs"]
 mod tests;

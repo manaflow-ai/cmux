@@ -218,6 +218,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "question_replies_tests.rs"]
 mod question_replies_tests;

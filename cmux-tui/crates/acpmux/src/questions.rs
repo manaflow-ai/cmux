@@ -413,6 +413,6 @@ pub(crate) fn check_annotations(
     Ok(Some(Value::Object(out)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "questions_tests.rs"]
 mod tests;

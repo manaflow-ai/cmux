@@ -229,6 +229,6 @@ fn mib(bytes: u64) -> f64 {
     bytes as f64 / f64::from(1u32 << 20)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_pages_tests.rs"]
 mod tests;

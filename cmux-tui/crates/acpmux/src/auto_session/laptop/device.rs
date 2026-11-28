@@ -38,6 +38,6 @@ pub(super) fn id() -> Result<String> {
     id_in(&crate::config::home())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "device_tests.rs"]
 mod tests;

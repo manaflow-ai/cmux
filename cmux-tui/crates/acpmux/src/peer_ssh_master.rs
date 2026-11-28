@@ -226,6 +226,6 @@ impl MasterLogin {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_ssh_master_tests.rs"]
 mod tests;

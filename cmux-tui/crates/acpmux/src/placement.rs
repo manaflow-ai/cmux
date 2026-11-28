@@ -1030,6 +1030,6 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "placement_tests.rs"]
 mod tests;

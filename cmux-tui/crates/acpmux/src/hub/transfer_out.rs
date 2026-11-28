@@ -366,13 +366,13 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
     is_begin_token(token).then(|| token.to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "auto_startup_tests.rs"]
 mod auto_startup_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "move_out_unlist_tests.rs"]
 mod move_out_unlist_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
 #[path = "transfer_history.rs"]
@@ -1279,7 +1279,7 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod fencing_tests {
     use super::*;
 
@@ -1355,7 +1355,7 @@ mod fencing_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod after_turn_wait_tests {
     use super::{AFTER_TURN_WAIT, after_turn_wait};
     use serde_json::json;

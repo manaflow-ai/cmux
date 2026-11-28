@@ -286,26 +286,26 @@ pub fn models() -> &'static [(String, String)] {
 }
 
 pub(crate) mod agent_transcript;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod agent_transcript_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod background_output_tests;
 // A turn ends when Claude Code ends it; a steer it reads after is the next turn's (`carry.rs`).
 mod carry;
 pub use carry::HOLD_MAX as CARRY_HOLD_MAX;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod carry_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod context_usage_tests;
 mod early_calls;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod early_calls_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod edit_diff_tests;
 mod elicitation;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod elicitation_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
@@ -319,24 +319,24 @@ mod dedupe_shell;
 mod dir_rules;
 /// Whether path rules are on now, for the harness-magic stamp (`hub/harness_magic.rs`).
 pub(crate) use dir_rules::enabled as dir_rules_enabled;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod dedupe_tests;
 // Harness magic `pathRules`: a repo's rule loads when a session touches its paths.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod dir_rules_tests;
 mod foreground_work;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod foreground_work_tests;
 mod hook_callback;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod hook_callback_tests;
 mod inbound;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod initialize_tests;
 mod path_rules;
 /// The feature name and its gate, for the harness-magic stamp (`hub/harness_magic.rs`).
 pub(crate) use path_rules::{FEATURE as PATH_RULES_FEATURE, enabled as path_rules_enabled};
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod path_rules_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
@@ -346,63 +346,63 @@ mod logged_init;
 pub use logged_init::{InitSections, LoggedInit};
 pub mod cache_faults;
 mod live_name;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod live_name_tests;
 mod loops;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod loops_tests;
 // When each model call went out and came back, for the turn's Timeline (`model_calls.rs`).
 mod model_calls;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod model_calls_tests;
 pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod policy_gate_tests;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod prompt_suggestions_tests;
 // A tool result's images as ACP image blocks (`result_images.rs`).
 mod result_images;
 pub(crate) use result_images::result_images;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod result_images_tests;
 // A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod queued_prompt_tests;
 pub mod resume_cut;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod resume_cut_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod steer_now_tests;
 // A "success" result after Claude Code's own API error line is the turn's failure.
 mod api_error;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod api_error_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
 mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
 mod steer_batch;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod steer_batch_tests;
 mod steer_withdraw;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod steer_withdraw_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod stop_spares_background_tests;
 mod subagent_route;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod subagent_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 mod usage_limits;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod usage_limits_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod workflow_shell_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod workflow_tests;
 mod workflows;
 use background_shells::{BackgroundShell, background_task_update, origin, shell_update};

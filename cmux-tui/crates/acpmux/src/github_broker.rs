@@ -709,6 +709,6 @@ fn with_source(mut e: RpcError, source: Option<&str>) -> RpcError {
     e
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "github_broker_tests.rs"]
 mod tests;

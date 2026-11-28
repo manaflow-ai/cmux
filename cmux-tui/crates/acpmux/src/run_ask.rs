@@ -464,6 +464,6 @@ pub async fn run_cli(file: String) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "run_ask_tests.rs"]
 mod tests;

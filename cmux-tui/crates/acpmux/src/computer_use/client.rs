@@ -1011,6 +1011,6 @@ pub(crate) fn routable_in(data: &Value, except: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "client_tests.rs"]
 mod tests;

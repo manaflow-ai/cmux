@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "auth_tests.rs"]
 mod tests;
 

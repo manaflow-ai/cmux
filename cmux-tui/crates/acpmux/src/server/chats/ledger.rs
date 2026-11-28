@@ -21,6 +21,6 @@ pub(super) fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<V
     serde_json::to_value(hub.ledger.query(&query)).map_err(|e| RpcError::internal(e.to_string()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "ledger_tests.rs"]
 mod tests;

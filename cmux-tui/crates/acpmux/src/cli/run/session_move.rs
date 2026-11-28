@@ -2250,6 +2250,6 @@ fn sum_tree_sizes(listing: &[u8]) -> u64 {
         .sum()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_move_tests.rs"]
 mod tests;

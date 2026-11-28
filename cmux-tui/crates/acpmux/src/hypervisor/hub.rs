@@ -302,6 +302,6 @@ impl HubPost for JoinedHub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_tests.rs"]
 mod tests;

@@ -189,6 +189,6 @@ pub(crate) fn fill_record_sizes(kind: &str, msg: &mut Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "image_size_tests.rs"]
 mod tests;

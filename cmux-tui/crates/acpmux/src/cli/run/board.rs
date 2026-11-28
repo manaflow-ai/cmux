@@ -148,6 +148,6 @@ fn project(rows: &[Value], now: u64) -> Value {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "board_tests.rs"]
 mod tests;

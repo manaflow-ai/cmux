@@ -166,6 +166,6 @@ pub async fn run(args: RunElsewhereCarrierArgs) -> Result<i32> {
     Ok(code)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "run_elsewhere_carrier_tests.rs"]
 mod tests;

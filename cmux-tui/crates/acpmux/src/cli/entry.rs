@@ -871,7 +871,7 @@ where
     logs.with(crate::perf_trace::from_env()).init();
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod tests {
     use super::*;
 

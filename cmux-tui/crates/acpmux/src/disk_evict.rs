@@ -165,6 +165,6 @@ pub fn evict_if_low(home: &Path, build_dirs: &[PathBuf], now_ms: u64) -> Option<
     Some(evicted)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "disk_evict_tests.rs"]
 mod tests;

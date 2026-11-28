@@ -26,6 +26,6 @@ pub fn of_meta(meta: &SessionMeta) -> bool {
     is(&meta.harness, live)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "review_box_tests.rs"]
 mod tests;

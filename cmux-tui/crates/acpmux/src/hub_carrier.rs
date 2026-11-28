@@ -3240,26 +3240,26 @@ pub(crate) enum Path {
     Punched,
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_register_log_tests.rs"]
 mod register_log_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_key_lock_tests.rs"]
 mod key_lock_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_services_tests.rs"]
 mod services_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_silent_circuit_tests.rs"]
 mod silent_circuit_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_kept_hedge_tests.rs"]
 mod kept_hedge_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_kept_prune_tests.rs"]
 mod kept_prune_tests;

@@ -85,6 +85,6 @@ pub(super) async fn add_peer_harnesses(hub: &Hub, origin: Origin, params: &Value
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "models_fanout_tests.rs"]
 mod tests;

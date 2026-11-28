@@ -168,6 +168,6 @@ pub(crate) fn in_child() -> bool {
     std::env::var_os("ACPMUX_STRESS_CHILD").is_some()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tests.rs"]
 mod tests;

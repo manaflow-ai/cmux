@@ -1106,14 +1106,14 @@ pub(super) enum Live {
     Moved(Option<crate::agent_credentials::AgentCredential>),
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fork_reference_export_tests.rs"]
 mod fork_reference_export_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "import_publish_tests.rs"]
 mod import_publish_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

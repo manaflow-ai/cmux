@@ -212,6 +212,6 @@ fn scan(line: &str, found: &mut Detected) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_text_tests.rs"]
 mod tests;

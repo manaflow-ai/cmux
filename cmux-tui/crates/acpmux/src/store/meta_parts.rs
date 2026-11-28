@@ -390,6 +390,6 @@ struct Marked<'a> {
     mark: &'a str,
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "meta_parts_tests.rs"]
 mod tests;

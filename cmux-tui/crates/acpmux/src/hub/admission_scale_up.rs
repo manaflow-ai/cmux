@@ -461,6 +461,6 @@ pub(crate) fn run_provider_blocking(provider: &Provider, bound: Duration) -> Ans
     parse_answer(status.success(), &stdout)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "admission_scale_up_tests.rs"]
 mod tests;

@@ -145,6 +145,6 @@ fn recheck_ms(delays: Option<&[u64]>) -> u64 {
     delays.and_then(|d| d.first().copied()).unwrap_or(RECHECK_MS).clamp(1, RECHECK_MS)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "disk_wait_tests.rs"]
 mod tests;

@@ -346,6 +346,6 @@ pub async fn serve() -> anyhow::Result<()> {
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "claude_inbox_relay_tests.rs"]
 mod tests;

@@ -327,6 +327,6 @@ impl<'a> Reader<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "rules_tests.rs"]
 mod tests;

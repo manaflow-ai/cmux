@@ -136,7 +136,7 @@ fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
         .open(path)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod lock_tests {
     use super::*;
 

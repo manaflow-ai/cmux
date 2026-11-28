@@ -513,6 +513,6 @@ pub fn launches_itself(provider: Provider, argv: &[String]) -> bool {
         .is_some_and(|name| name == provider.program())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "provider_cloud_auth_tests.rs"]
 mod tests;

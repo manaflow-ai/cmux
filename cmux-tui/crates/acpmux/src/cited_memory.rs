@@ -285,6 +285,6 @@ pub fn screen(facts: Vec<String>, index: &Index) -> (Vec<String>, Value) {
     (kept, json!({"citations": checked, "dropped": dropped}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cited_memory_tests.rs"]
 mod tests;

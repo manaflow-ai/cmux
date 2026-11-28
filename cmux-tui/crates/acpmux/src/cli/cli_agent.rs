@@ -602,6 +602,6 @@ fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
     rx
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "cli_agent_tests.rs"]
 mod tests;

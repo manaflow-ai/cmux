@@ -106,7 +106,7 @@ pub(super) fn all() -> Vec<Pending> {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
 

@@ -240,6 +240,6 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "perf_trace_tests.rs"]
 mod tests;

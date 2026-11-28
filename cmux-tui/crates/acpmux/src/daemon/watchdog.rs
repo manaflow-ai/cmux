@@ -527,6 +527,6 @@ fn notify_line(notify: &str, line: &str) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "watchdog_tests.rs"]
 mod tests;

@@ -148,6 +148,6 @@ impl super::Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "cache_alarm_tests.rs"]
 mod tests;

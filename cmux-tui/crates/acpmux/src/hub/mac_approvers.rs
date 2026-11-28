@@ -395,6 +395,6 @@ pub fn message(p: &Parts<'_>) -> Vec<u8> {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "mac_approvers_tests.rs"]
 mod tests;

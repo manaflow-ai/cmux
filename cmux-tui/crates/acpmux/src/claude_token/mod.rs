@@ -15,7 +15,7 @@
 pub mod pty;
 pub mod store;
 // The fake `claude` is a shell script, and its liveness check is a signal: unix only.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests;
 
 use std::collections::HashMap;

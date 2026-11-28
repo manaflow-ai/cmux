@@ -390,6 +390,6 @@ pub fn hook_goes(on: bool, machine: Option<&str>, command: &str) -> Option<&'sta
     (route == Route::Fork).then_some(class)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "work_wire_tests.rs"]
 mod tests;

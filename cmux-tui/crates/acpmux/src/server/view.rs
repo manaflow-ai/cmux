@@ -451,6 +451,6 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "view_seen_tests.rs"]
 mod seen_tests;

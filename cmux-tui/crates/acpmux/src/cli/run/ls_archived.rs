@@ -118,6 +118,6 @@ pub(super) fn render(rows: &[Value], now: u64) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_archived_tests.rs"]
 mod tests;

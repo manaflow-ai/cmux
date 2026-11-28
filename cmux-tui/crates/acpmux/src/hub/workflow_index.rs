@@ -265,6 +265,6 @@ pub(crate) fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     Ok(json!({"workflows": rows}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "workflow_index_tests.rs"]
 mod tests;

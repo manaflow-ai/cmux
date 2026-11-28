@@ -68,6 +68,6 @@ impl<K: Eq + Hash + Clone, T: Clone + Send + 'static> SingleFlight<K, T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "single_flight_tests.rs"]
 mod tests;

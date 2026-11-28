@@ -287,6 +287,6 @@ pub fn verified_by_token(provenance: &Value) -> bool {
         && provenance.get(VERIFIED_BY_KEY).and_then(Value::as_str) == Some(VERIFIED_BY)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sender_token_tests.rs"]
 mod tests;

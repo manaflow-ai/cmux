@@ -361,6 +361,6 @@ fn one_line(text: &str) -> String {
     format!("{}…", cut.trim_end())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "display_tests.rs"]
 mod tests;

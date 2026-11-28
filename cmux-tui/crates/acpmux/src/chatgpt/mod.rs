@@ -22,7 +22,7 @@ mod import;
 mod jwt;
 pub(crate) mod oauth;
 pub(crate) mod store;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 use std::collections::HashMap;

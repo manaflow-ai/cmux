@@ -1317,7 +1317,7 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
         .map_err(|e| anyhow!("the OS random generator for the WebSocket token: {e}"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod tests {
     use super::*;
 
@@ -2063,6 +2063,6 @@ mod tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "hosts_first_contact_tests.rs"]
 mod first_contact_tests;

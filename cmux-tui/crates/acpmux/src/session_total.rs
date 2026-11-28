@@ -274,6 +274,6 @@ pub(crate) fn limit_hosts_slice(total: &Total) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_total_tests.rs"]
 mod tests;

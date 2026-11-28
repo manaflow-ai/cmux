@@ -103,6 +103,6 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     Ok(view(hub).await)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "autocloud_enroll_tests.rs"]
 mod tests;

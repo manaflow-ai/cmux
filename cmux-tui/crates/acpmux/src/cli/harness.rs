@@ -1523,7 +1523,7 @@ async fn handshake(
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "harness_tests.rs"]
 mod tests;
 
@@ -1608,6 +1608,6 @@ impl StderrTail {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "harness_stderr_tail_tests.rs"]
 mod stderr_tail_tests;

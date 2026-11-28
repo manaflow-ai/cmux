@@ -217,6 +217,6 @@ pub(crate) fn refusal(target: &str, text: String) -> RpcError {
         .with_data(json!({"reason": "send.no_session", "target": target, "checked": "mesh"}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "send_check_tests.rs"]
 mod tests;

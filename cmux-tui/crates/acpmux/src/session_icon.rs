@@ -186,6 +186,6 @@ pub fn clears(raw: &str) -> bool {
     matches!(raw.trim().to_ascii_lowercase().as_str(), "" | "none" | "clear" | "reset" | "-")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_icon_tests.rs"]
 mod tests;

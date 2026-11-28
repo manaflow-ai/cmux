@@ -405,6 +405,6 @@ pub(crate) fn evict(dir: &Path, now: SystemTime, keep_for: Duration, keep_bytes:
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "ci_log_cache_tests.rs"]
 mod tests;

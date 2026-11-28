@@ -240,6 +240,6 @@ pub(crate) fn replace_rows(rows: &mut Vec<Value>, hosts: &[String], far: Vec<Val
     n
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_ssh_tests.rs"]
 mod tests;

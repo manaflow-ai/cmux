@@ -820,6 +820,6 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
 }
 /// Table loops stop at finite input exhaustion. Socket connects have a two-second
 /// deadline; listeners are only inspected, never accepted, and all fds are RAII-owned.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "keeper_tests.rs"]
 mod tests;

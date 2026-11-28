@@ -368,6 +368,6 @@ fn written_ms(record: &Value) -> Option<u64> {
     cmux_chat_index::parse_rfc3339_ms(at).and_then(|ms| u64::try_from(ms).ok())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fork_at_streamed_reply_tests.rs"]
 mod streamed_reply_tests;

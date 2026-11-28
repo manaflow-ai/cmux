@@ -945,7 +945,7 @@ fn cloud_gateway(
     routes::cloud_gateway_origin(root, &home, &var)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "route_switch_route_failure_tests.rs"]
 mod route_failure_tests;
 

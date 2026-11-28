@@ -58,6 +58,14 @@ log="$log_dir/cmux-next-tests.txt"
 # every other member. Falls back to --workspace.
 read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
 echo "cmux_next_ test members: ${members[*]}"
+# Only the acpmux lib test shards that hold a cmux_next_ test (crates/acpmux/build.rs `test_shards`):
+# the lib test rustc compiled all ~305k lines of the crate's test modules with the lib and peaked
+# past a 16 GiB machine; the cmux_next_ tests sit in one shard. Prints nothing when it cannot place a
+# test, and then every shard compiles. A caller's ACPMUX_TEST_SHARD wins.
+if [[ -z "${ACPMUX_TEST_SHARD:-}" ]]; then
+  ACPMUX_TEST_SHARD="$(python3 ../scripts/ci/acpmux-test-shards.py cmux_next_ || true)"
+fi
+if [[ -n "$ACPMUX_TEST_SHARD" ]]; then export ACPMUX_TEST_SHARD; echo "acpmux lib test shards: $ACPMUX_TEST_SHARD"; else unset ACPMUX_TEST_SHARD; fi
 # One job per 6 GiB of a memory-capped runner (scripts/ci/cargo-mem-jobs.sh; -j4 in 14 GiB was still SIGKILLed): a `cmux-linux` pool slot shows 8
 # threads under memory.max 14 GiB, and the test compile at -j8 had the kernel SIGKILL the cmux-tui-core, acpmux
 # and cmux-tui rustc on all three attempts (job 140997699588, run 46151055767, 2026-11-28), so no tree got its

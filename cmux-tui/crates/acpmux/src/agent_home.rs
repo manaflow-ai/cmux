@@ -326,6 +326,6 @@ fn diff(path: &str, old: &str, new: &str) -> String {
     format!("{kept}… diff cut at {} KB\n", DIFF_MAX / 1024)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_home_tests.rs"]
 mod tests;

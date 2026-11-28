@@ -690,11 +690,11 @@ pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io:
 }
 
 /// Resolver regression loops terminate at the end of their fixed input tables.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "supervisor_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod notification_tests {
     include!("supervisor/review_tests.rs");
     use super::*;

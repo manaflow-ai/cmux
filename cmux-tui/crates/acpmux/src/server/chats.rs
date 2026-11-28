@@ -811,7 +811,7 @@ fn terminal_unverified() -> RpcError {
     .with_data(json!({"reason": "watch.terminal_unverified"}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod prompt_suggestions_push_tests {
     use super::prompt_suggestions_forced;
     use serde_json::json;

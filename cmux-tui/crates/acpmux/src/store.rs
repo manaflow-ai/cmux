@@ -2141,45 +2141,45 @@ pub(crate) fn open_private_append(path: &Path) -> Result<File> {
     Ok(crate::owner_only::open_append(path)?)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod permission_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod torn_tail_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod list_entry_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod line_rev_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod agent_session_history_tests;
 
 fn is_zero(v: &u64) -> bool {
     *v == 0
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod head_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod no_rolling_summary_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod journal_meta_tests;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod journal_pause_tests;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod journal_store_tests;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod journal_sync_tests;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod journal_write_back_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod torn_append_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod held_home_reads_tests;
 
 impl LocalStore {
@@ -2270,7 +2270,7 @@ thread_local! {
     pub(crate) static FORWARD_READ_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "store/startup_tests.rs"]
 mod startup_tests;
 

@@ -99,7 +99,7 @@ async fn collect(
     Ok(crate::github_broker::redact_github_tokens(&String::from_utf8_lossy(&out)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
     #[cfg(unix)]

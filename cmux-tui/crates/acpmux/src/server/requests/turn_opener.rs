@@ -38,6 +38,6 @@ fn starts_turn(rec: &crate::store::EventRecord) -> bool {
         && rec.msg.get("steer") != Some(&Value::Bool(true))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "turn_opener_tests.rs"]
 mod tests;

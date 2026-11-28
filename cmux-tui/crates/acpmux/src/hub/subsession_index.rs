@@ -184,6 +184,6 @@ pub(super) fn holds_width_slot(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subsession_width_tests.rs"]
 mod width_tests;

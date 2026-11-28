@@ -1161,6 +1161,6 @@ pub async fn join_as(
 #[path = "ssh_join_ledger.rs"]
 pub mod ledger;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ssh_join_tests.rs"]
 mod tests;

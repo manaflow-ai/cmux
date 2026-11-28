@@ -418,12 +418,12 @@ async fn write_lines<W: AsyncWrite + Unpin>(
     wr
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "stream_tests.rs"]
 mod tests;
 
 // Unix only: the recorded fixtures are compared byte for byte, and a Windows checkout may
 // rewrite their line ends.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_server, unix))]
 #[path = "sidebar_mirror_tests.rs"]
 mod sidebar_mirror;

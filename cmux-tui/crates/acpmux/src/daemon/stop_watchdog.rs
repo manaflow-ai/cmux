@@ -179,6 +179,6 @@ fn end_process(status: i32) -> ! {
     std::process::exit(status)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "stop_watchdog_tests.rs"]
 mod tests;

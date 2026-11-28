@@ -20,7 +20,7 @@ pub mod client;
 pub mod engine;
 pub mod link;
 pub mod merge;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 use std::path::{Path, PathBuf};

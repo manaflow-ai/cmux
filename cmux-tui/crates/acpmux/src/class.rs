@@ -85,6 +85,6 @@ pub fn inherited(
     best
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "class_tests.rs"]
 mod tests;

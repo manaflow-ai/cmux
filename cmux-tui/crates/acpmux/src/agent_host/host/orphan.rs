@@ -366,6 +366,6 @@ impl State {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "orphan_tests.rs"]
 mod tests;

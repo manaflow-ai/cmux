@@ -308,6 +308,6 @@ fn stubbed(hub: &Hub) -> Option<((String, String), FarStub)> {
         .map(|(_, machine, far)| (machine.clone(), far.clone()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "mesh_direct_tests.rs"]
 mod tests;

@@ -216,6 +216,6 @@ fn pid_runs(_pid: u32) -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "ssh_forward_owners_tests.rs"]
 mod tests;

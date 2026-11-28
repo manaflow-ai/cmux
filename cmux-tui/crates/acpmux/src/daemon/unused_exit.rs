@@ -391,6 +391,6 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "unused_exit_tests.rs"]
 mod tests;

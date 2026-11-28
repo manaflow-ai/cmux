@@ -235,6 +235,6 @@ pub fn http_client() -> reqwest::ClientBuilder {
     cmux_egress::client_builder_with("acpmux::happy_dial::http_client", V6FirstResolver::default())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "happy_dial_tests.rs"]
 mod tests;

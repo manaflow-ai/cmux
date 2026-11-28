@@ -769,6 +769,6 @@ fn sync_parent(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mesh_node_key_tests.rs"]
 mod tests;

@@ -518,6 +518,6 @@ async fn warm_loop(hub: Weak<Hub>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "warm_tests.rs"]
 mod tests;

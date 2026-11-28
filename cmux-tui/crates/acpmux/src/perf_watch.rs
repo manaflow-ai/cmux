@@ -1099,6 +1099,6 @@ pub async fn handle(params: &Value) -> Result<Value, crate::rpc::RpcError> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "perf_watch_tests.rs"]
 mod tests;

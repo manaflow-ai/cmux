@@ -583,23 +583,23 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_guard_durable_harness_tests.rs"]
 mod durable_harness_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_guard_retired_root_tests.rs"]
 mod retired_root_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_guard_config_root_tests.rs"]
 mod config_root_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_guard_policy_tests.rs"]
 mod policy_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod hub_move_tests {
     use super::*;
 

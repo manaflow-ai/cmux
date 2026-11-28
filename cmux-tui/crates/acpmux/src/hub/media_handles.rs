@@ -198,6 +198,6 @@ async fn sweep<O>(state: Weak<Mutex<State<O>>>) {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 #[path = "media_handles_tests.rs"]
 mod tests;

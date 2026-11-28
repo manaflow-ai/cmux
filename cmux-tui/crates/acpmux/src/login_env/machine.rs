@@ -162,6 +162,6 @@ pub(super) fn allowed_name(name: &str) -> bool {
         )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_tests.rs"]
 mod tests;

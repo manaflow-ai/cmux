@@ -138,6 +138,6 @@ impl AsyncWrite for Replayed {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "ws_peek_tests.rs"]
 mod tests;

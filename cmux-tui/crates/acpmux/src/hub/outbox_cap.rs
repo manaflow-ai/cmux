@@ -53,7 +53,7 @@ impl Book {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
     use crate::hub::outbox::tests::delivery;

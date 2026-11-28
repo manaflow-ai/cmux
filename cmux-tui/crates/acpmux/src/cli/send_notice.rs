@@ -91,6 +91,6 @@ pub(crate) fn text(notice: Option<&Notice>, body: &str) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "send_notice_tests.rs"]
 mod tests;

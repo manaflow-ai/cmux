@@ -499,6 +499,6 @@ async fn mint_in(
     Ok(token.to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "github_app_token_tests.rs"]
 mod tests;

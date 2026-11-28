@@ -169,6 +169,6 @@ fn link_failure(peer: &str, message: &str) -> Option<LinkFailure> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "session_auth_tests.rs"]
 mod tests;

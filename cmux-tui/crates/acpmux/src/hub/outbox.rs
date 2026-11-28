@@ -1381,11 +1381,11 @@ fn projected_message(d: &Delivery) -> Option<&Value> {
 mod cap;
 pub use cap::{MAX_SETTLED, MAX_SETTLED_RECEIPTS};
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "outbox_model_tests.rs"]
 mod model_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

@@ -836,6 +836,6 @@ fn target_home(
     picked.and_then(|(r, _)| r.file.account_home.as_ref().map(PathBuf::from)).or(pinned)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "session_auth_tests.rs"]
 mod tests;

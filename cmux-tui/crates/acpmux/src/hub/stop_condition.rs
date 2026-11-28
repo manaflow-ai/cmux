@@ -338,6 +338,6 @@ pub(crate) fn claude_args(meta: &SessionMeta) -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stop_condition_tests.rs"]
 mod tests;

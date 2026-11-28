@@ -262,6 +262,6 @@ fn local(error: &str) -> bool {
     LOCAL.iter().any(|needle| error.contains(needle))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_carrier_tests.rs"]
 mod tests;

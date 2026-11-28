@@ -386,6 +386,6 @@ pub fn rebind(meta: &mut Value, cwd: &str) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_manifest_tests.rs"]
 mod tests;

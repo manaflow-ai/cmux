@@ -35,6 +35,6 @@ pub fn detect(etc: &Path, vm_id: Option<&str>) -> bool {
         || MARKS.iter().any(|mark| std::fs::symlink_metadata(etc.join(mark)).is_ok())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_host_tests.rs"]
 mod tests;

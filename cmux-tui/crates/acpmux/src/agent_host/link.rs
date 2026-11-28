@@ -940,6 +940,6 @@ impl Link {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "link_launcher_tests.rs"]
 mod launcher_tests;

@@ -717,6 +717,6 @@ pub fn carrier_task_command(
     format!("{exe} {} {script}; rc=$?; rm -f {script}; exit $rc", words.join(" "))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "run_elsewhere_tests.rs"]
 mod tests;

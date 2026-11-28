@@ -507,6 +507,6 @@ fn fit_reply(mut reply: Value) -> Value {
     reply
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "native_history_tests.rs"]
 mod tests;

@@ -423,6 +423,6 @@ pub(crate) fn run(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_agents_tests.rs"]
 mod tests;

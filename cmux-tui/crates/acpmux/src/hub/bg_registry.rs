@@ -277,6 +277,6 @@ fn is_workflow_task(dir: &Path, id: &str) -> bool {
     dir.join(format!("{id}.claim")).exists()
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 #[path = "bg_registry_tests.rs"]
 mod tests;

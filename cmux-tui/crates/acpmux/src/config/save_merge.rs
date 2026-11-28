@@ -125,7 +125,7 @@ fn lock(_path: &Path) -> Option<cmux_file_lock::FileLock> {
     None
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod lock_tests {
     use super::*;
 

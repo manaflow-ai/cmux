@@ -1071,10 +1071,10 @@ fn batch_result(results: Vec<Value>) -> Value {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_send_sent_line_tests.rs"]
 mod sent_line_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_send_budget_nesting_tests.rs"]
 mod budget_nesting_tests;

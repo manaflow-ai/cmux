@@ -402,6 +402,6 @@ fn warn(detail: impl Into<String>, again: Option<&str>) -> StepResult {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_enroll_update_tests.rs"]
 mod tests;

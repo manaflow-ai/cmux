@@ -203,7 +203,7 @@ fn has_item(keychains: Option<&[SecKeychain]>, account: &str, label: Option<&str
         .is_ok_and(|items| !items.is_empty())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
     use security_framework::os::macos::keychain::CreateOptions;

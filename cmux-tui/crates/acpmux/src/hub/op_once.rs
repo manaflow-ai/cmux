@@ -150,6 +150,6 @@ fn fingerprint(params: &Value) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "op_once_tests.rs"]
 mod tests;

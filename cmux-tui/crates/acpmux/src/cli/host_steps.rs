@@ -106,6 +106,6 @@ impl Report {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_steps_tests.rs"]
 mod tests;

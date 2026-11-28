@@ -27,7 +27,7 @@ mod carried;
 mod carriers;
 #[path = "peer_dual.rs"]
 mod dual;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_dual_tests.rs"]
 mod dual_tests;
 pub(crate) use carriers::paired_install;
@@ -79,36 +79,36 @@ pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, attach_failure_class, lends_over, page_max_seq, refuses_attach, replayable,
 };
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_features_tests.rs"]
 mod features_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_prompt_tests.rs"]
 mod prompt_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_restart_tests.rs"]
 mod restart_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_handshake_tests.rs"]
 mod handshake_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_hub_behind_tests.rs"]
 mod hub_behind_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_link_quality_tests.rs"]
 mod link_quality_tests;
 #[path = "peer_liveness.rs"]
 pub mod liveness;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_pipeline_tests.rs"]
 mod pipeline_tests;
 
@@ -1352,11 +1352,11 @@ pub fn lift_query_token(url: &str) -> (String, Option<String>) {
     (out, token)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_attach_tests.rs"]
 mod attach_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod remote_config_tests {
     use super::*;
 
@@ -1513,11 +1513,11 @@ mod remote_config_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_briefs_tests.rs"]
 mod briefs_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod link_epoch_tests {
     use super::*;
 
@@ -1778,7 +1778,7 @@ mod link_epoch_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod frame_epoch_tests {
     use super::*;
     use tokio_tungstenite::WebSocketStream;
@@ -1853,7 +1853,7 @@ mod frame_epoch_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod watch_order_tests {
     use super::*;
     use tokio_tungstenite::WebSocketStream;

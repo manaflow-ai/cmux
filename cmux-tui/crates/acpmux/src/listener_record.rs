@@ -256,6 +256,6 @@ fn effective_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "listener_record_tests.rs"]
 mod tests;

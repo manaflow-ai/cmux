@@ -184,6 +184,6 @@ pub(super) fn call(args: &Value) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_settings_ask_tests.rs"]
 mod tests;

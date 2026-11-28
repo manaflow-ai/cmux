@@ -499,6 +499,6 @@ pub async fn run_command(apply: bool, json_out: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prune_tests.rs"]
 mod tests;

@@ -116,7 +116,7 @@ fn run(script: &str, seconds: u64) -> Option<(bool, String)> {
     Some((status.success(), text))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod tests {
     use super::*;
     use cmux_process::Command;

@@ -1531,10 +1531,10 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "remote_sandbox_vm_host_tests.rs"]
 mod vm_host_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "remote_sandbox_endpoint_tests.rs"]
 mod endpoint_tests;

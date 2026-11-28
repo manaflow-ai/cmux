@@ -119,6 +119,6 @@ pub fn tell(result: &mut Value, renamed: &[Renamed]) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mcp_args_tests.rs"]
 mod tests;

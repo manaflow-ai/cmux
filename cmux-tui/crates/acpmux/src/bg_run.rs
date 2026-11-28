@@ -798,6 +798,6 @@ pub fn main() -> anyhow::Result<()> {
     Err(crate::platform::unsupported("background tasks"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "bg_run_tests.rs"]
 mod tests;

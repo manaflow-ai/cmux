@@ -245,6 +245,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "policy_gate_tests.rs"]
 mod tests;

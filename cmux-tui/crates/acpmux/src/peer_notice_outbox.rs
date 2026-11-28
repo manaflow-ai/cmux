@@ -200,6 +200,6 @@ async fn drain(inner: Arc<Inner>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_notice_outbox_tests.rs"]
 mod tests;

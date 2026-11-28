@@ -99,11 +99,11 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_idle_fixture_tests.rs"]
 mod fixture;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
     use crate::config::{Config, StoreMode};

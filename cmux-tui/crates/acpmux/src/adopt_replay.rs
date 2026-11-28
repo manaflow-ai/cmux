@@ -640,6 +640,6 @@ fn parse_ms(text: &str) -> Option<u64> {
     cmux_chat_index::time::parse_rfc3339_ms(text).and_then(|ms| u64::try_from(ms).ok())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "adopt_replay_line_origin_tests.rs"]
 mod line_origin_tests;

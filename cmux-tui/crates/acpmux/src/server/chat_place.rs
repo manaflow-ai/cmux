@@ -149,7 +149,7 @@ fn answer(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
 

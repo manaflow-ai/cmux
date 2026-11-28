@@ -69,6 +69,6 @@ pub(crate) fn paused_line(wait: &Value) -> Option<String> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "capacity_wait_tests.rs"]
 mod tests;

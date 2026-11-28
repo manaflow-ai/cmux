@@ -354,6 +354,6 @@ impl PausedFs {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "paused_tests.rs"]
 mod tests;

@@ -124,6 +124,6 @@ fn reply_text(preview: &str) -> Option<String> {
     Some(format!("…{}", crate::secret_scan::mask(rest)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subsession_results_tests.rs"]
 mod tests;

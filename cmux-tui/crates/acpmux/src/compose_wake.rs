@@ -170,6 +170,6 @@ pub fn status() -> Value {
     shared().json(now_ms())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "compose_wake_tests.rs"]
 mod tests;

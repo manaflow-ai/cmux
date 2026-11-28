@@ -148,6 +148,6 @@ async fn wait_all(clock: &dyn Clock, hosts: Vec<OwnedHost>, grace: Duration) -> 
     hosts.into_iter().filter(|h| h.liveness() != Liveness::Dead).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sweep_tests.rs"]
 mod tests;

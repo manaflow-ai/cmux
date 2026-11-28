@@ -765,7 +765,7 @@ pub fn render(json: bool) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
     use crate::client::Client;

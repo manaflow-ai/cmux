@@ -804,6 +804,6 @@ fn fails_flush_after_drain(_: &str) -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "restore_writer_tests.rs"]
 mod tests;

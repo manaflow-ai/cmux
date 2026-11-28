@@ -196,7 +196,7 @@ fn remote_launch_shape_refused() -> RpcError {
     .with_data(json!({"reason": "remote.executable_refused"}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod remote_refusal_tests {
     /// Door A timing run: the VM refused a remote Claude start with the asking-mode text while
     /// the reason was its program. A program refusal names the program in its own words.
@@ -487,7 +487,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::*;
     use crate::config::HarnessKind;

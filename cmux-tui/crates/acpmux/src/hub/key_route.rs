@@ -486,10 +486,10 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "key_route_fold_tests.rs"]
 mod fold_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "key_route_tests.rs"]
 mod tests;

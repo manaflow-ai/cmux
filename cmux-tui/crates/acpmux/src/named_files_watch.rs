@@ -165,6 +165,6 @@ fn check(state: &Arc<State>) -> bool {
     gone || replaced
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "named_files_watch_tests.rs"]
 mod tests;

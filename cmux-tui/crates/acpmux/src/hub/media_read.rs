@@ -631,6 +631,6 @@ mod sys {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 #[path = "media_read_tests.rs"]
 mod tests;

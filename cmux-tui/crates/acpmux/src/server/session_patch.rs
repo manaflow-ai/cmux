@@ -399,6 +399,6 @@ pub(crate) fn apply(target: &mut Value, patch: &Value) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "session_patch_tests.rs"]
 mod tests;

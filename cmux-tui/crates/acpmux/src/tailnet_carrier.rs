@@ -553,6 +553,6 @@ async fn bind_tailnet(
     Ok(tokio::net::TcpListener::bind(SocketAddr::new(ip, port)).await?)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tailnet_carrier_tests.rs"]
 mod tests;

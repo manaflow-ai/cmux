@@ -277,6 +277,6 @@ fn map_error(error: MailboxError) -> RpcError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "mailbox_tests.rs"]
 mod tests;

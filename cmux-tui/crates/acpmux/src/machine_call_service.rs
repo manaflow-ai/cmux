@@ -300,6 +300,6 @@ impl MachineCallGate for ConfiguredGate {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_call_service_tests.rs"]
 mod tests;

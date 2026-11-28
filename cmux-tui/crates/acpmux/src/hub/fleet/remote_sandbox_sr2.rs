@@ -84,6 +84,6 @@ pub(super) fn sr2_plan(
     Ok((claude, args, profile))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "remote_sandbox_sr2_tests.rs"]
 mod tests;

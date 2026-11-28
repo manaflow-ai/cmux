@@ -58,6 +58,6 @@ fn build_date(build: &str) -> Option<&str> {
     (shape && date.len() < build.len()).then_some(date)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "build_info_tests.rs"]
 mod tests;

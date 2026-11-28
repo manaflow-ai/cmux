@@ -622,6 +622,6 @@ async fn bridge_one(stream: WgStream, local: TcpStream, mut stop: watch::Receive
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "wireguard_tests.rs"]
 mod tests;

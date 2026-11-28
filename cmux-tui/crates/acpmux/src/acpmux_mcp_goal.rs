@@ -113,6 +113,6 @@ fn stop_reason(goal: &Value) -> &str {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_goal_tests.rs"]
 mod tests;

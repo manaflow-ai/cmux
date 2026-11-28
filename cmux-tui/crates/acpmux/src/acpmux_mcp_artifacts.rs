@@ -940,6 +940,6 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_artifacts_tests.rs"]
 mod tests;

@@ -798,7 +798,7 @@ fn outbox_line(status: &Value) -> Option<String> {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod outbox_line_tests {
     use super::*;
 
@@ -813,7 +813,7 @@ mod outbox_line_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod timeout_tests {
     use super::*;
 
@@ -997,6 +997,6 @@ pub(super) fn is_live(row: &Value) -> bool {
     row["status"].as_str() != Some("closed")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_tests.rs"]
 mod tests;

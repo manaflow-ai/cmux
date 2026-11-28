@@ -13,6 +13,9 @@
 // The Windows port lands in steps (src/platform.rs): until the daemon runs
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
+// A test shard (build.rs `test_shards`) compiles only some test modules: the shared test
+// helpers the other shards use are unused there.
+#![cfg_attr(acpmux_test_shard, allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 pub mod abi_compat;
 pub mod abi_hello;
@@ -129,7 +132,7 @@ pub mod folder_instructions;
 pub mod fork_place;
 pub mod fork_risky;
 pub mod fork_spec;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
@@ -199,7 +202,7 @@ pub(crate) mod heap_future;
 pub mod heap_profile;
 pub mod heavy_precheck;
 pub(crate) mod home_fs;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
@@ -220,7 +223,7 @@ pub mod idempotency;
 mod job;
 mod joined_model_plane;
 pub mod terminal_autocompact;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod unbuffered_json_reads_tests;
 pub mod working_set;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
@@ -246,7 +249,7 @@ pub mod log_keep;
 pub mod log_sink;
 pub mod login_env;
 pub mod lossy_lines;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod lost_home_race_tests;
 pub mod mac_lock;
 /// Calls this machine runs for the person's other machines, over the hub carrier
@@ -433,7 +436,7 @@ pub(crate) mod slow_notice;
 pub mod perf_watch;
 pub mod scorecard;
 pub mod scorecard_replay;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;

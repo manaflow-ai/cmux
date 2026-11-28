@@ -71,6 +71,6 @@ pub fn link(fqdn: &str, app_token: &str) -> String {
     format!("https://{fqdn}/app/#token={app_token}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "web_tailnet_tests.rs"]
 mod tests;

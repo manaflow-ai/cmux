@@ -694,6 +694,6 @@ fn scan_to(segment: &mut Segment, start: u64, from: u64) -> Result<u64> {
     Ok(found)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "log_bytes_tests.rs"]
 pub(super) mod tests;

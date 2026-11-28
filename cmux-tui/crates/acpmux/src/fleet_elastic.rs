@@ -235,6 +235,6 @@ pub fn suffix(row: &Value) -> String {
     Elastic::from_row(row).and_then(|e| e.label()).map(|l| format!("  [{l}]")).unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "fleet_elastic_tests.rs"]
 mod tests;

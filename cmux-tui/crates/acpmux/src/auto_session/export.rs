@@ -23,7 +23,7 @@ pub(crate) mod native;
 mod redact;
 pub(crate) mod snapshot;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "export/ignore_tests.rs"]
 mod ignore_tests;
 

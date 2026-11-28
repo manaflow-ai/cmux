@@ -77,6 +77,6 @@ fn hash(value: &Value) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "logged_init_tests.rs"]
 mod tests;

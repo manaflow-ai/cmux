@@ -162,6 +162,6 @@ fn shorten_words(text: &str, max: usize) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "lane_report_text_tests.rs"]
 mod tests;

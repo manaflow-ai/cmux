@@ -216,6 +216,6 @@ pub(super) enum Kept {
     Stub(Value),
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "log_deferral_tests.rs"]
 mod tests;

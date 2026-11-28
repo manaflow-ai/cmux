@@ -144,6 +144,6 @@ fn running(pid: u32) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "dead_temps_tests.rs"]
 mod tests;

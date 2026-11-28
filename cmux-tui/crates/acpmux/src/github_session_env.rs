@@ -104,6 +104,6 @@ pub fn apply(cmd: &mut tokio::process::Command, env: &[(String, String)]) {
     cmd.envs(entries(env, &acpmux, shim.as_deref()));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "github_session_env_tests.rs"]
 mod tests;

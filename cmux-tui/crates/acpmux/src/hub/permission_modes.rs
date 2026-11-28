@@ -66,6 +66,6 @@ fn same_values(values: &[&str], ids: &[&str]) -> bool {
     !values.is_empty() && values == ids.iter().copied().collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "permission_modes_tests.rs"]
 mod tests;

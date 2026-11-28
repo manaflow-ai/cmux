@@ -295,6 +295,6 @@ fn job_plist(label: &str, argv: &[String], env: &[(String, String)], log: &Path)
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "login_session_tests.rs"]
 mod tests;

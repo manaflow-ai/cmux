@@ -357,6 +357,6 @@ pub(crate) fn owner_call<'a>(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "workflow_activity_tests.rs"]
 mod tests;

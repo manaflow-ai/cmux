@@ -116,6 +116,6 @@ pub fn refusal(e: &RpcError) -> Refused {
     refused(code, crate::github_broker::redact_github_tokens(&e.message))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "github_lane_mint_tests.rs"]
 mod tests;

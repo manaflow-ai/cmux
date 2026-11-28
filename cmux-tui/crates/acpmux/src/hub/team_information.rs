@@ -231,6 +231,6 @@ pub(super) fn prepend(blocks: &mut Vec<Value>, messages: &[(String, String)]) {
     blocks.splice(0..0, notices);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "team_information_tests.rs"]
 mod tests;

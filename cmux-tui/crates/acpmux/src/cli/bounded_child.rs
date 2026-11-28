@@ -141,7 +141,7 @@ fn kill(child: &mut Child, group_ours: bool) {
     let _ = child.kill();
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};

@@ -199,6 +199,6 @@ pub(super) async fn turn_checkpoint(session: &Session, turn_id: &str) -> Map<Str
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_checkpoint_tests.rs"]
 mod tests;

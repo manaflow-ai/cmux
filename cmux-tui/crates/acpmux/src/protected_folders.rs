@@ -319,7 +319,7 @@ fn fold(path: &Path) -> String {
     if trimmed.is_empty() { "/".to_owned() } else { trimmed.to_owned() }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod owner_only_tests {
     use super::*;
 
@@ -339,7 +339,7 @@ mod owner_only_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod spare_tests {
     use super::*;
 
@@ -355,7 +355,7 @@ mod spare_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod home_repository_tests {
     use super::*;
 
@@ -428,7 +428,7 @@ mod home_repository_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod location_tests {
     use super::*;
 

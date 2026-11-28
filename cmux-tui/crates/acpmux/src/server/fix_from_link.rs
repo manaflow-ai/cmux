@@ -382,6 +382,6 @@ fn issue_prompt(issue: &GithubIssueLink, context: &IssueContext) -> String {
     prompt
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "fix_from_link_tests.rs"]
 mod tests;

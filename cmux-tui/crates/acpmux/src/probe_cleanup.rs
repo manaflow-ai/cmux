@@ -106,7 +106,7 @@ fn rollout_cwd(path: &Path) -> Option<String> {
     value.get("payload")?.get("cwd")?.as_str().map(str::to_owned)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod spelling_tests {
     use super::*;
 

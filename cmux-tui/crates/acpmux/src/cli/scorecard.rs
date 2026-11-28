@@ -317,6 +317,6 @@ fn no_churn(answer: &Value) -> Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "scorecard_tests.rs"]
 mod tests;

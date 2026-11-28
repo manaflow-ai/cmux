@@ -86,10 +86,10 @@ impl MessagePhases {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "message_phases_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "message_phases_bridge_tests.rs"]
 mod bridge_tests;

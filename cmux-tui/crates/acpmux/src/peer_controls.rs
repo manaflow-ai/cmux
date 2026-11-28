@@ -313,6 +313,6 @@ fn ask_key(entry: &Value) -> Option<Key> {
     Some((session, permission))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_controls_tests.rs"]
 mod tests;

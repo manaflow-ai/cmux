@@ -50,6 +50,6 @@ fn line(what: &str, after: Duration) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "slow_notice_tests.rs"]
 mod tests;

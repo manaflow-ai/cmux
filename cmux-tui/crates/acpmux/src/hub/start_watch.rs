@@ -63,7 +63,7 @@ impl StartWatch {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "start_watch_tests.rs"]
 mod start_watch_tests;
 

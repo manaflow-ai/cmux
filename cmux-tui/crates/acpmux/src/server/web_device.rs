@@ -415,7 +415,7 @@ pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod browser_owner_tests {
     use super::*;
 
@@ -614,6 +614,6 @@ pub(super) async fn complete_with(
     Ok(json!({"accessToken": access.as_str(), "publicKey": enrollment.public_key}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "web_device_tests.rs"]
 mod tests;

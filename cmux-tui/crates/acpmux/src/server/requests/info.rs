@@ -160,6 +160,6 @@ fn rows_reply(
     Ok(json!({"rows": rows, "missing": missing, "rest": rest}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "info_rows_tests.rs"]
 mod tests;

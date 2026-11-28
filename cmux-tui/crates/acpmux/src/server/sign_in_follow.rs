@@ -353,6 +353,6 @@ pub(super) async fn signed_in(
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "sign_in_follow_tests.rs"]
 mod tests;

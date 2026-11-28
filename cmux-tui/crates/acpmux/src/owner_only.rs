@@ -681,6 +681,6 @@ fn opened_is_dir(opened: &File) -> io::Result<bool> {
     Ok(opened.metadata()?.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "owner_only_tests.rs"]
 mod tests;

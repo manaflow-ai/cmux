@@ -310,7 +310,7 @@ pub(super) async fn guarded_roots(raw: Vec<String>) -> Vec<PathBuf> {
     roots
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_server, unix))]
 mod tests {
     use super::*;
 

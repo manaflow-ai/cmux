@@ -308,6 +308,6 @@ pub fn move_line(to: &str, why: &str) -> String {
     format!("Moved to {to} · {why}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "place_move_tests.rs"]
 mod tests;

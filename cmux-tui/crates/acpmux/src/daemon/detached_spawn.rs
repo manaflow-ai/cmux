@@ -85,7 +85,7 @@ pub(super) fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     let _ = link.shutdown(std::net::Shutdown::Both);
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, acpmux_tests_rest, target_os = "linux"))]
 mod scope_tests {
     use super::cgroup_is_in_sessions_scope;
 

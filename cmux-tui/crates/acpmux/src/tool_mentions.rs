@@ -564,10 +564,10 @@ fn find_run(bytes: &[u8], from: usize, run: usize) -> Option<usize> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tool_mentions_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tool_mentions_own_note_tests.rs"]
 mod own_note_tests;

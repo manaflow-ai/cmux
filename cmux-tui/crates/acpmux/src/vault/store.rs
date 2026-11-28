@@ -403,6 +403,6 @@ pub fn decode(item: &str) -> Option<Zeroizing<String>> {
 pub use memory::MemoryStore;
 
 /// A store in memory, for tests: a test module, so its lock unwraps are test code.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "store_memory_tests.rs"]
 pub mod memory;

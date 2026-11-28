@@ -364,6 +364,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stream_reply_segment_tests.rs"]
 mod reply_segment_tests;

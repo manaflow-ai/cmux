@@ -385,6 +385,6 @@ again",
     Route::Handoff { why: "restarts and failovers used up".into(), after: Ending::UsedUp }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "death_route_tests.rs"]
 mod tests;

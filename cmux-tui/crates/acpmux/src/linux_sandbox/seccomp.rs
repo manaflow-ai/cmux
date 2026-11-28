@@ -436,7 +436,7 @@ pub(crate) fn install_notify(filter: &[libc::sock_filter]) -> io::Result<OwnedFd
     Ok(unsafe { OwnedFd::from_raw_fd(fd as _) })
 }
 
-#[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+#[cfg(all(test, acpmux_tests_rest, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
 mod unsupported_tests {
     #[test]
     fn unsupported_architecture_is_refused() {
@@ -444,7 +444,7 @@ mod unsupported_tests {
     }
 }
 
-#[cfg(all(test, any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(all(test, acpmux_tests_rest, any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod tests {
     //! Table loops stop at the end of their finite arrays or filter slices.
 

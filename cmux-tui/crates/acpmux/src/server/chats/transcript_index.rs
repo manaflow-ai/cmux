@@ -139,6 +139,6 @@ fn trigram(three: &[u8]) -> usize {
         % (FILTER_BYTES * 8)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "transcript_index_tests.rs"]
 mod tests;

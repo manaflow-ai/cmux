@@ -281,6 +281,6 @@ pub fn command_line(program: &Path, argv: &[String]) -> (String, Vec<String>) {
     (program.to_string_lossy().into_owned(), argv.iter().skip(1).cloned().collect())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_bundle_tests.rs"]
 mod tests;

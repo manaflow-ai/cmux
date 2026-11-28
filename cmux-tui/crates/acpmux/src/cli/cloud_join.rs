@@ -945,7 +945,7 @@ pub(crate) fn http_client() -> Result<reqwest::Client> {
         .context("build hub client")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod tests {
     #[test]
     fn a_store_error_names_its_cause() {

@@ -95,6 +95,6 @@ impl LeaderExit {
 
 /// Tests only: this thread's agents start as if the kernel had no exit event, so their readers
 /// keep the timed check (`agent_idle_tests.rs`).
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "leader_exit_timed_check_only_tests.rs"]
 pub(crate) mod timed_check_only;

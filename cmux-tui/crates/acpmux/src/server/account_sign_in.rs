@@ -57,7 +57,7 @@ use crate::hub::Hub;
 use crate::routes::{self, RouteFile};
 use crate::rpc::{RpcError, method};
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests;
 
 /// The methods `handle` answers.

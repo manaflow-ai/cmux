@@ -118,6 +118,6 @@ fn exec(resume: &Resume) -> Result<()> {
     Err(anyhow!("run `{}` in this terminal", resume.line()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "resume_here_tests.rs"]
 mod tests;

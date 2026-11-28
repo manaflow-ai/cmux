@@ -72,6 +72,6 @@ pub(crate) fn mark_if_reached(home: &Path, socket: &str, token: &str, answer: &V
     let _ = crate::home_fs::write(&path, b"");
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "hook_register_tests.rs"]
 mod tests;

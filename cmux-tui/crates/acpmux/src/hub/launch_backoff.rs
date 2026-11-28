@@ -61,6 +61,6 @@ impl LaunchBackoff {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "launch_backoff_tests.rs"]
 mod tests;

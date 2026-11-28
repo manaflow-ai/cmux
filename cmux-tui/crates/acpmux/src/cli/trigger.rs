@@ -486,6 +486,6 @@ pub async fn run(cmd: TriggerCmd, json_out: bool) -> Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "trigger_tests.rs"]
 mod tests;

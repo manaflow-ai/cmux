@@ -397,5 +397,5 @@ fn write(path: &Path, record: &RunRecord) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;

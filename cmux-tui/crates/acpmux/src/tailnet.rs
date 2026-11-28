@@ -358,7 +358,7 @@ pub fn is_tailnet_ip(ip: IpAddr) -> bool {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod cli_tests {
     use super::*;
 

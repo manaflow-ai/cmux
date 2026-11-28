@@ -574,6 +574,6 @@ pub(crate) fn log_kill(entry: &Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "process_owner_tests.rs"]
 mod tests;

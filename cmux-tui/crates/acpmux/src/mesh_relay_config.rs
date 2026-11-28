@@ -233,6 +233,6 @@ impl MeshRelayConfig {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mesh_relay_config_tests.rs"]
 mod tests;

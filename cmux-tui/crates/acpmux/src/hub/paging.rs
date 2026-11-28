@@ -957,10 +957,10 @@ impl Hub {
 #[path = "subagent_starts.rs"]
 pub(crate) mod subagent_starts;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "paging_tests.rs"]
 mod paging_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "paging_transcript_kind_tests.rs"]
 mod transcript_kind_tests;

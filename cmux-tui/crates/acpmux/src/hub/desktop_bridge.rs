@@ -451,6 +451,6 @@ pub(super) fn codex_tags_of(thread: &Thread) -> Value {
     tags
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "desktop_bridge_tests.rs"]
 mod tests;

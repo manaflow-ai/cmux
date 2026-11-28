@@ -77,7 +77,7 @@ mod space;
 #[cfg(test)]
 pub(crate) use space::{RESERVE as DISK_RESERVE, set_test_free};
 pub(super) mod repair;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod seal_tests;
 
 use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};

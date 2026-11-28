@@ -54,6 +54,6 @@ pub(super) fn this_start_stands_by(take_over: bool) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "launchd_standby_tests.rs"]
 mod tests;

@@ -1049,11 +1049,11 @@ impl Hub {
 #[path = "subagent_retry_manual.rs"]
 mod manual;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subagent_retry_tests.rs"]
 mod race_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

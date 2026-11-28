@@ -2013,7 +2013,7 @@ fn trim(inbox: &mut Inbox) {
 #[path = "inbox_team_page.rs"]
 mod team_page;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "inbox_tests.rs"]
 mod tests;
 

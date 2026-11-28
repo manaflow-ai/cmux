@@ -4,7 +4,7 @@
 pub(crate) mod grok_hook;
 mod oauth;
 pub(crate) mod openrouter;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 use std::{

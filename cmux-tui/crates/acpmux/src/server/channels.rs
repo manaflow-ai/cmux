@@ -514,6 +514,6 @@ pub(crate) fn counts(hub: &Hub) -> (usize, usize) {
     (table.open.len(), table.listeners.len())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "channels_tests.rs"]
 mod tests;

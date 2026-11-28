@@ -1131,14 +1131,14 @@ fn open_saved(path: &Path) -> Option<(Arc<map::Map>, Meta, usize)> {
 #[doc(hidden)]
 pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "text_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "text_scale_bench_tests.rs"]
 mod text_scale_bench;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "follow_tests.rs"]
 mod follow_tests;

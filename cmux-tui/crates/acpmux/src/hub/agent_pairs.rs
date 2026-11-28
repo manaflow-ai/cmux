@@ -1164,6 +1164,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "agent_pairs_tests.rs"]
 mod tests;

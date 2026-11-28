@@ -256,6 +256,6 @@ fn started(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "mesh_control_send_tests.rs"]
 mod tests;

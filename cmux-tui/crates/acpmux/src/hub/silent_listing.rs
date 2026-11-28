@@ -96,6 +96,6 @@ impl Hub {
     pub(super) async fn end_silent_listings(&self, _session: &Arc<Session>, _turn_id: &str) {}
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "silent_listing_tests.rs"]
 mod tests;

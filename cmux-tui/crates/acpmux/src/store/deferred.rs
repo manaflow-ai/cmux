@@ -550,6 +550,6 @@ fn without_content(msg: &Value) -> Option<Value> {
     Some(Value::Object(stub))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "deferred_tests.rs"]
 mod tests;

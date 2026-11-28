@@ -712,6 +712,6 @@ fn parse_signer(codesign: &str) -> Option<String> {
         .map(|a| a.trim().chars().take(MAX_FIELD_CHARS).collect())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sender_harness_tests.rs"]
 mod tests;

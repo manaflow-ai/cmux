@@ -455,6 +455,6 @@ fn tools_list() -> Value {
     tools(&tools_with_artifacts(false))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_guest_tests.rs"]
 mod tests;

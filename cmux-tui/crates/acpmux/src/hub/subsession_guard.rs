@@ -886,6 +886,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subsession_guard_tests.rs"]
 mod tests;

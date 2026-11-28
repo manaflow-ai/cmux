@@ -568,6 +568,6 @@ pub async fn run(cmd: CiCmd, json_out: bool) -> Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ci_wait_tests.rs"]
 mod tests;

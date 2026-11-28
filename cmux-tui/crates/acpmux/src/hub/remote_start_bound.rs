@@ -85,6 +85,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "remote_start_bound_tests.rs"]
 mod tests;

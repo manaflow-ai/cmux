@@ -53,7 +53,7 @@ pub fn part(cwd: &Path) -> Option<ContextPart> {
     })
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
 

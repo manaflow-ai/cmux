@@ -1013,6 +1013,6 @@ where
     left(home, &removed, answer.map(|answer| answer.label()))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "enroll_tests.rs"]
 mod tests;

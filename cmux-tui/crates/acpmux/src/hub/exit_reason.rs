@@ -95,6 +95,6 @@ fn is_wrapper_exit_line(line: &str) -> bool {
         && rest.trim_start_matches('-').chars().all(|c| c.is_ascii_digit())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "exit_reason_explains_exit_tests.rs"]
 mod explains_exit_tests;

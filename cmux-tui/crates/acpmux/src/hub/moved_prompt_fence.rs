@@ -29,6 +29,6 @@ fn on(value: Option<&str>) -> bool {
     !matches!(value.map(str::trim), Some("0" | "false" | "off" | "no"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "moved_prompt_fence_tests.rs"]
 mod tests;

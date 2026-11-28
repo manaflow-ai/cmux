@@ -92,7 +92,7 @@ mv -f "$acpmux_tmp/acpmux" "$acpmux_bin"
     )
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod tests {
     use super::*;
 

@@ -1123,6 +1123,6 @@ impl Inner {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "meta_shape_tests.rs"]
 mod shape_tests;

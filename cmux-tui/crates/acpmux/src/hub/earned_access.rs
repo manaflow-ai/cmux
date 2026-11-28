@@ -131,6 +131,6 @@ pub(crate) fn rung(
     effective.policy()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "earned_access_tests.rs"]
 mod tests;

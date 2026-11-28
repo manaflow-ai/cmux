@@ -73,6 +73,6 @@ fn facts_of<'a>(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "usage_share_tests.rs"]
 mod tests;

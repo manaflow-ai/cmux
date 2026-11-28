@@ -206,6 +206,6 @@ pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "mesh_control_tests.rs"]
 mod tests;

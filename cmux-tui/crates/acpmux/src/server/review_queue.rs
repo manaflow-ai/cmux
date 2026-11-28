@@ -269,6 +269,6 @@ async fn audit(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, 
         .map_err(|e| RpcError::internal(format!("audit: {e}")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "review_queue_tests.rs"]
 mod tests;

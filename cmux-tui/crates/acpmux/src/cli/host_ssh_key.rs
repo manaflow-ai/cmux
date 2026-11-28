@@ -187,6 +187,6 @@ pub(crate) fn run(create_key: bool, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_ssh_key_tests.rs"]
 mod tests;

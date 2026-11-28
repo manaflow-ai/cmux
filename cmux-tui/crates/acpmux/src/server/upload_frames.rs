@@ -253,6 +253,6 @@ pub fn frame(id: i64, session: &str, upload: &str, offset: u64, bytes: &[u8]) ->
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "upload_frames_tests.rs"]
 mod tests;

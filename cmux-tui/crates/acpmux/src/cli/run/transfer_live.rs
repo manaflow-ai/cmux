@@ -409,6 +409,6 @@ pub(crate) fn move_progress_line(info: &Value) -> Option<String> {
     Some(format!("move:      {}", progress_text(r)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "transfer_live_tests.rs"]
 mod tests;

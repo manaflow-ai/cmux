@@ -124,6 +124,6 @@ fn image_mime(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tool_read_images_tests.rs"]
 mod tests;

@@ -247,6 +247,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transcript_offload_tests.rs"]
 mod tests;

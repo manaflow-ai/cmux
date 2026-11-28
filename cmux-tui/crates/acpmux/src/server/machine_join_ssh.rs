@@ -208,6 +208,6 @@ pub(super) fn list(
     answer
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "machine_join_ssh_tests.rs"]
 mod tests;

@@ -1604,6 +1604,6 @@ fn unlink_saved_file(directory: Option<&std::fs::File>, name: &str) -> Result<()
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "embedded_tests.rs"]
 mod tests;

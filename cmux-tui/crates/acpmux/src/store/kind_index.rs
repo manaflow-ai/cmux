@@ -1027,6 +1027,6 @@ impl LocalStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "kind_index_tests.rs"]
 mod tests;

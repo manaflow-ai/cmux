@@ -220,6 +220,6 @@ pub(crate) fn flush(bound: Duration) -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "disk_writer_tests.rs"]
 mod tests;

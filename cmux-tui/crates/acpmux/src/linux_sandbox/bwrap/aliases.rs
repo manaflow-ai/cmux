@@ -566,6 +566,6 @@ fn check_trees(
     Ok(reasons)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "aliases_tests.rs"]
 mod tests;

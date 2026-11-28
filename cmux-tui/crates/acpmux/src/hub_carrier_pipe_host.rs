@@ -281,6 +281,6 @@ pub fn header(owner: &str, target: std::net::SocketAddr) -> Header {
     Header { v: VERSION, owner: owner.to_owned(), target }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_pipe_host_tests.rs"]
 mod tests;

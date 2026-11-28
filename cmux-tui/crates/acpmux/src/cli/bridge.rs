@@ -405,6 +405,6 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
     crate::config::write_atomic(path, &bytes)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "bridge_tests.rs"]
 mod tests;

@@ -230,6 +230,6 @@ pub(super) fn step(lead: Lead, n: Next) -> Step {
     Step::Join
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "queue_fold_tests.rs"]
 mod tests;

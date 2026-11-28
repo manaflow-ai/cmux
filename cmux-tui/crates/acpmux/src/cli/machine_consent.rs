@@ -457,6 +457,6 @@ pub(crate) fn account_home() -> Result<PathBuf> {
     Ok(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_consent_tests.rs"]
 mod tests;

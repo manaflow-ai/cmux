@@ -320,6 +320,6 @@ async fn from_gh(gh: &OsString) -> Option<Value> {
     Some(status)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "github_status_tests.rs"]
 mod tests;

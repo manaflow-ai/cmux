@@ -128,6 +128,6 @@ pub async fn run(args: LedgerArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ledger_tests.rs"]
 mod tests;

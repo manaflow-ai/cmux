@@ -68,6 +68,6 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "change_kind_tests.rs"]
 mod tests;

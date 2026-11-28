@@ -84,6 +84,6 @@ pub(crate) fn fill_key_from_gemini_dotenv(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acp_key_auth_tests.rs"]
 mod tests;

@@ -723,7 +723,7 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -1186,6 +1186,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "trigger_delivery_tests.rs"]
 mod trigger_delivery_tests;

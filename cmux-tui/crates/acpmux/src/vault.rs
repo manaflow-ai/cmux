@@ -40,9 +40,9 @@ pub mod reach;
 pub mod store;
 pub mod wire;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod kept_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 use std::sync::atomic::{AtomicBool, Ordering};

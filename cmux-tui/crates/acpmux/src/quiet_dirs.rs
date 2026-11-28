@@ -422,6 +422,6 @@ pub(crate) fn resolve(path: &Path) -> (PathBuf, Vec<PathBuf>) {
     (out, links)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "quiet_dirs_tests.rs"]
 mod tests;

@@ -158,7 +158,7 @@ pub fn codex_args(
     launch
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

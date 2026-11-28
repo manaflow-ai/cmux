@@ -609,7 +609,7 @@ pub(crate) fn inherited(
     Ok((stdin, stdout, stderr, Ring::from_fd(ring), pidfd))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod ring_tests {
     use super::*;
 

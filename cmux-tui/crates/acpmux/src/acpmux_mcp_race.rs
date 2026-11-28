@@ -112,6 +112,6 @@ pub(super) async fn call(daemon: &Arc<Client>, name: &str, args: &Value) -> Valu
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_race_tests.rs"]
 mod tests;

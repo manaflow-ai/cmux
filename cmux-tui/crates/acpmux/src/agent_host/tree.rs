@@ -465,6 +465,6 @@ pub fn under_in(table: &str, leader: u32, own: u32) -> Option<Vec<Under>> {
     super::proc_table::Table::parse(table)?.under(leader, own)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tree_census_tests.rs"]
 mod census_tests;

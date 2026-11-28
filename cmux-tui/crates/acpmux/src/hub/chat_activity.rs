@@ -17,12 +17,12 @@ use crate::chats::{ChatActivity, SeqChange, key_text};
 use crate::store::SessionStatus;
 use cmux_json::JsonSet as _;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "chat_activity_tests.rs"]
 mod tests;
 
 // Every scale test reads Linux process counters (cfg target_os = "linux").
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, acpmux_tests_hub, target_os = "linux"))]
 #[path = "chat_activity_scale_tests.rs"]
 mod scale_tests;
 

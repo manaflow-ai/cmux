@@ -203,7 +203,7 @@ fn decode_xml(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
     use serde_json::json;

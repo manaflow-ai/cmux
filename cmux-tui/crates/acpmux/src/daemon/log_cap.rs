@@ -49,6 +49,6 @@ pub(super) fn rotate_at_start(log: &Path, cap: u64) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "log_cap_tests.rs"]
 mod tests;

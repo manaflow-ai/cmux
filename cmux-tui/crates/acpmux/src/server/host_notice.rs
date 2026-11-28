@@ -63,6 +63,6 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     Ok(json!({"appended": appended}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "host_notice_tests.rs"]
 mod tests;

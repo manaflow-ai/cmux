@@ -147,6 +147,6 @@ impl Session {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "wip_ref_tests.rs"]
 mod tests;

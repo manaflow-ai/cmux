@@ -1446,7 +1446,7 @@ pub(super) fn relabel_auto_background(text: &str) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod relabel_tests {
     use super::relabel_auto_background;
 

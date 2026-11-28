@@ -125,6 +125,6 @@ pub(super) fn looks_like_claude_model_id(spec: &str) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "model_hint_tests.rs"]
 mod tests;

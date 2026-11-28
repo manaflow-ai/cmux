@@ -107,6 +107,6 @@ fn machine_id() -> Option<String> {
     os_machine_identity()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "host_fingerprint_tests.rs"]
 mod tests;

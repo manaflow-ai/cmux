@@ -36,6 +36,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "person_prompt_at_tests.rs"]
 mod tests;

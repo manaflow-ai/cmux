@@ -269,6 +269,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "closed_rows_bound_tests.rs"]
 mod bound_tests;

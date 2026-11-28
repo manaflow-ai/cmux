@@ -272,6 +272,6 @@ pub fn ls_lines(status: &Value) -> Vec<String> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "shadow_admission_tests.rs"]
 mod tests;

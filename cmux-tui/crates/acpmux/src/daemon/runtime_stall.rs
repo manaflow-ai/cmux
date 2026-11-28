@@ -337,6 +337,6 @@ fn write_stacks(_file: &Path) -> std::io::Result<()> {
     Err(std::io::Error::other("no stack capture on this OS"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "runtime_stall_tests.rs"]
 mod tests;

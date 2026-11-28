@@ -180,6 +180,6 @@ pub fn server_env(followed: &Followed) -> Vec<(String, String)> {
     env
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "memory_follow_tests.rs"]
 mod tests;

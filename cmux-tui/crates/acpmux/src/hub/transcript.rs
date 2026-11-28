@@ -324,6 +324,6 @@ impl TranscriptBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transcript_tests.rs"]
 mod tests;

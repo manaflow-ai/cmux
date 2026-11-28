@@ -1845,15 +1845,15 @@ pub(super) fn listed_remote_text(
     r.summary.listed(states.get(&r.peer).copied(), tools)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peers_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_changes_tests.rs"]
 mod peer_changes_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "restart_notice_tests.rs"]
 mod restart_notice_tests;
 

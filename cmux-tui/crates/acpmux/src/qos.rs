@@ -459,10 +459,10 @@ mod imp {
 }
 
 // Its tests read macOS disk policies only.
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, acpmux_tests_rest, target_os = "macos"))]
 #[path = "qos_journal_tests.rs"]
 mod journal_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "qos_tests.rs"]
 mod tests;

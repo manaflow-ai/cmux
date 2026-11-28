@@ -1991,7 +1991,7 @@ fn home_env() -> String {
     crate::config::home().to_string_lossy().into_owned()
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
 
@@ -2027,6 +2027,6 @@ fn app_daemon_socket_for(
     Some(cmux::raw::default_socket_path(&session))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_tools_app_daemon_socket_tests.rs"]
 mod app_daemon_socket_tests;

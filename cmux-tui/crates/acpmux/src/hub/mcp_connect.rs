@@ -447,7 +447,7 @@ fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Resul
     crate::home_fs::rename(&tmp, path)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::{Hub, write_file};
     use crate::agent_tools::write_private;

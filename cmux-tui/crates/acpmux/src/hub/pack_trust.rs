@@ -164,6 +164,6 @@ fn not_found_is_ok(error: std::io::Error) -> std::io::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "pack_trust_tests.rs"]
 mod tests;

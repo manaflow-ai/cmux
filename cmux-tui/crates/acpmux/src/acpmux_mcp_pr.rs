@@ -700,6 +700,6 @@ pub(crate) fn pr_state(pr: &Value) -> (String, Value) {
     (lines.join("\n"), structured)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_pr_tests.rs"]
 mod tests;

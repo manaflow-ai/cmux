@@ -316,6 +316,6 @@ pub(super) fn remove(path: &Path) -> std::io::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "disk_tests.rs"]
 pub(super) mod tests;

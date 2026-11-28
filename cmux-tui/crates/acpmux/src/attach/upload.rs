@@ -473,6 +473,6 @@ async fn stall_for_test(offset: u64) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "upload_tests.rs"]
 mod tests;

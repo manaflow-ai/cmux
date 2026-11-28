@@ -367,7 +367,7 @@ pub(crate) fn forget(session: &str) {
     burns().remove(session);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

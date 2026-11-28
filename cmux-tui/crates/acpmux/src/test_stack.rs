@@ -31,6 +31,6 @@ static TEST_THREAD_STACK: extern "C" fn() = {
     init
 };
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "test_stack_tests.rs"]
 mod tests;

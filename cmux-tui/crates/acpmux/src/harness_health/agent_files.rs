@@ -263,6 +263,6 @@ fn providers_where(file: &Path, counts: impl Fn(&str) -> bool) -> Option<(Auth, 
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_files_tests.rs"]
 mod tests;

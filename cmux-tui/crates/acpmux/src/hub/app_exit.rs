@@ -144,6 +144,6 @@ fn tell(hub: &Weak<Hub>, chat: &str, runtime: &tokio::runtime::Handle) {
     }));
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, acpmux_tests_hub, any(target_os = "linux", target_os = "macos")))]
 #[path = "app_exit_tests.rs"]
 mod tests;

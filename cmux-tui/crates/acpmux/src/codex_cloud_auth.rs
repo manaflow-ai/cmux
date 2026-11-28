@@ -309,6 +309,6 @@ pub fn explain_missing_key(message: &str) -> Option<String> {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_cloud_auth_tests.rs"]
 mod tests;

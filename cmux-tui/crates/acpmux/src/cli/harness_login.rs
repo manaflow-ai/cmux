@@ -539,6 +539,6 @@ pub async fn run_cmd(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "harness_login_tests.rs"]
 mod tests;

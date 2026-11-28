@@ -103,6 +103,6 @@ pub fn fork_env(
     out
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "run_vm_env_tests.rs"]
 mod tests;

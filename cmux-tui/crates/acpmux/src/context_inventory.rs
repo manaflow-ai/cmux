@@ -663,6 +663,6 @@ fn snapshot_on(cfg: &Config, cwd: &Path, channel: &str) -> Vec<ContextPart> {
     }]
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "context_inventory_tests.rs"]
 mod tests;

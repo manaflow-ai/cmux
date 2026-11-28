@@ -604,15 +604,15 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "adoption_page_tests.rs"]
 mod page_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "adoption_profile_tests.rs"]
 mod profile_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod unavailable_resume_tests {
     use super::*;
 
@@ -639,7 +639,7 @@ mod unavailable_resume_tests {
 }
 
 // The tests name Unix paths of another machine.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::*;
     use std::process::Command;

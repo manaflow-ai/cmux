@@ -74,6 +74,6 @@ pub(super) fn stamp(error: &mut RpcError) {
     error.data = Some(Value::Object(data));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "start_reason_tests.rs"]
 mod tests;

@@ -1100,11 +1100,11 @@ pub(crate) fn clears(name: &str, profile_env: &BTreeMap<String, String>) -> bool
         && (name == OPENAI_KEY_ENV || (kind == Kind::Anthropic && cleared(name)))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "byo_endpoint_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod opencode_config_tests {
     use super::*;
 

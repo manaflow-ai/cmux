@@ -86,6 +86,6 @@ pub(crate) fn refusal(host: &str, harness: &str) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_signed_out_tests.rs"]
 mod tests;

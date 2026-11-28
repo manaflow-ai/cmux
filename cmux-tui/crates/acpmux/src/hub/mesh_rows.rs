@@ -226,6 +226,6 @@ pub(super) fn is_own_host(host: &str) -> bool {
     crate::pairing::is_this_machine(host)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "mesh_rows_mesh_route_tests.rs"]
 mod mesh_route_tests;

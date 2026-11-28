@@ -30,6 +30,6 @@ pub(crate) fn created_line(name: &str, id: &str, host: Option<&str>, cwd: Option
     line
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_folder_tests.rs"]
 mod tests;

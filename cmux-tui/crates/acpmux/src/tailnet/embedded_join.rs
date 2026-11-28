@@ -155,6 +155,6 @@ pub(crate) fn other_tailnet_refusal(current: Option<&JoinProfile>) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "embedded_join_tests.rs"]
 mod tests;

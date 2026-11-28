@@ -172,6 +172,6 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mesh_retry_tests.rs"]
 mod tests;

@@ -186,6 +186,6 @@ pub async fn probe(url: &str, key: Option<KeyHeader<'_>>) -> Probe {
     Probe::Failed("the tool list has too many pages".to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "mcp_probe_tests.rs"]
 mod tests;

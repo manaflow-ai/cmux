@@ -305,6 +305,6 @@ fn cmux_json(args: &[&str]) -> Result<Value> {
         .with_context(|| format!("cmux {} printed no JSON", args.join(" ")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "group_tests.rs"]
 mod tests;

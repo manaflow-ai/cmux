@@ -147,6 +147,6 @@ pub fn recorded(msg: &Value) -> Option<PromptClass> {
     msg.get("class").and_then(Value::as_str).and_then(PromptClass::parse)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_class_tests.rs"]
 mod tests;

@@ -493,6 +493,6 @@ fn append_line(path: &std::path::Path, taken: &Taken) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "session_lifecycle_tests.rs"]
 mod tests;

@@ -54,6 +54,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "review_brief_tests.rs"]
 mod tests;

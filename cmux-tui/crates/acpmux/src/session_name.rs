@@ -138,6 +138,6 @@ pub fn ambiguous(key: &str, matched: &[String]) -> crate::rpc::RpcError {
     .with_data(serde_json::json!({"reason": "ambiguous_session", "candidates": shown}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_name_tests.rs"]
 mod tests;

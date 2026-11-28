@@ -791,5 +791,5 @@ impl Seed {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests;

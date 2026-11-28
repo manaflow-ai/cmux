@@ -460,6 +460,6 @@ pub async fn main(
     Ok(())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "exec_conformance_tests.rs"]
 mod tests;

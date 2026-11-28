@@ -58,6 +58,6 @@ where
     failed
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_tools_tests.rs"]
 mod tests;

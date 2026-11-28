@@ -207,6 +207,6 @@ mod imp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mac_lock_tests.rs"]
 mod tests;

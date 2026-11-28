@@ -232,7 +232,7 @@ pub fn note_start_outcome(host: &str, error: Option<&crate::rpc::RpcError>) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

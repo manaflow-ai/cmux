@@ -329,6 +329,6 @@ fn report(id: &str, results: &[Value], json_out: bool, gone_ok: bool) -> Result<
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_queue_tests.rs"]
 mod tests;

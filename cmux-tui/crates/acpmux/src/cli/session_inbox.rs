@@ -208,6 +208,6 @@ pub fn describe(reply: &Value) -> String {
     format!("Sent into thread {} (promptId {}).", s(&reply["threadId"]), s(&reply["promptId"]))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_inbox_tests.rs"]
 mod tests;

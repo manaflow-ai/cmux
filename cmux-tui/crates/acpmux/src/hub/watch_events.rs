@@ -396,6 +396,6 @@ fn emit(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "watch_events_tests.rs"]
 mod tests;

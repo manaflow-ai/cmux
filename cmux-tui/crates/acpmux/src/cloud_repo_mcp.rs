@@ -446,7 +446,7 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
     error.set("retry", retry);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 
@@ -636,7 +636,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod bridge_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;

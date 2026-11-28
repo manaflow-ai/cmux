@@ -138,6 +138,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_authority_tests.rs"]
 mod tests;

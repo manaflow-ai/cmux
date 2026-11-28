@@ -168,7 +168,7 @@ pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, fami
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     /// A tool call's wait cap is that call's alone: neither the daemon a capped call starts nor
     /// an agent or background task it runs keeps it (`TURN_SCOPED_ENV`), so a background

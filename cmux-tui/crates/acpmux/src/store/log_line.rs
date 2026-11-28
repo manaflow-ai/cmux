@@ -408,6 +408,6 @@ pub(super) fn first_seq(path: &Path) -> Result<Option<u64>> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "log_line_tests.rs"]
 mod tests;

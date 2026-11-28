@@ -203,6 +203,6 @@ fn flush_shared(shared: &Shared, budget: Duration) -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "log_sink_tests.rs"]
 mod tests;

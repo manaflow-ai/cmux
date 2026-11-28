@@ -354,6 +354,6 @@ fn cancel_token(params: &Value) -> serde_json::Map<String, Value> {
     mux
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "fork_through_tests.rs"]
 mod tests;

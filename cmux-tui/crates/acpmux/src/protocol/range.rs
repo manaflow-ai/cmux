@@ -96,6 +96,6 @@ pub fn refusal(ours: AbiRange, theirs: AbiRange) -> crate::rpc::RpcError {
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "range_tests.rs"]
 mod range_tests;

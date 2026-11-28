@@ -63,6 +63,6 @@ where
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "persist_retry_tests.rs"]
 mod tests;

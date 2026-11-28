@@ -53,6 +53,6 @@ pub fn describe(reply: &Value) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_turn_cap_tests.rs"]
 mod tests;

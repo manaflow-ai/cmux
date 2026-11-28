@@ -287,6 +287,6 @@ pub(super) fn reply(id: Value, answer: Result<Value, RpcError>) -> crate::rpc::M
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "dual_requests_tests.rs"]
 mod tests;

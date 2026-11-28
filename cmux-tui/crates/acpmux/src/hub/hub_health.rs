@@ -122,6 +122,6 @@ impl HealthHosts {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "hub_health_tests.rs"]
 mod tests;

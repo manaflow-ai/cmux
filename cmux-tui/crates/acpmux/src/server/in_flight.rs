@@ -240,6 +240,6 @@ impl Drop for InFlight {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "in_flight_tests.rs"]
 mod tests;

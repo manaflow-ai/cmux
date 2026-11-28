@@ -2057,18 +2057,18 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
     json!({"type": "text", "text": format!("<restored_transcript note=\"{note}\">\n{transcript}\n</restored_transcript>\n")})
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "close_why_tests.rs"]
 mod close_why_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "exit_notify_tests.rs"]
 mod exit_notify_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "first_acceptance_tests.rs"]
 mod first_acceptance_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "set_mode_unchanged_tests.rs"]
 mod set_mode_unchanged_tests;

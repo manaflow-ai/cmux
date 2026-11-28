@@ -118,6 +118,6 @@ impl LocalStore {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "sealed_segments_tests.rs"]
 mod tests;

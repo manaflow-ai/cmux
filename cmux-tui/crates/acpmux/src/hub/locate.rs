@@ -769,6 +769,6 @@ fn link_of(s: &Value, host: Option<&str>) -> Value {
     link.web_url().map_or(Value::Null, Value::String)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "locate_tests.rs"]
 mod tests;

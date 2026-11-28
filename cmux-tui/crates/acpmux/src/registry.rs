@@ -664,6 +664,6 @@ pub async fn refresh(home: &Path) -> Result<bool, String> {
     save(home, &body)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "registry_tests.rs"]
 mod tests;

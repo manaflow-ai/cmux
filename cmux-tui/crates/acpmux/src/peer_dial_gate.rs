@@ -244,6 +244,6 @@ impl Slots {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_dial_gate_tests.rs"]
 mod tests;

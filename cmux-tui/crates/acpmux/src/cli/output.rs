@@ -1485,7 +1485,7 @@ fn reply_of_turn(events: &[Value], turn: &str) -> Option<String> {
 /// The last `count` assistant replies of a session, oldest first (`cli/last_reply.rs`).
 pub(crate) use super::last_reply::last_replies;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod no_turn_tests {
     use super::ran_no_turn;
     use serde_json::json;
@@ -1504,7 +1504,7 @@ mod no_turn_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod prompt_tests {
     use super::*;
     use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};

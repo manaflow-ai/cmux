@@ -12,6 +12,6 @@ pub(super) async fn request(peer: &Peer, method: &str, params: Value) -> Result<
     peer.request(method, params).await
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "peer_targeted_tests.rs"]
 mod tests;

@@ -237,6 +237,6 @@ pub(crate) fn forget(session: &str) {
     LAST.lock().unwrap_or_else(PoisonError::into_inner).remove(session);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_frames_shape_tests.rs"]
 mod tests;

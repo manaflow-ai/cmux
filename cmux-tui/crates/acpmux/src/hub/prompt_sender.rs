@@ -195,6 +195,6 @@ fn origin_fields(sender: &mut Map<String, Value>, provenance: Option<&Value>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "prompt_sender_tests.rs"]
 mod tests;

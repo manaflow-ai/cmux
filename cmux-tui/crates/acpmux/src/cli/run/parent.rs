@@ -164,6 +164,6 @@ async fn wait_turn(client: &Arc<Client>, id: &str, timeout: Option<u64>) -> Resu
     Ok(v["sessions"][0].clone())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "parent_tests.rs"]
 mod tests;

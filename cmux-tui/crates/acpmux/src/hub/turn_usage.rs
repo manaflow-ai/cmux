@@ -219,6 +219,6 @@ fn generic_usage(usage: Option<&Value>, fresh_harness: bool) -> TurnUsage {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_usage_tests.rs"]
 mod tests;

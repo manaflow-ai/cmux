@@ -52,6 +52,6 @@ impl<R: AsyncBufRead + Unpin> LossyLines<R> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "lossy_lines_tests.rs"]
 mod tests;

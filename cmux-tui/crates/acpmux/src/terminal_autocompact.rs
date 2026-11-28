@@ -114,6 +114,6 @@ pub fn terminal_autocompact(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "terminal_autocompact_tests.rs"]
 mod tests;

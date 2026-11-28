@@ -247,6 +247,6 @@ fn resolve(program: &str, cwd: &Path, env: &[(String, Option<String>)]) -> Optio
     crate::config::which_in(&path, program).map(PathBuf::from)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "codex_repo_gate_tests.rs"]
 mod tests;

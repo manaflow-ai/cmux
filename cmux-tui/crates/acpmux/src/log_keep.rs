@@ -127,6 +127,6 @@ fn stdout_is(_path: &Path) -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "log_keep_tests.rs"]
 mod tests;

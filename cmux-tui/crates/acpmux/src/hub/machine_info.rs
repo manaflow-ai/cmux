@@ -152,6 +152,6 @@ trait Pipe: Sized {
 
 impl<T> Pipe for T {}
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "machine_info_tests.rs"]
 mod tests;

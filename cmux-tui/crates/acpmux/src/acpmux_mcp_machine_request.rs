@@ -108,6 +108,6 @@ async fn ask_socket(socket: &std::path::Path, line: &Value) -> Result<Value, Str
         .map_err(|_| "the machine request had no answer in 90 s".to_owned())?
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_machine_request_tests.rs"]
 mod tests;

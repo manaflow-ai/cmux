@@ -748,7 +748,7 @@ fn unlocked(file: &std::fs::File) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
     use crate::hub::inbox::Item;

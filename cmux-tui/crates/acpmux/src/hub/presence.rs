@@ -951,7 +951,7 @@ fn note(chat: &str, participants: &[Participant]) -> Value {
     json!({"sessionId": chat, "participants": participants})
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

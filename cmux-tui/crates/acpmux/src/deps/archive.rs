@@ -520,7 +520,7 @@ pub fn unpack(
     result.map(|()| out)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
 

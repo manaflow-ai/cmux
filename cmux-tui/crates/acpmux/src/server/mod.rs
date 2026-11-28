@@ -36,7 +36,7 @@ mod accounts;
 #[cfg(test)]
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "acp_list_tests.rs"]
 mod acp_list_tests;
 mod agent_home;
@@ -51,10 +51,10 @@ mod autocloud_enroll;
 pub(crate) mod bg_rearm;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "cancel_classes_tests.rs"]
 mod cancel_classes_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 pub mod carrier;
@@ -62,25 +62,25 @@ mod change_kind;
 /// Agent byte channels (design A1, RFD 0164 B9).
 pub(crate) mod channels;
 mod chat_place;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "chat_window_activity_tests.rs"]
 mod chat_window_activity_tests;
 mod chat_windows;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
 mod chats;
 mod chunk_deltas;
 pub(crate) mod client_features;
 mod client_request;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "compressed_link_tests.rs"]
 mod compressed_link_tests;
 pub(crate) mod computer_use_relay;
 pub mod conn_auth;
 pub(crate) mod conn_handover;
 mod connection_loop;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 pub(crate) mod connections;
@@ -91,11 +91,11 @@ pub(crate) mod dual_requests;
 mod durable_gate;
 mod ephemeral;
 mod fanout;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "fanout_encode_tests.rs"]
 mod fanout_encode_tests;
 // Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "fanout_interest_tests.rs"]
 mod fanout_interest_tests;
 mod felt;
@@ -115,31 +115,31 @@ pub(crate) mod host_notice;
 pub(crate) mod host_power;
 mod http_refusal;
 mod in_flight;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "inbox_gate_tests.rs"]
 mod inbox_gate_tests;
 pub(crate) mod interest;
 mod inventory_watch;
 pub(crate) mod joined_capacity;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod key_route_tests;
 mod keys_relay;
 mod lane_parent;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
 mod link_v2_serve;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "list_fit_tests.rs"]
 mod list_fit_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "list_follow_link_tests.rs"]
 mod list_follow_link_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "list_pending_tests.rs"]
 mod list_pending_tests;
 mod list_reply;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "list_web_page_tests.rs"]
 mod list_web_page_tests;
 pub mod local_app;
@@ -158,21 +158,21 @@ mod mesh_control_send;
 pub(crate) mod mesh_direct;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod message_notice_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "mirror_relay_tests.rs"]
 mod mirror_relay_tests;
 mod models_fanout;
 mod move_targets;
 mod new_worktree;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod nodelay_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "omit_time_breakdown_rows_tests.rs"]
 mod omit_time_breakdown_rows_tests;
 mod outbound;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod outbound_queue_tests;
 pub(crate) mod outbox;
 mod pairing;
@@ -186,7 +186,7 @@ pub(crate) mod peer_status;
 mod peer_targeted;
 pub mod peer_text;
 mod pending;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "person_prove_tests.rs"]
 mod person_prove_tests;
 mod place;
@@ -205,10 +205,10 @@ mod races;
 mod reader_bound_bench;
 mod redact;
 pub(crate) mod remote_guard;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "reply_size_tests.rs"]
 mod reply_size_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod request_admission_tests;
 mod requests;
 mod review_queue;
@@ -217,34 +217,34 @@ mod run_elsewhere;
 mod secrets;
 mod send_check;
 mod send_hop;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod send_hop_tests;
 mod session_auth;
 mod session_files;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
 pub(crate) mod session_patch;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "session_patch_peer_tests.rs"]
 mod session_patch_peer_tests;
 mod share_host;
 pub(crate) mod shutdown_drain;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "shutdown_drain_tests.rs"]
 mod shutdown_drain_tests;
 mod sign_in_follow;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[cfg(unix)]
 #[path = "socket_access_tests.rs"]
 mod socket_access_tests;
 pub(crate) mod ssh_carry;
 mod stream;
 mod stream_cursor;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "stream_cursor_tests.rs"]
 mod stream_cursor_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "stream_prev_tests.rs"]
 mod stream_prev_tests;
 mod subsessions;
@@ -283,7 +283,7 @@ mod vault;
 mod view;
 mod vm_host;
 pub(crate) mod wait;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[cfg(unix)]
 #[path = "wake_held_tests.rs"]
 mod wake_held_tests;

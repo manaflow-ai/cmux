@@ -25,6 +25,6 @@ pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::UnexpectedEof
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "accept_errors_tests.rs"]
 mod tests;

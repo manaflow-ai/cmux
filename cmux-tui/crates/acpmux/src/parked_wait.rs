@@ -291,6 +291,6 @@ pub fn main(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "parked_wait_tests.rs"]
 mod tests;

@@ -318,6 +318,6 @@ pub(in crate::hub) fn error_reset_at(data: Option<&Value>, now_ms: u64) -> Optio
     data.and_then(|v| walk(v, now_ms))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "reset_hint_tests.rs"]
 mod tests;

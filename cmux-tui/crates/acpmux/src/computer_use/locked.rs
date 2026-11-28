@@ -131,6 +131,6 @@ fn mark(outcome: Outcome) -> Value {
     result
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "locked_tests.rs"]
 mod tests;

@@ -80,6 +80,6 @@ impl PurgeTombstones {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "purge_tombstones_tests.rs"]
 mod tests;

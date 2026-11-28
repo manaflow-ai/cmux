@@ -702,7 +702,7 @@ fn query_component(value: &str) -> String {
     encoded
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 
@@ -1119,6 +1119,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mesh_http_team_tests.rs"]
 mod team_tests;

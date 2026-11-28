@@ -228,6 +228,6 @@ pub(super) fn bin_dir(argv: &[String]) -> Option<&Path> {
     Some(parts(argv)?.bin)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "bun_tests.rs"]
 mod tests;

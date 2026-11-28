@@ -832,6 +832,6 @@ fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
     v.get(k).unwrap_or(&Value::Null)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_pull_tests.rs"]
 mod tests;

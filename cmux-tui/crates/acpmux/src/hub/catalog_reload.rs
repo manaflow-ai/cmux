@@ -288,6 +288,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "catalog_reload_tests.rs"]
 mod tests;

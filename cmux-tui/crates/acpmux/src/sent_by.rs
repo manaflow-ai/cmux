@@ -290,6 +290,6 @@ pub(crate) fn stamp_send(hub: &crate::hub::Hub, prompt: &mut Value, caller: &str
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sent_by_tests.rs"]
 mod tests;

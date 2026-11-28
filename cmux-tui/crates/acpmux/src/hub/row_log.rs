@@ -378,6 +378,6 @@ pub(crate) fn with_cursor(text: &str, head: u64, epoch: &str, reset: bool) -> St
     format!("{{\"listEpoch\":{epoch},\"listSeq\":{head}{reset}{comma}{rest}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "row_log_tests.rs"]
 mod tests;

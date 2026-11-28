@@ -549,6 +549,6 @@ pub fn same_model(entry: Option<&crate::catalog::CatalogHarness>, a: &str, b: &s
     id(a) == id(b)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "model_catalog_tests.rs"]
 mod alias_tests;

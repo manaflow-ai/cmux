@@ -609,10 +609,10 @@ impl WindowState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "window_scale_tests.rs"]
 mod scale_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "window_tests.rs"]
 mod tests;

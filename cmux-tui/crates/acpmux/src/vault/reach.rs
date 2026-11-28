@@ -362,6 +362,6 @@ fn env_file_names(path: &Path) -> io::Result<Vec<String>> {
         .collect())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "reach_tests.rs"]
 mod tests;

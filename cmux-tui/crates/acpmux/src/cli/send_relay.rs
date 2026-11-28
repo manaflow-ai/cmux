@@ -621,6 +621,6 @@ pub(crate) fn send_with_deadline(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "send_relay_tests.rs"]
 mod tests;

@@ -316,6 +316,6 @@ fn str_of(v: &Value) -> &str {
     v.as_str().unwrap_or("?")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "watch_tests.rs"]
 mod tests;

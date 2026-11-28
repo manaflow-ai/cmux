@@ -319,6 +319,6 @@ pub fn answered_by(device: Option<Value>, author: Option<&Author>) -> Option<Val
     Some(by)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "author_tests.rs"]
 mod tests;

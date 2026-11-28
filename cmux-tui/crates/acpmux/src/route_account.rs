@@ -291,7 +291,7 @@ pub fn switch_allowed(current: Option<&Path>, to: &Route) -> Result<(), RouteErr
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod shadow_base_tests {
     use super::*;
 

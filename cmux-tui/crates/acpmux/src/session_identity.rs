@@ -82,6 +82,6 @@ pub fn routed_id(session: &Value) -> anyhow::Result<String> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_identity_tests.rs"]
 mod tests;

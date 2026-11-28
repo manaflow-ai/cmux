@@ -239,6 +239,6 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "secret_mcp_tests.rs"]
 mod tests;

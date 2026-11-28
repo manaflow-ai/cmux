@@ -420,6 +420,6 @@ pub(crate) fn moves() -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "scope_tests.rs"]
 mod tests;

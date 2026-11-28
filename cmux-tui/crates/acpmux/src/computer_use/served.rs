@@ -157,6 +157,6 @@ pub(crate) fn has(session: &str) -> bool {
     bridges().contains_key(session)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "served_tests.rs"]
 mod tests;

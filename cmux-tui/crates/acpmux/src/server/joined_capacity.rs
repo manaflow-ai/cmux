@@ -97,6 +97,6 @@ pub(crate) async fn capacity_now(hub: &Hub, host: &str) -> Option<Capacity> {
     capacity_from(host, &reading)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "joined_capacity_tests.rs"]
 mod tests;

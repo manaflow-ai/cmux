@@ -75,6 +75,6 @@ pub fn record_in(home: &Path, run: Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "update_inventory_tests.rs"]
 mod update_inventory_tests;

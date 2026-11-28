@@ -352,6 +352,6 @@ impl SubagentTree {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "subagent_expiry_tests.rs"]
 mod tests;

@@ -135,6 +135,6 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
 
 /// The classifier tests use finite tables; the real checks cover tmpfs and
 /// ext4 when available on the runner and report unsupported runner mounts.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "lookup_tests.rs"]
 mod tests;

@@ -190,6 +190,6 @@ mod imp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "oom_rank_tests.rs"]
 mod tests;

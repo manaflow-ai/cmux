@@ -310,5 +310,5 @@ pub fn cut(s: &str, max: usize) -> &str {
     &s[..end]
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;

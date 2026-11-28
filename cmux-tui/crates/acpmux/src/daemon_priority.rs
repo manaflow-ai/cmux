@@ -315,6 +315,6 @@ mod imp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "daemon_priority_tests.rs"]
 mod tests;

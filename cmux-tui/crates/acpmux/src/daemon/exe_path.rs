@@ -375,6 +375,6 @@ pub fn peer_shutdown_refusal(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "exe_path_tests.rs"]
 mod tests;

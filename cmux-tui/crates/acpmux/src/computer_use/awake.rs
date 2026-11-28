@@ -89,6 +89,6 @@ impl DisplayAwake {
     pub fn touch(&mut self) {}
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "awake_tests.rs"]
 mod tests;

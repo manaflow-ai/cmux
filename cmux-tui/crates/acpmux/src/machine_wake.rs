@@ -107,6 +107,6 @@ pub(crate) fn run_peer_wake(argv: &[String], limit: std::time::Duration) -> Resu
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_wake_tests.rs"]
 mod tests;

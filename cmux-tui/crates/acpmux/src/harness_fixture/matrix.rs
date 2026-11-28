@@ -246,6 +246,6 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
     Ok(fixture)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "matrix_tests.rs"]
 mod tests;

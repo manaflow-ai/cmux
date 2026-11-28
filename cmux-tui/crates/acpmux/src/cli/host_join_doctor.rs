@@ -966,6 +966,6 @@ pub fn run_here(_fix: bool, print: Print, out: &mut dyn std::io::Write) -> i32 {
     1
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_join_doctor_tests.rs"]
 mod tests;

@@ -307,6 +307,6 @@ fn harness_name(
     Some(name)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "sender_tests.rs"]
 mod tests;

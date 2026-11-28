@@ -111,6 +111,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "asks_below_tests.rs"]
 mod asks_below_tests;

@@ -26,6 +26,6 @@ fn select(environment: Option<&str>, development_build: bool) -> Result<Authorit
     Ok(authority)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "trigger_authority_tests.rs"]
 mod tests;

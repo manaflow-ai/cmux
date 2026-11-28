@@ -201,7 +201,7 @@ pub fn parent_tag(meta: &SessionMeta) -> Option<String> {
         .map(str::to_owned)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
     use crate::close_why::{CloseActor, CloseWhy};

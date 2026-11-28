@@ -640,6 +640,6 @@ impl Names {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "remote_rows_tests.rs"]
 mod tests;

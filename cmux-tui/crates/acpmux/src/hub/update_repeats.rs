@@ -118,6 +118,6 @@ fn is_empty(update: &Value) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "update_repeats_tests.rs"]
 mod tests;

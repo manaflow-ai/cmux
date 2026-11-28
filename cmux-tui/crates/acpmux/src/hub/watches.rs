@@ -582,7 +582,7 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
     use crate::{

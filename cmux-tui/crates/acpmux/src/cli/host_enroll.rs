@@ -1289,6 +1289,6 @@ fn harness(
     StepResult::new(Step::Harness, if fixed { StepState::Fixed } else { StepState::Ok }, detail)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_enroll_tests.rs"]
 mod tests;

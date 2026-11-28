@@ -379,10 +379,10 @@ fn chat_target(target: &Value) -> Option<Room> {
     Some(Room { place, headroom })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "place_chat_tests.rs"]
 mod place_chat_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "place_tests.rs"]
 mod tests;

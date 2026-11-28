@@ -612,5 +612,5 @@ impl Drop for OpenGuard {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;

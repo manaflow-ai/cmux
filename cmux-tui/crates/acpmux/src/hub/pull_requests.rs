@@ -659,6 +659,6 @@ fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "pull_requests_tests.rs"]
 mod tests;

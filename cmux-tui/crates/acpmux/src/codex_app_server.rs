@@ -26,7 +26,7 @@ mod message_phases;
 mod provider;
 pub use background::TERMINATE;
 mod usage_limits;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod usage_limits_tests;
 pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 
@@ -663,6 +663,6 @@ pub fn line(v: &Value) -> String {
     s
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_app_server_tests.rs"]
 mod tests;

@@ -163,6 +163,6 @@ fn read_at(path: &std::path::Path) -> Vec<Value> {
     text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "xhost_audit_tests.rs"]
 mod tests;

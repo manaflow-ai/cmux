@@ -587,6 +587,6 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "adopt_tools_tests.rs"]
 mod tests;

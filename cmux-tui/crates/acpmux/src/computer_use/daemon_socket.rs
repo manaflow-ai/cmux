@@ -173,6 +173,6 @@ fn app_base() -> Option<PathBuf> {
     None
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "daemon_socket_tests.rs"]
 mod tests;

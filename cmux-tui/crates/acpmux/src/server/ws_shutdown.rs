@@ -248,5 +248,5 @@ pub(super) async fn close<S: Sink<Frame> + Unpin>(sink: &mut S, restarting: bool
     let _ = tokio::time::timeout(CLOSE_BUDGET, sink.send(Frame::Close(frame))).await;
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests;

@@ -164,6 +164,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "unattended_ask_tests.rs"]
 mod tests;

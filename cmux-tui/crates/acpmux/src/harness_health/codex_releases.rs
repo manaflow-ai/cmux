@@ -75,6 +75,6 @@ pub(super) async fn fill(rows: &mut [HarnessHealth], previous: &[HarnessHealth])
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_releases_tests.rs"]
 mod tests;

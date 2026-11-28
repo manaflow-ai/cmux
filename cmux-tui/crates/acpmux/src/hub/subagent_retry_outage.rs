@@ -40,6 +40,6 @@ pub(super) fn attempt_delay(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subagent_retry_outage_tests.rs"]
 mod tests;

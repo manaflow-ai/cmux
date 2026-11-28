@@ -31,6 +31,6 @@ where
         .map(|name| (*name).clone())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "default_harness_auto_default_tests.rs"]
 mod auto_default_tests;

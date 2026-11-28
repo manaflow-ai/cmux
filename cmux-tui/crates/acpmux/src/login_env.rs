@@ -37,10 +37,10 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod cmux_cli_tests;
 mod machine;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod read_block_tests;
 mod watch;
 pub use watch::start as watch_startup_files;
@@ -1834,10 +1834,10 @@ fn startup_files() -> Vec<PathBuf> {
     files
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "login_env_machine_file_tests.rs"]
 mod machine_file_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "login_env_effective_tests.rs"]
 mod effective_tests;

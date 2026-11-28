@@ -107,6 +107,6 @@ pub(crate) fn package_key(manager: &str, package: &str) -> String {
     format!("{manager}:{name}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tool_installs_tests.rs"]
 mod tests;

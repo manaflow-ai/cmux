@@ -80,6 +80,6 @@ fn settings_delays(doc: &Value) -> Vec<u64> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "settings_tests.rs"]
 mod tests;

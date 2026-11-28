@@ -324,6 +324,6 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "transfer_service_tests.rs"]
 mod tests;

@@ -194,6 +194,6 @@ pub fn write_codex_beside(original: &Path, masked: &Masked) -> anyhow::Result<Pa
     Ok(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "surgery_codex_tests.rs"]
 mod tests;

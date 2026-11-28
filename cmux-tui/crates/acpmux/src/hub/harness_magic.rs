@@ -139,7 +139,7 @@ pub(crate) fn add_counter(msg: &mut Value, feature: &str, counter: &str, n: u64)
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

@@ -273,6 +273,6 @@ pub(crate) fn now_secs() -> u64 {
     cmux_hub_host::hub::now_ms() / 1000
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "approval_tests.rs"]
 mod tests;

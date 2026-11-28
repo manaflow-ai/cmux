@@ -199,6 +199,6 @@ impl HypervisorDriver for Box<dyn HypervisorDriver> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tests.rs"]
 mod tests;

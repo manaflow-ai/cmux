@@ -118,6 +118,6 @@ pub(super) fn safe_version(value: Option<&str>) -> Option<&str> {
     value.filter(|v| v.len() <= 64 && VERSION.is_match(v))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "inventory_tests.rs"]
 mod tests;

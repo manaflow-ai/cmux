@@ -936,6 +936,6 @@ pub(crate) fn consensus_enabled() -> bool {
     consensus_enabled_with(doc.as_ref(), env.as_deref())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "surge_triage_tests.rs"]
 mod tests;

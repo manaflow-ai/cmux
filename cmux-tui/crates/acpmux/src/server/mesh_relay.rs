@@ -1703,7 +1703,7 @@ fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
@@ -2211,7 +2211,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod slot_tests;
 
 mod delivery;

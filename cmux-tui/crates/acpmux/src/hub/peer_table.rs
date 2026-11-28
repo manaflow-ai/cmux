@@ -104,6 +104,6 @@ impl std::ops::Deref for PeerGuard<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_table_tests.rs"]
 mod tests;

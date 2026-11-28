@@ -316,6 +316,6 @@ pub(crate) fn key_of(
     format!("{}-{digest}", ecosystem.name())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "detect_tests.rs"]
 mod tests;

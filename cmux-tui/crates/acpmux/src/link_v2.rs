@@ -605,7 +605,7 @@ impl Drop for ReaderEnd {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "link_v2_tests.rs"]
 mod tests;
 

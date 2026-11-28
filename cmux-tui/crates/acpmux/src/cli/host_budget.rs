@@ -134,6 +134,6 @@ pub(crate) fn verdicts_for(text: &str, now: u64) -> anyhow::Result<Value> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_budget_tests.rs"]
 mod tests;

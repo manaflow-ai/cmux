@@ -2118,10 +2118,10 @@ pub(crate) use clear::clear_offline;
 mod read;
 mod warm;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_snapshot_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "move_sim_tests.rs"]
 mod move_sim_tests;

@@ -443,6 +443,6 @@ pub(crate) fn listener_is_ours_or_gone(pid: u32) -> bool {
     pid == std::process::id() || pid == TOOK_OVER_FROM.load(Ordering::SeqCst) || !alive(pid)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "listener_handover_tests.rs"]
 mod tests;

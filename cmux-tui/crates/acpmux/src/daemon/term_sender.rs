@@ -88,6 +88,6 @@ fn parse_row(text: &str) -> Option<(i32, String)> {
     Some((ppid.parse().ok()?, command))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "term_sender_tests.rs"]
 mod tests;

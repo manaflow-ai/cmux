@@ -168,10 +168,10 @@ fn inbox(me: App, args: &Value) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_bridge_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_bridge_send_timeout_tests.rs"]
 mod send_timeout_tests;

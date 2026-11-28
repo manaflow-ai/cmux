@@ -253,6 +253,6 @@ pub fn wanted(
         && crate::codex_repo_gate::supported(program, cwd, probe_env)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "codex_dedupe_tests.rs"]
 mod tests;

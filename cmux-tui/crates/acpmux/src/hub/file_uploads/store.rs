@@ -317,7 +317,7 @@ pub(crate) fn is_stored_link(root: &Path, path: &Path, file: &std::fs::File) -> 
     held.is_file() && open.dev() == held.dev() && open.ino() == held.ino()
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;

@@ -282,5 +282,5 @@ pub(super) fn projected(chat: &Chat) -> bool {
         && matches!(chat.state, State::Standby { .. } | State::Away | State::ComingHome { .. })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;

@@ -117,6 +117,6 @@ pub(super) fn render(leads: &[Value]) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_leads_tests.rs"]
 mod tests;

@@ -631,11 +631,11 @@ mod test_seam {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_watch_tests.rs"]
 mod deleted_target_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::{marker_is_uncommitted, takeover_allowed};
 

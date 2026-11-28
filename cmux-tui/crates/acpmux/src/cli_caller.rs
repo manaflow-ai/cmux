@@ -336,6 +336,6 @@ pub fn install_wrapper(_path: &std::path::Path, _script: &str) -> std::io::Resul
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no shell scripts here"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cli_caller_tests.rs"]
 mod tests;

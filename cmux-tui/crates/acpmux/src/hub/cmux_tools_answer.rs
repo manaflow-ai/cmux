@@ -82,6 +82,6 @@ pub fn inherited(
     env
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "cmux_tools_answer_tests.rs"]
 mod tests;

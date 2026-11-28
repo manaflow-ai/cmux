@@ -240,6 +240,6 @@ pub(crate) fn files_of(cwd: &std::path::Path) -> Files {
     Files { checkout: true, changed, unpushed }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "move_interrupts_tests.rs"]
 mod tests;

@@ -289,6 +289,6 @@ fn write(path: &Path, prompts: &[Saved]) -> io::Result<()> {
     written
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompts_tests.rs"]
 mod tests;

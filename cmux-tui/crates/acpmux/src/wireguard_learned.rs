@@ -274,6 +274,6 @@ impl Transport {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "wireguard_learned_tests.rs"]
 mod tests;

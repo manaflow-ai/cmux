@@ -273,6 +273,6 @@ fn serve(listener: &UnixListener, held: &[(&'static [u8; 4], OwnedFd)], within: 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "listener_keeper_tests.rs"]
 mod tests;

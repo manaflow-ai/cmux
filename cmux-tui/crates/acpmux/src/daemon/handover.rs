@@ -214,7 +214,7 @@ async fn ask_holder(socket: &Path, home: &Path, pid: u32) -> Ask {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
     use std::cell::Cell;

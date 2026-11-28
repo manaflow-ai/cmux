@@ -295,6 +295,6 @@ fn read_trimmed(path: &Path) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "git_state_tests.rs"]
 mod tests;

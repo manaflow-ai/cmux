@@ -205,30 +205,30 @@ fn key(text: &str) -> u64 {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "processes_index_tests.rs"]
 mod process_index_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "processes_active_tests.rs"]
 mod process_active_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "processes_page_tests.rs"]
 mod process_page_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "processes_shrink_tests.rs"]
 mod process_shrink_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "processes_workflow_tests.rs"]
 mod process_workflow_tests;
 
 #[path = "process_preview.rs"]
 mod preview;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "processes_preview_tests.rs"]
 mod process_preview_tests;
 
@@ -1902,6 +1902,6 @@ fn unknown_process(id: &str) -> RpcError {
     RpcError::not_found(format!("no background process {id:?}"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "processes_process_list_snapshot_tests.rs"]
 mod process_list_snapshot_tests;

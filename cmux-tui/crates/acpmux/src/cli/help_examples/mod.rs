@@ -114,5 +114,5 @@ fn attach_at(mut command: Command, path: &mut Vec<String>, front_door: bool) -> 
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod tests;

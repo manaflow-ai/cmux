@@ -204,6 +204,6 @@ pub fn read() -> Value {
     GLOBAL.lock_or_recover().read(now)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "frame_tally_tests.rs"]
 mod tests;

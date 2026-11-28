@@ -925,6 +925,6 @@ fn edit_keys<R>(
     Err(std::io::Error::other("no denied-calls file off unix"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "bg_hook_tests.rs"]
 mod tests;

@@ -447,5 +447,5 @@ fn fingerprint(kind: &str, prompt: &str, options: &Value) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;

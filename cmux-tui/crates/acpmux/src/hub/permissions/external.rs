@@ -168,5 +168,5 @@ fn read_error(path: &Path, error: std::io::Error) -> RpcError {
     RpcError::new(-32000, format!("read {}: {error}", path.display()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests;

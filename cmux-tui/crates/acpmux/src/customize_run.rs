@@ -240,6 +240,6 @@ pub(crate) async fn run(params: &Value) -> Result<Value, String> {
     Ok(json!({"ok": output.status.success(), "output": said}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "customize_run_tests.rs"]
 mod tests;

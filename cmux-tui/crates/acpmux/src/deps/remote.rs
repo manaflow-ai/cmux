@@ -334,6 +334,6 @@ fn code(body: &Value) -> &str {
     body.get("code").and_then(Value::as_str).unwrap_or("unknown")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "remote_tests.rs"]
 mod tests;

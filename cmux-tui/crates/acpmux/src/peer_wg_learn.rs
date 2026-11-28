@@ -141,6 +141,6 @@ impl Peer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_wg_learn_tests.rs"]
 mod tests;

@@ -311,6 +311,6 @@ pub fn global() -> &'static CallerStats {
     &GLOBAL
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "caller_stats_tests.rs"]
 mod tests;

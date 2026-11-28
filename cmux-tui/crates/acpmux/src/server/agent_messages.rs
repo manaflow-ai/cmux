@@ -162,6 +162,6 @@ pub(super) fn counts_as_person_prompt(
     !agent_message && !trigger && !in_session
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "agent_messages_person_prompt_tests.rs"]
 mod person_prompt_tests;

@@ -412,7 +412,7 @@ pub(crate) fn status() -> Value {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::{HELD_MAX, hold, take_held};
 

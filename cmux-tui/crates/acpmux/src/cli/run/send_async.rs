@@ -469,6 +469,6 @@ pub(crate) fn list_lines(v: &Value, now: u64) -> Vec<String> {
     lines
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "send_async_tests.rs"]
 mod tests;

@@ -734,7 +734,7 @@ fn reaped(pid: libc::pid_t) -> bool {
     got == pid || (got < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

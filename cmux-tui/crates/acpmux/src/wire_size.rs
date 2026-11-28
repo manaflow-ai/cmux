@@ -186,6 +186,6 @@ pub fn observe(what: What<'_>, bytes: usize) -> bool {
     GLOBAL.observe(what, bytes)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "wire_size_tests.rs"]
 mod tests;

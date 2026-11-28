@@ -617,12 +617,12 @@ async fn send(path: &Path, line: &Value) -> bool {
     matches!(tokio::time::timeout(SEND_TIMEOUT, write).await, Ok(Ok(())))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_activity_tests.rs"]
 mod tests;
 
 /// The report a fresh daemon sends for `at_work` at `now_ms`, for scenarios outside this module
 /// (`hub/agent_timer_tests.rs`).
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_activity_probe_tests.rs"]
 pub(crate) mod probe;

@@ -112,6 +112,6 @@ pub fn undeleted(path: PathBuf) -> PathBuf {
 #[cfg(test)]
 pub(crate) use tests::both as test_commands;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "self_command_tests.rs"]
 mod tests;

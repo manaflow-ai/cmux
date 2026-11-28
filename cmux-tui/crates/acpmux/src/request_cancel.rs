@@ -198,6 +198,6 @@ impl Cancelled {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "request_cancel_tests.rs"]
 mod tests;

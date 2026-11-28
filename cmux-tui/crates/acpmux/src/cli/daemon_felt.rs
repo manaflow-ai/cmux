@@ -56,6 +56,6 @@ pub(crate) fn render(v: &Value) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "daemon_felt_tests.rs"]
 mod tests;

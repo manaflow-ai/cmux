@@ -200,6 +200,6 @@ fn model(v: &Value) -> String {
         .to_owned()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "resolve_tests.rs"]
 mod tests;

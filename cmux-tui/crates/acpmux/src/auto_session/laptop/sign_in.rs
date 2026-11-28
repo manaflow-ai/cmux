@@ -172,6 +172,6 @@ impl OwnerSignIn for AppSignIn {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sign_in_tests.rs"]
 mod tests;

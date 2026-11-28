@@ -775,6 +775,6 @@ pub(super) fn drop_cache(file: &File) {
 #[cfg(not(target_os = "linux"))]
 pub(super) fn drop_cache(_file: &File) {}
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "compact_tests.rs"]
 mod tests;

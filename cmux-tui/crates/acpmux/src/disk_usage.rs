@@ -409,6 +409,6 @@ pub fn split_of(home: &Path, root: Root, same_disk: bool, walked: Walked, at: u6
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "disk_usage_tests.rs"]
 mod tests;

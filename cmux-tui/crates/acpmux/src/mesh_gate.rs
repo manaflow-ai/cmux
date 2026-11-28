@@ -91,6 +91,6 @@ fn window(failures: u32) -> Duration {
     FIRST_WINDOW.saturating_mul(1 << failures.saturating_sub(1).min(16)).min(MAX_WINDOW)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mesh_gate_tests.rs"]
 mod tests;

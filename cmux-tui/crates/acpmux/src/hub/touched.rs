@@ -403,6 +403,6 @@ fn set(v: &mut Value, key: &str, value: Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "touched_tests.rs"]
 mod tests;

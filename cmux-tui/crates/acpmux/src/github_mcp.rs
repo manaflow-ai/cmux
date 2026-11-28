@@ -516,6 +516,6 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "github_mcp_tests.rs"]
 mod tests;

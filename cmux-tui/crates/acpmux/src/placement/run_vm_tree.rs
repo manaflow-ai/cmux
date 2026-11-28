@@ -202,6 +202,6 @@ pub fn apply(_checkout: &Path, _delta: &TreeDelta) -> Result<usize, String> {
     Ok(0)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "run_vm_tree_tests.rs"]
 mod tests;

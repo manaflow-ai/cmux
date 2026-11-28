@@ -1930,7 +1930,7 @@ pub async fn wait_for_exit() -> bool {
     wait_for_lock_release_with_budget(home().join("daemon.lock"), Some(EXIT_BUDGET)).await
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "daemon/state_file_tests.rs"]
 mod state_file_tests;
 
@@ -1967,5 +1967,5 @@ fn keeps_chats_across_stop(hub: &Hub, memory_store: bool) -> bool {
     hub.agent_hosts_enabled() || !memory_store
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod keeps_chats_tests;

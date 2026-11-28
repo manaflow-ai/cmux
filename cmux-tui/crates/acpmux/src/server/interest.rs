@@ -349,6 +349,6 @@ impl Interest {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "interest_tests.rs"]
 mod tests;

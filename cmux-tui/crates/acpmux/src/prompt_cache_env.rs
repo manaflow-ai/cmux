@@ -159,6 +159,6 @@ fn names_capability(value: &str, cap: &str) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_cache_env_tests.rs"]
 mod tests;

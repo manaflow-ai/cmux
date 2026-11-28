@@ -167,6 +167,6 @@ impl Cache {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hunk_summary_tests.rs"]
 mod tests;

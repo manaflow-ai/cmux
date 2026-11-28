@@ -215,7 +215,7 @@ fn dead_now_in(_dirs: &[PathBuf], _session_id: &str, _start_nonce: &str) -> bool
     false
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod dead_now_tests {
     use super::*;
     use std::os::fd::AsRawFd;

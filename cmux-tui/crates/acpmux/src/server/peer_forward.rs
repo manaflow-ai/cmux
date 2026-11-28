@@ -1362,15 +1362,15 @@ pub(super) fn strip_new_meta(p: &mut Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "peer_forward_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "peer_forward_message_identity_tests.rs"]
 mod message_identity_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "row_read_tests.rs"]
 mod row_read_tests;
 
@@ -1385,13 +1385,13 @@ fn peer_feature_unsupported(peer: &crate::peer::Peer, m: &str, features: &[&str]
     .with_data(json!({"reason": "peerFeature.unsupported", "peer": peer.name, "features": features}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "peer_read_tests.rs"]
 mod peer_read_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "prompt_link_wait_tests.rs"]
 mod prompt_link_wait_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "prompt_held_tests.rs"]
 mod prompt_held_tests;

@@ -1752,37 +1752,37 @@ fn handed_away(d: &Delivery) -> bool {
     d.state == State::Delivered && d.accepted.as_ref().is_some_and(|a| a.get("handedTo").is_some())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_moved_next_tests.rs"]
 mod moved_next_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_no_session_next_tests.rs"]
 mod no_session_next_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_retry_delay_tests.rs"]
 mod retry_delay_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_redeliver_tests.rs"]
 mod redeliver_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_forward_projection_tests.rs"]
 mod forward_projection_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_relay_tests.rs"]
 mod relay_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_hub_queue_tests.rs"]
 mod hub_queue_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "outbox_direct_tests.rs"]
 mod direct_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "lost_message_tests.rs"]
 mod lost_message_tests;

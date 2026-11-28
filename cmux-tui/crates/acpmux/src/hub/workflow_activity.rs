@@ -999,6 +999,6 @@ fn child_session_env(
     env
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "workflow_activity_tests.rs"]
 mod tests;

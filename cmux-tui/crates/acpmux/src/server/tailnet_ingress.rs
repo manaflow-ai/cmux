@@ -341,6 +341,6 @@ async fn device_connection<S>(
     tokio::join!(transport, super::serve_connection_device(hub, incoming, output, device));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "tailnet_ingress_tests.rs"]
 mod tests;

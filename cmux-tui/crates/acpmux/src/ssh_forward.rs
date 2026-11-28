@@ -225,6 +225,6 @@ pub(crate) fn forward_argv(host: &str, local: &Path, remote: &str) -> Vec<String
     argv
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "ssh_forward_tests.rs"]
 mod tests;

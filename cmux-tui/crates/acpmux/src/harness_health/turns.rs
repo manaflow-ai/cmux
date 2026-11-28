@@ -71,6 +71,6 @@ impl Program {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "turns_tests.rs"]
 mod tests;

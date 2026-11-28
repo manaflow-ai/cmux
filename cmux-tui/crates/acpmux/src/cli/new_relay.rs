@@ -238,6 +238,6 @@ pub(crate) async fn start(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "new_relay_tests.rs"]
 mod tests;

@@ -615,6 +615,6 @@ async fn forget_timestamp(sudo: &Path) {
     let _ = tokio::time::timeout(Duration::from_secs(10), forget).await;
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "elevation_tests.rs"]
 mod tests;

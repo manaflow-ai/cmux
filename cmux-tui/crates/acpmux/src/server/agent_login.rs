@@ -515,7 +515,7 @@ pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_server, unix))]
 mod tests {
     use super::*;
     use crate::agent_credentials::{AgentCredential, CLAUDE_OAUTH};

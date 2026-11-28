@@ -198,6 +198,6 @@ fn strip_level(line: &str) -> Option<&str> {
     matches!(level, "ERROR" | "WARN" | "WARNING" | "INFO" | "DEBUG" | "TRACE").then_some(rest)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "stderr_tests.rs"]
 mod tests;

@@ -17,6 +17,6 @@ pub(super) fn session_refusal_code(info: &Value, interrupt: bool) -> Option<&'st
         .then_some("running_turn")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_move_preflight_tests.rs"]
 mod tests;

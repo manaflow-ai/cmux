@@ -52,6 +52,6 @@ impl Drop for ListSlot {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_list_slot_tests.rs"]
 mod tests;

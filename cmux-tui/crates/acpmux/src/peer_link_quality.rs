@@ -253,6 +253,6 @@ impl LinkQuality {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_link_quality_unit_tests.rs"]
 mod tests;

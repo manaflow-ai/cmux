@@ -124,6 +124,6 @@ pub fn carries_peer_token(url: &str) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "ws_auth_tests.rs"]
 mod tests;

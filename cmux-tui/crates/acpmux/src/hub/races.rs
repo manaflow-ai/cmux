@@ -921,6 +921,6 @@ async fn wait_transition(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "races_tests.rs"]
 mod tests;

@@ -319,6 +319,6 @@ fn link_error(e: RpcError) -> RpcError {
     RpcError::new(e.code, message).with_data(data)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "keys_relay_tests.rs"]
 mod tests;

@@ -1233,7 +1233,7 @@ impl Drop for AnsweringGuard {
 #[path = "peer_path_book.rs"]
 mod book;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_carriers_tests.rs"]
 mod tests;
 

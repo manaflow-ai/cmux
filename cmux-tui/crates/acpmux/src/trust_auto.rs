@@ -246,6 +246,6 @@ fn github_owner(url: &str) -> Option<String> {
     valid.then(|| owner.to_ascii_lowercase())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "trust_auto_tests.rs"]
 mod tests;

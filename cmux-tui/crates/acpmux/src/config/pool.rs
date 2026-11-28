@@ -101,6 +101,6 @@ pub fn spare_warm_enabled() -> bool {
     spare_env_allows(std::env::var(SPARE_WARM_ENV).ok().as_deref())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "pool_spare_tests.rs"]
 mod spare_tests;

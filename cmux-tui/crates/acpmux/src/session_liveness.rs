@@ -94,7 +94,7 @@ pub fn failure_error(summary: &Value) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod blocked_reply_tests {
     use super::{blocked_reply, failure_error, sandbox_failed};
     use serde_json::json;
@@ -233,6 +233,6 @@ fn classify(result: &Value, error: &str) -> Option<StuckReason> {
     turn_errors::is_transport_error(error).then_some(HarnessUnavailable)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_liveness_tests.rs"]
 mod tests;

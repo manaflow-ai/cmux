@@ -168,6 +168,6 @@ impl<C: AutoCloud + 'static> Ctx<C> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "give_tests.rs"]
 mod tests;

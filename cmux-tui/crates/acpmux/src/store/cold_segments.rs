@@ -1239,10 +1239,10 @@ fn keep_for_bench(session: &Path, index: u32, doc: &Index) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cold_segments_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cold_segments_race_tests.rs"]
 mod race_tests;

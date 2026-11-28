@@ -112,6 +112,6 @@ fn validate_owner_marker(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_auth_file_tests.rs"]
 mod tests;

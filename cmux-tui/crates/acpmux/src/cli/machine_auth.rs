@@ -301,6 +301,6 @@ pub fn run(json_out: bool) -> i32 {
     if ok { 0 } else { 1 }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "machine_auth_tests.rs"]
 mod tests;

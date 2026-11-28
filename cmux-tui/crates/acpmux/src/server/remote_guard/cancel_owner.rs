@@ -75,6 +75,6 @@ fn refused() -> RpcError {
     .with_data(serde_json::json!({"reason": REASON}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "cancel_owner_tests.rs"]
 mod tests;

@@ -171,6 +171,6 @@ pub fn past_budget(silent: Duration, late: Duration, starved: Duration, budget: 
     silent.saturating_sub(late.max(starved)) >= budget
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_starved_tests.rs"]
 mod tests;

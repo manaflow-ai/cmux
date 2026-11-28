@@ -54,13 +54,13 @@ pub(super) mod external;
 mod inbound;
 mod pending;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod delivery_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod inbound_close_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod repo_sync_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod review_policy_tests;
 
 impl Hub {
@@ -1480,7 +1480,7 @@ fn remember_stderr(tail: &mut std::collections::VecDeque<String>, clean: &str) {
     tail.push_back(short_text(clean, STDERR_LINE_CAP));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod stderr_tests {
     /// Each raw line through one session's stream into its tail, as `Inbound::Stderr` does.
     fn feed(lines: &[String]) -> Vec<String> {
@@ -1651,7 +1651,7 @@ fn probe_env(
     local(own)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod probe_env_tests {
     use std::collections::BTreeMap;
 

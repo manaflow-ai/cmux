@@ -178,6 +178,6 @@ where
     with_key(out, &key, !ran)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "idempotency_tests.rs"]
 mod tests;

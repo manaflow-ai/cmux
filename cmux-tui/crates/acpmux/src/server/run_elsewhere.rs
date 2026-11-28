@@ -245,6 +245,6 @@ fn write_script(run_id: &str, script: &str) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "run_elsewhere_tests.rs"]
 mod tests;

@@ -667,6 +667,6 @@ pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "folder_instructions_tests.rs"]
 mod tests;

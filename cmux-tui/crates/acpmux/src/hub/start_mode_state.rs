@@ -242,6 +242,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "start_mode_state_prompt_suggestions_state_tests.rs"]
 mod prompt_suggestions_state_tests;

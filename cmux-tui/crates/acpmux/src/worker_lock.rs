@@ -90,6 +90,6 @@ impl<T> RwLock<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "worker_lock_tests.rs"]
 mod tests;

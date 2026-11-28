@@ -90,6 +90,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "meta_line_order_tests.rs"]
 mod meta_line_order_tests;

@@ -180,6 +180,6 @@ fn codex_turns(records: impl Iterator<Item = Value>, orphan: bool) -> Vec<PastTu
     turns
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "transcript_page_tests.rs"]
 mod tests;

@@ -71,6 +71,6 @@ impl<X: HostRunner> HypervisorDriver for PodsDriver<X> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "pods_tests.rs"]
 mod tests;

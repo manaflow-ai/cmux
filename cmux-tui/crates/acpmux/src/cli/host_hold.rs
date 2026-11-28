@@ -215,6 +215,6 @@ fn change(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_hold_tests.rs"]
 mod tests;

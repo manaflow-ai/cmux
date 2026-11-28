@@ -329,6 +329,6 @@ async fn one(
 }
 
 // The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "session_move_snapshot_tests.rs"]
 mod tests;

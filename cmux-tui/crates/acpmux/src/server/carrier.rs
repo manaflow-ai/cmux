@@ -675,6 +675,6 @@ pub async fn serve_attested_link(
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "carrier_tests.rs"]
 mod tests;

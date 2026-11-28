@@ -157,6 +157,6 @@ pub fn set(summary: &mut Value, now_ms: u64) {
     summary["sessionState"] = state;
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "session_state_tests.rs"]
 mod tests;

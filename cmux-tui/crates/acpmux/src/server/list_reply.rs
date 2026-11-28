@@ -501,11 +501,11 @@ fn reply_line_parts(head: &str, result: &str) -> String {
     line
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "list_reply_tests.rs"]
 mod link_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
 

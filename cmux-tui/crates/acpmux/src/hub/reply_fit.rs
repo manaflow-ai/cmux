@@ -165,6 +165,6 @@ impl super::Session {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "reply_fit_tests.rs"]
 mod tests;

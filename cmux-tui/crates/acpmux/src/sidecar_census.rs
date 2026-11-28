@@ -829,6 +829,6 @@ pub(crate) fn classify(
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "sidecar_census_tests.rs"]
 mod tests;

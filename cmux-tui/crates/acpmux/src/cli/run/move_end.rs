@@ -381,6 +381,6 @@ fn gone_already(e: &anyhow::Error) -> bool {
 }
 
 // The fake daemon listens on a unix socket.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "move_end_tests.rs"]
 mod tests;

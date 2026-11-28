@@ -175,6 +175,6 @@ pub async fn check(provider: &str, key: &str, base: Option<&str>, timeout: Durat
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "key_check_tests.rs"]
 mod tests;

@@ -1029,7 +1029,7 @@ pub fn item_text(item: &Item) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "transcript_tests.rs"]
 mod tests;
 

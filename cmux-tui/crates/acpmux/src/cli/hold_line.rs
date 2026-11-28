@@ -45,6 +45,6 @@ fn span(ms: u64) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "hold_line_tests.rs"]
 mod tests;

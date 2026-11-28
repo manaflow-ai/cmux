@@ -815,7 +815,7 @@ impl MeshSlot {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod wire_tests {
     use super::*;
 
@@ -883,6 +883,6 @@ pub(crate) fn valid_team_suffix(value: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mesh_tests.rs"]
 mod tests;

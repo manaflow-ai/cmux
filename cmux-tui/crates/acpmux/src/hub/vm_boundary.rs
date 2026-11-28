@@ -209,6 +209,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "vm_boundary_tests.rs"]
 mod tests;

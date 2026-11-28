@@ -1969,6 +1969,6 @@ struct HostStartFailed {
     started: Option<agent_host::HostRecord>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "hosts_tests.rs"]
 mod hosts_tests;

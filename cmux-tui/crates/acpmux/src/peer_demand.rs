@@ -282,6 +282,6 @@ impl Peer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_demand_tests.rs"]
 mod tests;

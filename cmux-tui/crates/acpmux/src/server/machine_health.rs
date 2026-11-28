@@ -122,6 +122,6 @@ fn one_line(text: &str, max: usize) -> String {
     flat.trim().to_owned()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "machine_health_tests.rs"]
 mod tests;

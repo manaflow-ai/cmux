@@ -286,7 +286,7 @@ fn lagged(conn: &Conn, dropped: u64) -> serde_json::Value {
     if watch { json!({"dropped": dropped, "watch": true}) } else { json!({"dropped": dropped}) }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 pub(super) mod tests {
     /// A chat id with this prefix panics the fan-out task at its first delivery: no shared state,
     /// so parallel tests never trip each other (the test-hooks check, cmux#41350).

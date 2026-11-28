@@ -199,6 +199,6 @@ pub(crate) fn dial_order(nearest: Option<String>, platform: Vec<String>) -> Vec<
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_placed_tests.rs"]
 mod tests;

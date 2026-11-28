@@ -185,6 +185,6 @@ fn matches_id(model: &str, id: &str) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "pricing_tests.rs"]
 mod tests;

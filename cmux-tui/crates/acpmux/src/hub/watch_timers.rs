@@ -157,6 +157,6 @@ pub(super) fn delivery(w: &Watch, id: String, text: String, done: bool) -> Deliv
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "watch_timers_tests.rs"]
 mod tests;

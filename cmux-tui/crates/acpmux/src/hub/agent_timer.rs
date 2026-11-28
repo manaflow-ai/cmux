@@ -115,6 +115,6 @@ impl Hub {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 #[path = "agent_timer_tests.rs"]
 mod tests;

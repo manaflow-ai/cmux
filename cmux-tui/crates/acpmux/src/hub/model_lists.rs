@@ -245,6 +245,6 @@ fn tags(harness: &str, binary: Option<CacheKey>) -> Vec<ListTag> {
     tags
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "model_lists_tests.rs"]
 mod tests;

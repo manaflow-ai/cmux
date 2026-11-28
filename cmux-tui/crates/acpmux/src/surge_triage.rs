@@ -819,6 +819,6 @@ pub fn owner_digest(session: &str, owner: &str, lines: &[Line]) -> Option<String
     Some(render(head, session, &mine, false))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "surge_triage_tests.rs"]
 mod tests;

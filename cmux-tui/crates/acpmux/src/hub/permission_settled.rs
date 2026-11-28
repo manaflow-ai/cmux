@@ -49,6 +49,6 @@ impl Settled {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "permission_settled_tests.rs"]
 mod tests;

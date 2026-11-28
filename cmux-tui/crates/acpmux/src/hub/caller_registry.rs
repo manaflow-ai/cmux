@@ -210,7 +210,7 @@ fn read(path: &Path) -> Option<Registry> {
     parsed.inspect_err(|e| tracing::warn!("{FILE} not read: {e:#}")).ok()
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::*;
 

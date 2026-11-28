@@ -374,7 +374,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     failure.map_or(Ok(()), Err)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod tests {
     use super::*;
     use cmux_cloud_client::ApiError;

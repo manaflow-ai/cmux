@@ -363,7 +363,7 @@ fn attention_for_event(
     attention_for_record(kind, msg, session, seq)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod attention_tests {
     use super::{attention_for_event, attention_for_record};
     use serde_json::json;
@@ -1285,6 +1285,6 @@ impl Remembered {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_handoff_tests.rs"]
 mod tests;

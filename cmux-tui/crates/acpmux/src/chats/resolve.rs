@@ -189,6 +189,6 @@ pub fn find_on_disk(
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "resolve_tests.rs"]
 mod tests;

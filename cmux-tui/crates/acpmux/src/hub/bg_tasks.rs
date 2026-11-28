@@ -971,7 +971,7 @@ async fn bg_spawn(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod workflow_output_tests {
     use super::*;
     use base64::Engine;
@@ -1058,7 +1058,7 @@ mod workflow_output_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod wait_lock_tests {
     use super::*;
 

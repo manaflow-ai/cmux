@@ -100,6 +100,6 @@ fn distance(a: &[char], b: &[char]) -> usize {
     above.last().copied().unwrap_or(0)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mcp_hint_tests.rs"]
 mod tests;

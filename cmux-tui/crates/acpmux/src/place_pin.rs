@@ -130,6 +130,6 @@ pub fn write_marker(home: &Path, report: &Report) -> std::io::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "place_pin_tests.rs"]
 mod tests;

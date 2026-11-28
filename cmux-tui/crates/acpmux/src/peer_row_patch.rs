@@ -173,6 +173,6 @@ impl HeldRows {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_row_patch_tests.rs"]
 mod tests;

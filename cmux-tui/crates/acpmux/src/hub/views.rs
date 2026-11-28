@@ -1501,7 +1501,7 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
         && args.next().is_some_and(|a| a.as_ref() == "acp")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
 
@@ -1535,7 +1535,7 @@ pub(crate) fn render_row(inputs: &RowInputs) -> Value {
     summary
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod forks_any_turn_tests {
     use serde_json::json;
 
@@ -1584,7 +1584,7 @@ mod forks_any_turn_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "views_status_tests.rs"]
 mod status_tests;
 
@@ -1601,7 +1601,7 @@ fn daemon_login_session() -> Value {
     Value::Null
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod time_breakdown_tests {
     use super::*;
     use serde_json::json;
@@ -1692,11 +1692,11 @@ mod time_breakdown_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
 
 // Times thread CPU with clock_gettime, which windows-gnu libc lacks.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 #[path = "composer_status_cost_tests.rs"]
 mod composer_status_cost_tests;

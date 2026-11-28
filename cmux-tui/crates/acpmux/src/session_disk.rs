@@ -520,6 +520,6 @@ pub(crate) fn signal_group(pgid: i32, signal: i32) -> bool {
     unsafe { libc::kill(-pgid, signal) == 0 }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_disk_tests.rs"]
 mod tests;

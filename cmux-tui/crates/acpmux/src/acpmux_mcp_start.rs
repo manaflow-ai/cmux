@@ -288,6 +288,6 @@ async fn run_cli(
     run_bounded(command, "acpmux", argv, stdin, wait).await
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_start_tests.rs"]
 mod tests;

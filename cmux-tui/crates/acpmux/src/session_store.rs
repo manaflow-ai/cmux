@@ -197,6 +197,6 @@ pub(crate) fn shared() -> &'static Mutex<Watch> {
     WATCH.get_or_init(Default::default)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_store_tests.rs"]
 mod tests;

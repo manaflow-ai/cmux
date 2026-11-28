@@ -747,7 +747,7 @@ fn put_message_meta(provenance: &mut Value, taken: &Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod message_meta_tests {
     use super::{MESSAGE_META, marked, recorded};
     use serde_json::json;
@@ -1264,14 +1264,14 @@ pub fn sender_record_with_auth(
     record
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_provenance_sender_tests.rs"]
 mod sender_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_provenance_trigger_tests.rs"]
 mod trigger_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_provenance_notice_tests.rs"]
 mod notice_tests;

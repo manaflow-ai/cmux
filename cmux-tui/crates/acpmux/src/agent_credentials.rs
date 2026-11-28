@@ -726,6 +726,6 @@ pub fn codex_config_index(argv: &[String]) -> usize {
     argv.iter().skip(1).position(|a| a == "app-server").map_or(1, |i| i + 2).min(argv.len())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_credentials_tests.rs"]
 mod tests;

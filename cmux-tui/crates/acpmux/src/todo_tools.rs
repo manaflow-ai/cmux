@@ -135,6 +135,6 @@ pub fn forget(session: &str) {
     HELD.lock().unwrap_or_else(|e| e.into_inner()).chats.remove(session);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "todo_tools_tests.rs"]
 mod tests;

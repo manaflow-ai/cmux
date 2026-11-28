@@ -1387,6 +1387,6 @@ pub(crate) async fn update(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_update_tests.rs"]
 mod tests;

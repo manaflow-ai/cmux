@@ -47,6 +47,6 @@ pub(crate) fn other_build_hosts_line(status: &Value) -> Option<String> {
     Some(format!("hosts:    {n} {hosts} on another build than the daemon's"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "host_build_tests.rs"]
 mod tests;

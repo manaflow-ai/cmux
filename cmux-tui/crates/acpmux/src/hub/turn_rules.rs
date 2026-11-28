@@ -408,6 +408,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_rules_tests.rs"]
 mod tests;

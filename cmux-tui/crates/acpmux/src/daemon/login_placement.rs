@@ -248,6 +248,6 @@ pub(crate) fn job_home(job_print: &str) -> Option<std::path::PathBuf> {
         .flatten()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "login_placement_tests.rs"]
 mod tests;

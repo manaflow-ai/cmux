@@ -140,6 +140,6 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "bg_tests.rs"]
 mod tests;

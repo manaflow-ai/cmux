@@ -522,6 +522,6 @@ pub fn composer_status(facts: &SessionFacts<'_>) -> ComposerStatus {
     ComposerStatus { items, facts: out }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "composer_status_tests.rs"]
 mod tests;

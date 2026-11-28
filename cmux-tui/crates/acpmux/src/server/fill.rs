@@ -108,6 +108,6 @@ pub(super) fn follow(conn: &Arc<Conn>, asked: bool, session: &str, cwd: &Path) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "fill_tests.rs"]
 mod tests;

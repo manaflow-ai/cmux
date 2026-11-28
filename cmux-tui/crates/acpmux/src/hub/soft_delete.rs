@@ -281,6 +281,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "soft_delete_tests.rs"]
 mod tests;

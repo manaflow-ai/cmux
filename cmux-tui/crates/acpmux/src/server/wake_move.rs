@@ -109,6 +109,6 @@ async fn run(hub: &Arc<Hub>, plan: MovePlan) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "wake_move_tests.rs"]
 mod tests;

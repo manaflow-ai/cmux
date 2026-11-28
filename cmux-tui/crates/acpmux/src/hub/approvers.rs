@@ -368,6 +368,6 @@ pub fn unix_now() -> u64 {
         .unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "approvers_tests.rs"]
 mod tests;

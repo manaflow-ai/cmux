@@ -117,6 +117,6 @@ pub async fn run(cmd: HandCmd, json_out: bool) -> anyhow::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tests.rs"]
 mod tests;

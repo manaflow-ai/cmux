@@ -207,6 +207,6 @@ pub fn take_moved(
     Ok(json!({}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_park_tests.rs"]
 mod tests;

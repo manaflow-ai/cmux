@@ -248,6 +248,6 @@ pub fn cli(_cgroup: Option<String>, _probe: Probe) -> anyhow::Result<Report> {
     anyhow::bail!("the working-set probe needs Linux's cgroup v2 memory.reclaim")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "working_set_tests.rs"]
 mod tests;

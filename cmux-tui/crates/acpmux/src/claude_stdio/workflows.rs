@@ -616,6 +616,6 @@ impl JournalTail {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "workflows_journal_tests.rs"]
 mod journal_tests;

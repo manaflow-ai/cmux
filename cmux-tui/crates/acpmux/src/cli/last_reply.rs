@@ -216,6 +216,6 @@ fn is_mux(record: &Value, kind: &str) -> bool {
         && record.get("kind").and_then(Value::as_str) == Some(kind)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "last_reply_tests.rs"]
 mod tests;

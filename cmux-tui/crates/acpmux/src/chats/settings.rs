@@ -256,6 +256,6 @@ pub fn probe(path: &Path) -> Vec<RootSpec> {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "settings_tests.rs"]
 mod tests;

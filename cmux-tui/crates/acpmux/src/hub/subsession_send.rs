@@ -264,6 +264,6 @@ pub(super) fn doing(summary: &Value) -> Value {
     line.map_or(Value::Null, Value::String)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subsession_send_tests.rs"]
 mod tests;

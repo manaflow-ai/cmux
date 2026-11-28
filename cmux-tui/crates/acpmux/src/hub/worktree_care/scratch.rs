@@ -154,7 +154,7 @@ pub(crate) fn revive_claude_scratchpad(cwd: &Path) -> std::io::Result<bool> {
     })
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod claude_scratchpad_tests {
     use super::*;
     use std::os::unix::fs::MetadataExt as _;
@@ -201,7 +201,7 @@ mod claude_scratchpad_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};

@@ -65,6 +65,6 @@ pub fn own() -> Vec<&'static str> {
     ids
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "client_features_tests.rs"]
 mod tests;

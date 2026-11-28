@@ -207,6 +207,6 @@ impl Stats {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "stats_tests.rs"]
 mod tests;

@@ -374,6 +374,6 @@ fn fit(
     (start, end, updates)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subagent_transcript_tests.rs"]
 mod tests;

@@ -74,6 +74,6 @@ pub async fn run(args: NoticesArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "notices_tests.rs"]
 mod tests;

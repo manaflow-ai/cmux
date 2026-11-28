@@ -190,6 +190,6 @@ async fn read_with(
     Ok(crate::codex_app_server::read_usage_limits(&result).unwrap_or(Value::Null))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "usage_tests.rs"]
 mod tests;

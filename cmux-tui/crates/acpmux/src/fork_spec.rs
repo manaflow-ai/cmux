@@ -170,6 +170,6 @@ pub fn log(spec: &ForkSpec, parent: &str, fork: &str) {
     tracing::info!(event = EVENT, %parent, %fork, spec = %json, "{EVENT}");
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "fork_spec_tests.rs"]
 mod tests;

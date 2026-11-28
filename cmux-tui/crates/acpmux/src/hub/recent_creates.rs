@@ -87,6 +87,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "recent_creates_tests.rs"]
 mod tests;

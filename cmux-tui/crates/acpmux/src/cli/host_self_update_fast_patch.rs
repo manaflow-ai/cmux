@@ -157,6 +157,6 @@ pub(crate) fn detail(up: &PeerUpdate) -> String {
     parts.join("; ")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_self_update_fast_patch_tests.rs"]
 mod tests;

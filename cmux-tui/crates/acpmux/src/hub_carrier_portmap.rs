@@ -295,6 +295,6 @@ fn macos_gateway() -> Option<Ipv4Addr> {
     rt_dump_gateway(dump.get(..size)?, std::mem::size_of::<libc::rt_msghdr>())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_portmap_tests.rs"]
 mod tests;

@@ -248,6 +248,6 @@ pub fn auto_probe_allowed(route: &str) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "route_probe_tests.rs"]
 mod tests;

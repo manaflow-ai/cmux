@@ -82,6 +82,6 @@ pub fn merge(base: Value, over: Value) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "observe_tests.rs"]
 mod tests;

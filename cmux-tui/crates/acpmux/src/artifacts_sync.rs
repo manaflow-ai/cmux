@@ -981,6 +981,6 @@ pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", digest.finalize())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "artifacts_sync_tests.rs"]
 mod tests;

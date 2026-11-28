@@ -78,6 +78,6 @@ pub(crate) fn rate_text(rate: f64) -> String {
     if rate >= 1e6 { format!("{:.1} MB/s", rate / 1e6) } else { format!("{:.0} KB/s", rate / 1e3) }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_move_link_tests.rs"]
 mod tests;

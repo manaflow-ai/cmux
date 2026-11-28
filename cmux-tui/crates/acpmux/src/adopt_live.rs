@@ -331,6 +331,6 @@ fn acpmux_tree(procs: &[Proc]) -> HashSet<u32> {
     tree
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "adopt_live_tests.rs"]
 mod tests;

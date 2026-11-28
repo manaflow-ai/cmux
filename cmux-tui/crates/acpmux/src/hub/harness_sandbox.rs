@@ -170,6 +170,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "harness_sandbox_tests.rs"]
 mod tests;

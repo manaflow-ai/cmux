@@ -391,6 +391,6 @@ pub(crate) fn scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("hub carrier direct links"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_direct_tests.rs"]
 mod tests;

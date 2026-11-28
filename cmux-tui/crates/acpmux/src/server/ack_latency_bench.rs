@@ -476,6 +476,6 @@ async fn pane_reconnect_bench() {
 }
 
 // Declared here, not in `server/mod.rs`, which is over its size budget.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "log_read_ack_bench_tests.rs"]
 mod log_read_ack_bench;

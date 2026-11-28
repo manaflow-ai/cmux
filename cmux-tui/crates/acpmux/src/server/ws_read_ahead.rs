@@ -107,6 +107,6 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "ws_read_ahead_tests.rs"]
 mod tests;

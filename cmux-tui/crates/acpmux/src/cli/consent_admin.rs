@@ -73,6 +73,6 @@ pub(crate) fn set_if_admin(_surface: &str, _granted: bool) -> Result<Option<Cons
     Ok(None)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "consent_admin_tests.rs"]
 mod tests;

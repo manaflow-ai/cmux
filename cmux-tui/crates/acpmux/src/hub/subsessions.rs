@@ -1323,6 +1323,6 @@ fn text_block(text: &str) -> Vec<Value> {
     vec![json!({"type": "text", "text": text})]
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "subsessions_reply_tests.rs"]
 mod reply_tests;

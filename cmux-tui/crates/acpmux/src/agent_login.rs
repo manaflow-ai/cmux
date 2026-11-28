@@ -94,7 +94,7 @@ mod cursor_keychain;
 pub mod github;
 mod hot;
 pub mod parse;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 /// Listed in `initialize`'s `_meta.acpmux.features`: this daemon answers

@@ -274,6 +274,6 @@ async fn hold_fenced(active: &mut Option<Active>, stopping: &mut watch::Receiver
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "embedded_service_tests.rs"]
 mod tests;

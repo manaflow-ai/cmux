@@ -94,6 +94,6 @@ pub fn decide(rules: &Value, request: &Value) -> Option<RuleDecision> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "rules_tests.rs"]
 mod tests;

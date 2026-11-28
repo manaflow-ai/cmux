@@ -304,6 +304,6 @@ pub(crate) async fn power() -> Option<Power> {
     p
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "host_power_tests.rs"]
 mod tests;

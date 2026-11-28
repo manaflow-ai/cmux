@@ -129,6 +129,6 @@ pub fn into_event_value(session_id: &str, mut rec: EventRecord) -> Value {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "pending_tests.rs"]
 mod tests;

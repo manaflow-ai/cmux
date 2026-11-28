@@ -35,7 +35,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "watch_seed_tests.rs"]
 mod seed_tests;
 
@@ -43,7 +43,7 @@ mod seed_tests;
 mod tick;
 pub(crate) use tick::WatchTicker;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "watch_idle_tests.rs"]
 mod idle_tests;
 
@@ -898,6 +898,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "watch_tests.rs"]
 mod tests;

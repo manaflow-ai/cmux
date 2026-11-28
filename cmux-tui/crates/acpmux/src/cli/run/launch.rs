@@ -553,6 +553,6 @@ fn is_executable_file(path: &Path) -> bool {
     path.is_file()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "launch_tests.rs"]
 mod tests;

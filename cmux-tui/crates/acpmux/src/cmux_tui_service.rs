@@ -332,6 +332,6 @@ async fn read_early<R: AsyncRead + Unpin>(
     Ok(early)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cmux_tui_service_tests.rs"]
 mod tests;

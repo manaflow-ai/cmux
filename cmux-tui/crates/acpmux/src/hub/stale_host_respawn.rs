@@ -412,6 +412,6 @@ fn launched_file(_pid: u32) -> Option<FileId> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stale_host_respawn_tests.rs"]
 mod tests;

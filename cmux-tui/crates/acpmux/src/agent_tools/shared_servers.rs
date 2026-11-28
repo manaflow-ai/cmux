@@ -294,6 +294,6 @@ pub fn codex_with(
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "shared_servers_tests.rs"]
 mod tests;

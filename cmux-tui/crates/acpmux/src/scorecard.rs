@@ -765,6 +765,6 @@ pub fn to_value(card: &Scorecard) -> Value {
     serde_json::to_value(card).unwrap_or_else(|e| json!({"error": e.to_string()}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "scorecard_tests.rs"]
 mod tests;

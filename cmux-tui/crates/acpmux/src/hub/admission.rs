@@ -860,7 +860,7 @@ pub(crate) struct Ask<'a> {
 /// [`Ask::waiting`]: sends `_acpmux/admission_waiting`'s params to the creating connection.
 pub(crate) type Waiting<'a> = Box<dyn Fn(Value) + Send + Sync + 'a>;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

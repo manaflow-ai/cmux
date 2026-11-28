@@ -1250,6 +1250,6 @@ impl ForkView {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "fork_view_tests.rs"]
 mod tests;

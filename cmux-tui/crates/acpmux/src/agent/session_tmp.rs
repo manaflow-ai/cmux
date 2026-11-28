@@ -552,7 +552,7 @@ pub(crate) fn stale_for_daemon(
     stale(&per_user_base(), &crate::config::home(), user_home.as_deref(), known, closed)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     #[test]
     fn holds_only_the_session_temp_folders_in_either_spelling() {

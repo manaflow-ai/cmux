@@ -121,6 +121,6 @@ async fn read(root: &Path, relative: &str, kind: &'static str) -> Response {
     ("200 OK", body, kind)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "app_assets_tests.rs"]
 mod tests;

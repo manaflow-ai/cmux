@@ -315,6 +315,6 @@ pub(super) fn call(args: &Value) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_wrap_up_tests.rs"]
 mod tests;

@@ -256,6 +256,6 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
     Some((bytes, out_w, out_h))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "model_copies_tests.rs"]
 mod tests;

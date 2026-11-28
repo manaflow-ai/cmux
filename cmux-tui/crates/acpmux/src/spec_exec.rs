@@ -322,6 +322,6 @@ pub fn main(words: &[String]) -> i32 {
 }
 
 // unix only: the stand-in cargo is a /bin/sh script.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "spec_exec_tests.rs"]
 mod tests;

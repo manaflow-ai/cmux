@@ -432,6 +432,6 @@ fn not_connected(stderr: &str) -> bool {
     NEVER.iter().any(|m| stderr.contains(m))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "ssh_carry_tests.rs"]
 mod tests;

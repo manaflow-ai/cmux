@@ -73,6 +73,6 @@ pub(crate) fn no_answer(m: &str, bound: Duration) -> crate::rpc::RpcError {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "forward_wait_tests.rs"]
 mod tests;

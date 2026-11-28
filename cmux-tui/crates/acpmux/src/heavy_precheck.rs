@@ -397,6 +397,6 @@ fn one_line(command: &str) -> String {
     s
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "heavy_precheck_tests.rs"]
 mod tests;

@@ -620,6 +620,6 @@ pub(super) fn valid_team_address(address: &str) -> bool {
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "mesh_send_tests.rs"]
 mod tests;

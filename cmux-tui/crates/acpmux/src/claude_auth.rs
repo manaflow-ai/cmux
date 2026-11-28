@@ -612,6 +612,6 @@ fn compose(
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "claude_auth_tests.rs"]
 mod tests;

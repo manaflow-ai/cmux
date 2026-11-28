@@ -52,6 +52,6 @@ pub fn is_probe(text: &str) -> bool {
     replies == 1 && rest.iter().all(|word| REPLIES.contains(word) || FILLER.contains(word))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "probe_prompt_tests.rs"]
 mod tests;

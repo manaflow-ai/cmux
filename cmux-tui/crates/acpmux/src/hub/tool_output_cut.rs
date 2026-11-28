@@ -130,6 +130,6 @@ pub(super) fn cut_tool_output(
     (rec, after)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tool_output_cut_tests.rs"]
 mod tests;

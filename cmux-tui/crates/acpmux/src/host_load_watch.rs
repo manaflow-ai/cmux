@@ -421,6 +421,6 @@ fn read(cpu_before: Option<(u64, u64)>) -> (Sample, Option<(u64, u64)>) {
     (sample, None)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "host_load_watch_tests.rs"]
 mod tests;

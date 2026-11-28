@@ -289,6 +289,6 @@ fn skips_shown(seq: u64, next: u64, shown_through: u64) -> bool {
     seq > next && seq <= shown_through + 1
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fork_before_shown_tests.rs"]
 mod shown_tests;

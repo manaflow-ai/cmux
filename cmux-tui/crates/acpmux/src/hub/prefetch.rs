@@ -709,6 +709,6 @@ impl super::Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "prefetch_tests.rs"]
 mod tests;

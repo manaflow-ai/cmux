@@ -135,6 +135,6 @@ fn glob(pattern: &str, text: &str) -> bool {
     p.get(pi..).unwrap_or_default().iter().all(|&c| c == '*')
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "select_tests.rs"]
 mod tests;

@@ -805,7 +805,7 @@ pub fn import_opencode_with(cli: &Path, bundle: &Path, meta: &SessionMeta) -> Re
     Ok(true)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod private_copy_tests {
     /// A restored transcript is the owner's only, whatever the umask (review F2 on #41462).
     #[test]

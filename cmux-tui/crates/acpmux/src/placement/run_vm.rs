@@ -620,6 +620,6 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
 }
 
 // Forks are git checkouts whose executable bits the tests compare: unix only.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "run_vm_tests.rs"]
 mod tests;

@@ -124,6 +124,6 @@ pub async fn connect() -> Result<(Arc<Client>, bool), HandError> {
     Ok((client, proven))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "daemon_self_command_tests.rs"]
 mod self_command_tests;

@@ -209,6 +209,6 @@ impl Drop for WriteGuard<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "remote_table_tests.rs"]
 mod tests;

@@ -1610,6 +1610,6 @@ pub(crate) fn run_grantors(cmd: super::command_host::GrantorsCmd, json_out: bool
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "consent_grant_tests.rs"]
 mod tests;

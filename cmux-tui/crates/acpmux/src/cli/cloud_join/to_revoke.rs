@@ -223,7 +223,7 @@ pub(super) fn clear_self_revoke(home: &Path) {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod tests {
     use super::*;
 

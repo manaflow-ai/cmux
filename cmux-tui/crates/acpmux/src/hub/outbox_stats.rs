@@ -258,6 +258,6 @@ pub fn ls_line(stats: &Value) -> Option<String> {
     Some(line)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "outbox_stats_tests.rs"]
 mod tests;

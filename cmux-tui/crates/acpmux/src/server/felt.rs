@@ -21,6 +21,6 @@ pub(super) fn time_ack(started: Instant, on_accepted: OnAccepted) -> OnAccepted 
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "felt_tests.rs"]
 mod tests;

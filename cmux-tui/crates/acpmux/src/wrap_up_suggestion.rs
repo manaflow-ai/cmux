@@ -217,6 +217,6 @@ pub fn take(session: &str) -> Option<String> {
     WATCHES.lock().unwrap_or_else(|e| e.into_inner()).remove(session).and_then(|mut w| w.take())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "wrap_up_suggestion_tests.rs"]
 mod tests;

@@ -145,6 +145,6 @@ impl Shared {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "proc_table_tests.rs"]
 mod tests;

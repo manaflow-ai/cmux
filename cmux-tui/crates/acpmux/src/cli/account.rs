@@ -238,6 +238,6 @@ pub fn readiness_lines(reply: &Value) -> Vec<String> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "account_tests.rs"]
 mod tests;

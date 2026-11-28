@@ -537,7 +537,7 @@ pub fn render_counted(
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_table_tests.rs"]
 mod tests;
 

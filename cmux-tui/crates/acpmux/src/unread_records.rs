@@ -102,6 +102,6 @@ pub(crate) fn leave_out_resumed_history(line: &mut Value) -> bool {
     held
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "unread_records_tests.rs"]
 mod tests;

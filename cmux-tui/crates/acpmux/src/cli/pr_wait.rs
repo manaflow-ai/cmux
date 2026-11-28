@@ -593,6 +593,6 @@ pub async fn run(args: PrWaitArgs, json_out: bool) -> Result<()> {
     .await?
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "pr_wait_tests.rs"]
 mod tests;

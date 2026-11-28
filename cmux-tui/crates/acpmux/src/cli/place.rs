@@ -196,6 +196,6 @@ pub fn lines(v: &Value) -> Vec<String> {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "place_tests.rs"]
 mod tests;

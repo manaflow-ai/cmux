@@ -87,6 +87,6 @@ fn add_terminal_input(update: &mut Map<String, Value>) {
     update.insert("rawInput".into(), Value::Object(input));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tool_shell_tests.rs"]
 mod tests;

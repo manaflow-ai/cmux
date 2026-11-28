@@ -421,7 +421,7 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
     summary.prepare()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

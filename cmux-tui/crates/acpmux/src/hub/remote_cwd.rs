@@ -142,6 +142,6 @@ fn holds_no_checkout(dir: &Path, mut budget: usize) -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "remote_cwd_tests.rs"]
 mod tests;

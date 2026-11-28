@@ -697,6 +697,6 @@ pub enum Control {
     Peer,
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "web_control_mode_write_tests.rs"]
 mod mode_write_tests;

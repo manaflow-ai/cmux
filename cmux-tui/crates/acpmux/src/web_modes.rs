@@ -511,6 +511,6 @@ pub(crate) fn is_full_access(mode: &str) -> bool {
     full_access_markers().is_none_or(|markers| markers.iter().any(|m| folded.contains(m.as_str())))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "web_modes_remote_start_tests.rs"]
 mod remote_start_tests;

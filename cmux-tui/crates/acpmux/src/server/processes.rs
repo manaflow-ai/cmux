@@ -261,6 +261,6 @@ pub(super) fn push_update(conn: &Conn, ev: &HubEvent) {
     conn.send(&Message::notification(method::MUX_PROCESS_UPDATE, json!({"process": process})));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "processes_process_page_params_tests.rs"]
 mod process_page_params_tests;

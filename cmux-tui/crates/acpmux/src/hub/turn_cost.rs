@@ -143,6 +143,6 @@ pub(super) fn add_turn_cost(
     msg.insert("costReadyUs".into(), json!(ended.elapsed().as_micros() as u64));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_cost_tests.rs"]
 mod tests;

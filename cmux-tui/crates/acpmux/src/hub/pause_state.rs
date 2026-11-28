@@ -96,6 +96,6 @@ pub(crate) fn short_line(state: &PauseState) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "pause_state_tests.rs"]
 mod tests;

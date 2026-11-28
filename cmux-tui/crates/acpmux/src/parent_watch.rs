@@ -153,7 +153,7 @@ pub fn wait_for_parent(_parent: u32) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
     use std::io::{BufRead, BufReader, Read};

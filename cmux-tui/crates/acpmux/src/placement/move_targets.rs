@@ -160,6 +160,6 @@ pub(crate) fn ranked(
     (usable_hosts.iter().map(|h| name(h)).collect(), skipped)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "move_targets_tests.rs"]
 mod tests;

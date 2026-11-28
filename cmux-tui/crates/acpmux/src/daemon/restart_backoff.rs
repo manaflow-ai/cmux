@@ -70,6 +70,6 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "restart_backoff_tests.rs"]
 mod tests;

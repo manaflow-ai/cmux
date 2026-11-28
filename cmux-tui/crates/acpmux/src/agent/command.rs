@@ -874,7 +874,7 @@ fn host_env_allowed(key: &str) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     /// A remote-origin harness and its host start from [`super::host_environment`]: the `cmux`
     /// CLI it runs keeps this daemon's build space, so a dev build's agent never reaches

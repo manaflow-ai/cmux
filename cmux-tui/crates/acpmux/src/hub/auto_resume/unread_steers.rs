@@ -80,6 +80,6 @@ pub(super) fn with_unread(mut text: String, steers: &[String]) -> String {
     text
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "unread_steers_tests.rs"]
 mod tests;

@@ -203,6 +203,6 @@ pub(crate) async fn passed(point: &str, text: &str, passes: usize, within: Durat
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "supervise_tests.rs"]
 mod tests;

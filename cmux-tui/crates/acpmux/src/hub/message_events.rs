@@ -465,6 +465,6 @@ impl Drop for ProjectionRepairGuard {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "message_events_message_recovery_tests.rs"]
 mod message_recovery_tests;

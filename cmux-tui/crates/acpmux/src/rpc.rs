@@ -1363,7 +1363,7 @@ pub mod method {
     pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod bounded_tests {
     use super::*;
 
@@ -1401,7 +1401,7 @@ mod bounded_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod line_tests {
     use super::*;
     use serde_json::json;

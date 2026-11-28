@@ -182,6 +182,6 @@ pub(crate) fn wire(v: &Value) -> Value {
     if out.to_string().len() > WIRE_BYTES { Value::Object(Default::default()) } else { out }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_health_tests.rs"]
 mod tests;

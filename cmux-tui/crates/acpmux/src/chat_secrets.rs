@@ -165,6 +165,6 @@ pub(crate) fn apply(cmd: &mut tokio::process::Command, session: Option<&str>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "chat_secrets_tests.rs"]
 mod tests;

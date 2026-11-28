@@ -290,6 +290,6 @@ pub async fn run(args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "gh_shim_tests.rs"]
 mod tests;

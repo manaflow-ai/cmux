@@ -328,6 +328,6 @@ pub fn with_expiry(mut update: Value, expires_at_ms: Option<u64>) -> Value {
     update
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_cache_tests.rs"]
 mod tests;

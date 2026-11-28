@@ -916,7 +916,7 @@ fn on_loopback(listen: &str) -> bool {
         || listen.strip_prefix("localhost:").is_some_and(|port| port.parse::<u16>().is_ok())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "idle_tests.rs"]
 mod idle_tests;
 // Compact an idle Claude chat before its prompt cache expires.

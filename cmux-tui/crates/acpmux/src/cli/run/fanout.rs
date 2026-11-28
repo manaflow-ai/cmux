@@ -136,6 +136,6 @@ pub(super) fn print_info_fields(info: &Value, fields: &str, json_out: bool) -> R
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "fanout_tests.rs"]
 mod tests;

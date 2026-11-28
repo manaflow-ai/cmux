@@ -369,6 +369,6 @@ fn bounded_preview(text: &str, limit: usize) -> String {
     super::session::masked_preview(&head, limit)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "loop_detector_tests.rs"]
 mod tests;

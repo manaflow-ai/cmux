@@ -783,7 +783,7 @@ fn socket_inputs(
     (configured, absolute(home))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod autostart_pair_tests {
     use super::*;
 
@@ -822,7 +822,7 @@ mod autostart_pair_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod socket_input_tests {
     use super::*;
 
@@ -2199,9 +2199,9 @@ pub fn expand_env_value(
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod save_merge_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 #[cfg(test)]
@@ -2230,7 +2230,7 @@ pub fn web_url_for_session(url: &str, session: &str) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod web_url_tests {
     use super::web_url_for_session;
 

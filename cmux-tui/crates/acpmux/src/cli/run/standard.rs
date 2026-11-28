@@ -1992,7 +1992,7 @@ pub(crate) fn cpu_class_line(v: &Value) -> Option<String> {
     Some(line)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod tests {
     #[test]
     fn a_named_start_on_another_machine_keeps_its_name_when_taken() {

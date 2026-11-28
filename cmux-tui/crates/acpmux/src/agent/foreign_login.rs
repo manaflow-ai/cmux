@@ -359,6 +359,6 @@ pub(crate) fn scrub(cmd: &mut Command, name: &str, profile: &HarnessProfile) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "foreign_login_tests.rs"]
 mod tests;

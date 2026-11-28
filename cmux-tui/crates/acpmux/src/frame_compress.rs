@@ -107,6 +107,6 @@ pub fn inflate(bytes: &[u8], limit: usize) -> Result<String, String> {
     String::from_utf8(text).map_err(|_| "a compressed frame is not UTF-8 text".to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "frame_compress_tests.rs"]
 mod tests;

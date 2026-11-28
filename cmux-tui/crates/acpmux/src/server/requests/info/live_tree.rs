@@ -70,6 +70,6 @@ fn project(raw: &Value, now: f64) -> Value {
     json!({"available": true, "updated": updated, "seq": seq, "stale": stale, "lanes": lanes})
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "live_tree_tests.rs"]
 mod tests;

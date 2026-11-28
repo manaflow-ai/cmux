@@ -211,6 +211,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fork_hammer_tests.rs"]
 mod fork_hammer_tests;

@@ -480,6 +480,6 @@ pub(in crate::hub) fn seeded(dir: &Path, path: &str) -> bool {
         .is_some_and(|s| s.as_array().into_iter().flatten().any(|h| field(h, "path") == path))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_live_tests.rs"]
 mod tests;

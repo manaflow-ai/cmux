@@ -426,6 +426,6 @@ pub(crate) fn fd_reader_gone(fd: libc::c_int, wait: Duration) -> bool {
     p.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_tail_tests.rs"]
 mod tests;

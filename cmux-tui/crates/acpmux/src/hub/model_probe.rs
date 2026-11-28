@@ -466,6 +466,6 @@ pub(super) async fn background_probe_slot(
     if wait { None } else { gate.acquire().await.ok() }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "model_probe_tests.rs"]
 mod tests;

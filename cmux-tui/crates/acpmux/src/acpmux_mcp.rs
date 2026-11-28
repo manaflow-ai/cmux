@@ -1058,9 +1058,9 @@ fn ls_result(all: &Value, args: &Value) -> Value {
 }
 
 // The proxy stands in front of the daemon on a unix socket.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "acpmux_mcp_restart_tests.rs"]
 mod restart_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_tests.rs"]
 mod tests;

@@ -548,6 +548,6 @@ pub(crate) fn policy_with(machine: Option<Secret>, entries: Vec<Given>) -> Polic
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "egress_tests.rs"]
 mod tests;

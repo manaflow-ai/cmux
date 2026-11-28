@@ -134,6 +134,6 @@ pub(crate) async fn run_from(params: &Value) -> Result<Value, RpcError> {
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_files_tests.rs"]
 mod tests;

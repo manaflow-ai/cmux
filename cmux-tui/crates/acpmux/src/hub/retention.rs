@@ -407,6 +407,6 @@ impl Drop for Release {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "retention_tests.rs"]
 mod tests;

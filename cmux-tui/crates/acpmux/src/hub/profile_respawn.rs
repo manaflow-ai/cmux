@@ -128,6 +128,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "profile_respawn_tests.rs"]
 mod tests;

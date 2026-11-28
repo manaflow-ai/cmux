@@ -127,6 +127,6 @@ fn runs_next(msg: &Value) -> bool {
         && !super::turn_cap::is_notice(p)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "unread_steer_tests.rs"]
 mod tests;

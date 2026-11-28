@@ -704,10 +704,10 @@ fn note_live_tool(session: &Session, update: Option<&Value>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tap_bodies_tests.rs"]
 mod bodies_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tap_unread_tests.rs"]
 mod unread_tests;

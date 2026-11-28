@@ -34,6 +34,6 @@ pub fn scoped() -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tool_env_tests.rs"]
 mod tests;

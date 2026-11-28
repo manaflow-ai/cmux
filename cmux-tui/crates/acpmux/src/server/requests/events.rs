@@ -215,6 +215,6 @@ pub(super) fn values(session_id: &str, records: Vec<crate::store::EventRecord>) 
     records.into_iter().map(|r| into_event_value(session_id, r)).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "events_tests.rs"]
 mod tests;

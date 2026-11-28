@@ -145,7 +145,7 @@ pub(super) async fn catch_up(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::StreamCursors;
 

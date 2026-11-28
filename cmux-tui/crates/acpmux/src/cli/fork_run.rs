@@ -331,6 +331,6 @@ pub(crate) fn render(run: &Value) -> String {
     out
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "fork_run_tests.rs"]
 mod tests;

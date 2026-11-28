@@ -180,6 +180,6 @@ pub(super) fn held_messages(session: &Session) -> Value {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "native_messaging_tests.rs"]
 mod tests;

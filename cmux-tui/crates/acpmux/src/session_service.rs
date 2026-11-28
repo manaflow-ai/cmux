@@ -241,6 +241,6 @@ impl SessionGate for ConfiguredSessionGate {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_service_tests.rs"]
 mod tests;

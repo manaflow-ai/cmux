@@ -776,6 +776,6 @@ fn capture_key(session: &str, turn: &str) -> String {
     format!("{session}\u{1f}{turn}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_rewind_tests.rs"]
 mod tests;

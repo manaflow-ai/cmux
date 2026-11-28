@@ -343,6 +343,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fresh_review_tests.rs"]
 mod tests;

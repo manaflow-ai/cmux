@@ -121,6 +121,6 @@ pub fn budget() -> &'static Budget {
     &BUDGET
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "github_budget_tests.rs"]
 mod tests;

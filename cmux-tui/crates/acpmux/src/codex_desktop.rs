@@ -420,6 +420,6 @@ pub async fn deliver(
     Err("delivering to a Codex thread is Unix-only".into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_desktop_tests.rs"]
 pub(crate) mod tests;

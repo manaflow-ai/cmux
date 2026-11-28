@@ -2064,10 +2064,10 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "auto_resume/tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "auto_resume/turn_completion_tests.rs"]
 mod turn_completion_tests;

@@ -344,7 +344,7 @@ fn required(params: &Value, name: &str) -> Result<String, RpcError> {
         .ok_or_else(|| RpcError::invalid_params(format!("{name} is required")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "team_tests.rs"]
 mod tests;
 

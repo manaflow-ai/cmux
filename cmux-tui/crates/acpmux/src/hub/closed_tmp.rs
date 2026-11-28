@@ -136,7 +136,7 @@ impl Hub {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::super::former_names::tests::{chat, hub};
     use super::*;

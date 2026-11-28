@@ -101,6 +101,6 @@ pub(super) fn refusal_code(e: &anyhow::Error) -> Option<&'static str> {
     .find(|code| message.strip_prefix(code).is_some_and(|rest| rest.starts_with(':')))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_move_target_ask_tests.rs"]
 mod tests;

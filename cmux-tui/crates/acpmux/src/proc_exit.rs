@@ -330,6 +330,6 @@ mod imp {
     }
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, acpmux_tests_rest, any(target_os = "linux", target_os = "macos")))]
 #[path = "proc_exit_tests.rs"]
 mod tests;

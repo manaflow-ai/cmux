@@ -420,6 +420,6 @@ async fn redeem(ticket: &Ticket, params: Value) -> Result<Value> {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "pairing_tests.rs"]
 mod tests;

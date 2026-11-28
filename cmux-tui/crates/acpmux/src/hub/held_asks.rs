@@ -100,6 +100,6 @@ impl Held {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "held_asks_tests.rs"]
 mod tests;

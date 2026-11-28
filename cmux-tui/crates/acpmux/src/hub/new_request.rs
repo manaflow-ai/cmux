@@ -217,6 +217,6 @@ pub(super) fn claude_resume_refusal(
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "claude_resume_tests.rs"]
 mod claude_resume_tests;

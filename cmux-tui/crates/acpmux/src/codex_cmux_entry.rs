@@ -616,7 +616,7 @@ fn entry_from(ok: bool, stdout: &str, stderr: &str) -> CmuxEntry {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
 

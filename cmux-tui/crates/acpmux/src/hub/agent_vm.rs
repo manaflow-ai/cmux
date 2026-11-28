@@ -167,7 +167,7 @@ pub(crate) fn one_parent_refusal(
 /// `data.reason` of [`one_parent_refusal`].
 pub const ONE_PARENT_PER_VM: &str = "one_parent_per_vm";
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod group_tests {
     use super::{GroupFacts, group_of, one_parent_refusal};
     use serde_json::json;
@@ -230,6 +230,6 @@ mod group_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "agent_vm_tests.rs"]
 mod tests;

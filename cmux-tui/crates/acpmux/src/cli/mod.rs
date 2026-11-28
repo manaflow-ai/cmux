@@ -127,7 +127,7 @@ pub mod shutdown;
 pub(crate) mod soft_delete;
 pub(crate) use crate::slow_notice;
 pub mod care;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod skill_coverage_tests;
 pub mod ssh_join;
 pub mod stdio;

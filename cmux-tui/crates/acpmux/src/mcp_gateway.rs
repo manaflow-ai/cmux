@@ -1650,6 +1650,6 @@ fn decode_hex(text: &str) -> Option<Vec<u8>> {
         .flatten()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mcp_gateway_tests.rs"]
 mod tests;

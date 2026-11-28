@@ -79,7 +79,7 @@ pub(super) fn write_gap(id: &str, floor: std::time::Duration) -> std::time::Dura
     gap_for_bytes(bytes, floor)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod write_budget_tests {
     use super::gap_for_bytes;
     use std::time::Duration;

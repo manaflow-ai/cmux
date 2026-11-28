@@ -80,6 +80,6 @@ pub(crate) fn arrived() {
     clear_in(&crate::config::home());
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "owner_relaunch_tests.rs"]
 mod tests;

@@ -463,6 +463,6 @@ fn peer_cred(fd: std::os::fd::RawFd) -> Result<Peer> {
     Ok(Peer { uid: cred.uid, pid: cred.pid })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "provision_tests.rs"]
 mod tests;

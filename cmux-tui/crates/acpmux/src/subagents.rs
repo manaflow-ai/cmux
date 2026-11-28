@@ -1150,7 +1150,7 @@ fn truncate_last_message(text: &str) -> String {
 #[path = "subagent_expiry.rs"]
 pub mod expiry;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod codex_tests {
     use super::*;
 
@@ -2135,7 +2135,7 @@ mod codex_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "subagents_background_tests.rs"]
 mod background_tests;
 

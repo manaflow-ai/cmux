@@ -372,6 +372,6 @@ fn write_told(path: &Path, told: Told) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "install_share_tests.rs"]
 mod tests;

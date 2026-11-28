@@ -174,6 +174,6 @@ impl AutoRecord {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "record_tests.rs"]
 mod tests;

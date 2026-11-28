@@ -527,6 +527,6 @@ pub(crate) fn sets_codex_key(args: &[String], key: &str) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "harness_limits_tests.rs"]
 mod tests;

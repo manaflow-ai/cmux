@@ -1116,10 +1116,10 @@ pub(super) async fn full_access_forced_off(bound: Option<&mut OffWatch>) {
     std::future::pending().await
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "full_access_bound_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "one_read_tests.rs"]
 mod one_read_tests;

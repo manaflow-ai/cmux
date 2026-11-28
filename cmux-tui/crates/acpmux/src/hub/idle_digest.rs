@@ -322,6 +322,6 @@ impl super::Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "idle_digest_tests.rs"]
 mod tests;

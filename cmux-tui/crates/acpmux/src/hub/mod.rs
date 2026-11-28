@@ -14,7 +14,7 @@ pub(crate) mod additional_dirs;
 pub(crate) mod admission;
 // A create with no room here starts on the peer placement picks.
 pub(crate) mod admission_redirect;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod admission_restore_tests;
 // A create over the cap with nowhere to go asks the fleet for a machine.
 pub(crate) mod admission_scale_up;
@@ -22,14 +22,14 @@ mod adopt_retry;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod agent_messaging_tests;
 mod agent_pairs;
 pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod app_exit;
 pub(crate) mod approval_review;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod approval_review_tests;
 pub mod approvers;
 mod aside;
@@ -52,7 +52,7 @@ pub(crate) mod auto_settle;
 mod away_recap;
 mod background_cause;
 pub mod background_turn;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod background_turn_end_tests;
 mod bg_folder;
 #[cfg(all(test, unix))]
@@ -113,7 +113,7 @@ pub(crate) mod evict;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod file_uploads;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod first_work_tests;
 mod fork;
 mod fork_at;
@@ -123,14 +123,14 @@ mod fork_model;
 mod fork_own_process;
 mod fork_replay;
 mod fork_request;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod fork_retarget_tests;
 mod fork_start;
 pub mod fork_subagent;
 mod fork_transcript_auth;
 mod former_names;
 pub mod forum;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod forum_held_turn_tests;
 pub mod forum_hosted;
 mod forward_wait;
@@ -165,7 +165,7 @@ pub(crate) mod history_delete;
 pub(crate) mod history_search;
 mod history_timing;
 mod host_level;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod host_notice_tests;
 mod hosts;
 pub(crate) mod transcript_offload;
@@ -185,7 +185,7 @@ pub(crate) mod inactive_archive;
 pub(crate) mod inbox;
 pub(crate) mod inbox_subscription;
 pub mod journal_restore;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
@@ -204,7 +204,7 @@ mod launch_backoff;
 mod launch_roots;
 mod launchers;
 pub mod ledger;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod ledger_hub_tests;
 mod lifecycle;
 pub mod lineage;
@@ -212,7 +212,7 @@ pub(crate) mod list_guard;
 mod list_order;
 pub(crate) mod list_tee;
 mod live_ages;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod live_ages_tests;
 mod live_models;
 mod live_name;
@@ -220,11 +220,11 @@ mod locate;
 pub(crate) mod lock_bridge;
 mod log_deferral;
 mod log_load;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod long_chat_tests;
 mod loop_detector;
 mod loop_goal;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod loop_goal_tests;
 pub mod mac_approvers;
 mod machine_info;
@@ -259,13 +259,13 @@ pub(crate) mod op_once;
 pub(crate) mod open_delivery;
 mod outage;
 pub(crate) mod outbox;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod outbox_stats;
 mod own_host;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod owned_scope_bench_tests;
 pub(crate) mod owner_return;
 mod page_first;
@@ -277,21 +277,21 @@ pub(crate) mod pause_state;
 mod paused_fs;
 mod peer_cache;
 pub(crate) mod peer_cache_disk;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod peer_cache_disk_tests;
 mod peer_closed_bound;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
 mod peer_grace;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod peer_grace_tests;
 mod peer_idle;
 mod peer_lease;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod peer_list_slot_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod peer_notice_cost_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod peer_refresh_cost_tests;
 mod peer_row;
 pub(crate) mod peer_snapshot;
@@ -308,7 +308,7 @@ mod wait_edges;
 mod person_hold;
 mod person_prompt_at;
 mod personal_stats;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod phone_floor_tests;
 mod place_migrate;
 pub mod plan_build;
@@ -326,7 +326,7 @@ pub mod presence;
 pub(crate) mod presence_setting;
 mod processes;
 mod profile_respawn;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod prompt_accept_tests;
 // The account's rate limit holds every turn of a chat until its reset.
 pub(crate) mod prompt_admission;
@@ -335,7 +335,7 @@ mod prompt_coach;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod prompt_line_tests;
 mod prompt_sender;
 mod protected_hold;
@@ -351,7 +351,7 @@ pub mod races;
 pub(crate) mod rate_hold;
 mod recent_creates;
 mod rediscover;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod refused_append_tests;
 pub(crate) mod register;
 pub(crate) mod release_to_watch;
@@ -364,7 +364,7 @@ mod remote_table;
 #[cfg(test)]
 mod remote_table_bench;
 pub(crate) mod reply_fit;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod reply_segment_tests;
 mod repo_sync;
 pub(crate) mod require_asking;
@@ -376,7 +376,7 @@ mod resume;
 mod retention;
 mod review_brief;
 pub(crate) mod review_queue;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod review_queue_tests;
 mod route_switch;
 pub(crate) mod row_log;
@@ -384,7 +384,7 @@ mod rows_source;
 pub mod rules;
 mod secrets;
 mod seen;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod sender_claim_tests;
 mod session;
 pub(crate) mod session_auth;
@@ -394,12 +394,12 @@ pub(crate) mod session_pages;
 mod session_usage;
 mod settings_watch;
 pub(crate) mod settled_view;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod shared_row_tests;
 mod shutdown;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod shutdown_scan_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod shutdown_tests;
 mod silent_listing;
 mod silent_turn;
@@ -417,14 +417,14 @@ mod start_mode_state;
 mod start_retry;
 mod start_watch;
 mod startup;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod startup_wait_tests;
 mod steer_end;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod steer_on_start_tests;
 pub(crate) mod stop_condition;
 pub(crate) mod stop_if_idle;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod stop_settles_tests;
 mod store_load;
 mod store_pressure;
@@ -463,10 +463,10 @@ mod team_information;
 mod team_sent;
 mod team_settings;
 mod terminal_input;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod time_breakdown_restore_tests;
 mod title_log;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod title_log_tests;
 mod titles;
 mod tool_installs;
@@ -478,7 +478,7 @@ mod tool_start;
 mod tools;
 mod touched;
 mod transcript;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod transcript_seq_tests;
 mod transfer;
 mod transfer_agent_files;
@@ -490,9 +490,9 @@ mod transfer_out;
 pub mod transfer_park;
 pub mod transfer_pull;
 mod transfer_watch;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod translator_queue_tests;
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_artifacts;
@@ -510,7 +510,7 @@ mod sidecars_turn;
 pub(crate) mod turn_shots;
 mod turn_usage;
 mod turns;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod turns_copy_stop_tests;
 mod unattended_ask;
 pub(crate) mod unattended_presets;
@@ -527,7 +527,7 @@ mod speculative;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod usage_warnings_tests;
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod v1_source;
@@ -535,7 +535,7 @@ mod verify;
 pub(crate) mod views;
 pub mod vm_boundary;
 pub mod vm_host;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod wait_reason_tests;
 pub(crate) mod wake_place;
 mod warm;
@@ -546,7 +546,7 @@ mod web_control;
 mod web_token;
 mod wip_ref;
 mod work_below;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod worker_lock_tests;
 mod workflow_activity;
 pub(crate) mod workflow_ci;

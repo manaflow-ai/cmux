@@ -2000,6 +2000,6 @@ use text::{
     config_text_without_tokens, place_session, print_lifecycle_report, print_start_modes, web_line,
 };
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "extra_tests.rs"]
 mod tests;

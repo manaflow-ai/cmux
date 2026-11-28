@@ -1125,18 +1125,18 @@ impl std::ops::Deref for Spawn {
 
 pub use crate::config::expand_env_value;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "spawn_claude_cloud_tests.rs"]
 mod claude_cloud_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "spawn_codex_cloud_tests.rs"]
 mod codex_cloud_tests;
 
-#[cfg(all(test, unix, not(target_os = "macos")))]
+#[cfg(all(test, acpmux_tests_hub, unix, not(target_os = "macos")))]
 #[path = "spawn_codex_signed_out_tests.rs"]
 mod codex_signed_out_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "spawn_route_tests.rs"]
 mod route_tests;

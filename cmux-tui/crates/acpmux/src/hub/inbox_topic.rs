@@ -70,6 +70,6 @@ fn pull_topic(word: &str) -> Option<String> {
     Some(format!("topic:pr/{}/{number}", repo.to_ascii_lowercase()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "inbox_topic_tests.rs"]
 mod tests;

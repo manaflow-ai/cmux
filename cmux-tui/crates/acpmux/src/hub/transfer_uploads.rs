@@ -132,6 +132,6 @@ pub(super) fn unacked_uploads(bundle: &Path, session: &str) -> Vec<String> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_uploads_tests.rs"]
 mod tests;

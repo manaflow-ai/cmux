@@ -50,6 +50,6 @@ pub fn checked(ids: &[String]) -> anyhow::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "beads_tests.rs"]
 mod tests;

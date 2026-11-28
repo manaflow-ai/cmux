@@ -63,6 +63,6 @@ pub fn for_new_session(remote_origin: bool, env: &BTreeMap<String, String>) -> V
     tools.scoped(env).skill_index()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "skill_index_tests.rs"]
 mod tests;

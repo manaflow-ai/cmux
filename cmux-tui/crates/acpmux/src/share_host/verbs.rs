@@ -258,6 +258,6 @@ pub(crate) fn print_record(verb: &str, share: &Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "verbs_tests.rs"]
 mod tests;

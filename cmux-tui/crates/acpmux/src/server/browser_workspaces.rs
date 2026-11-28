@@ -311,6 +311,6 @@ fn chat(tab: &Value, source: &Source) -> Option<Value> {
     Some(Value::Object(chat))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "browser_workspaces_tests.rs"]
 mod tests;

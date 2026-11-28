@@ -355,7 +355,7 @@ pub(crate) fn watch(
     Box::pin(std::future::pending())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
 

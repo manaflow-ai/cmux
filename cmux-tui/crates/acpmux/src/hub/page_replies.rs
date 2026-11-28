@@ -110,6 +110,6 @@ impl super::Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "page_replies_tests.rs"]
 mod tests;

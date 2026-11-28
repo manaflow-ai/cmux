@@ -280,6 +280,6 @@ pub(crate) fn forward_failed(placed: &Placed, error: &str) -> String {
     format!("placing it on {} failed ({error}), so it started here.", placed.host)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "admission_redirect_tests.rs"]
 mod tests;

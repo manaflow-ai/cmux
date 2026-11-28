@@ -740,6 +740,6 @@ fn blocks_bytes(blocks: &[Value]) -> usize {
         .sum()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "digest_tests.rs"]
 mod tests;

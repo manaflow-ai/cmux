@@ -1243,6 +1243,6 @@ pub(crate) fn civil_from_days(days: u64) -> (i64, u32, u32) {
     crate::clock_text::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "usage_stats_tests.rs"]
 mod tests;

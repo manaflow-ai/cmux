@@ -224,6 +224,6 @@ pub(crate) fn native_shot(session: &str, app: &str, out: &Path) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_frames_native_tests.rs"]
 mod tests;

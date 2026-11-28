@@ -554,6 +554,6 @@ pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
     classify(status.code(), &String::from_utf8_lossy(&bytes))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "bwrap_tests.rs"]
 mod tests;

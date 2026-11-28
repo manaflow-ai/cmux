@@ -1138,6 +1138,6 @@ fn replace_ready_seen(mut newer: Report, queued: Option<Report>, reported: &[Str
     newer
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "lane_reports_tests.rs"]
 mod tests;

@@ -254,6 +254,6 @@ impl<'de> Deserialize<'de> for SharedValue {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "shared_value_tests.rs"]
 mod tests;

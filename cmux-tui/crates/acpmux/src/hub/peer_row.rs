@@ -458,6 +458,6 @@ impl serde::Serialize for PeerRow {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_row_tests.rs"]
 mod tests;

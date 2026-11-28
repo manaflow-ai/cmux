@@ -195,6 +195,6 @@ fn harness(value: &str) -> Option<AdapterKind> {
     starts.next().is_none().then_some(first)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "terms_tests.rs"]
 mod tests;

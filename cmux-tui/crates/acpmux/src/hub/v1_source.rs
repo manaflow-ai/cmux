@@ -256,5 +256,5 @@ where
 
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 pub(crate) mod tests;

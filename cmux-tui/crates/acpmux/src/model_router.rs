@@ -131,7 +131,7 @@ pub fn route(input: &Value) -> Option<Value> {
     route_with(input, &routes_with(doc.as_ref()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

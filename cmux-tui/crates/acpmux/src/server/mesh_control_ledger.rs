@@ -188,6 +188,6 @@ impl Drop for Execution {
 
 use serde_json::json;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "mesh_control_ledger_tests.rs"]
 mod tests;

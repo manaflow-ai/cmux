@@ -319,7 +319,7 @@ fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
         .then(|| candidate.to_string_lossy().into_owned())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::which_in;
     use std::os::unix::fs::PermissionsExt as _;
@@ -385,6 +385,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "launchers_cache_tests.rs"]
 mod cache_tests;

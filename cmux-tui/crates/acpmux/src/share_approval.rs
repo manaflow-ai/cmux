@@ -264,6 +264,6 @@ fn rfc3339(secs: u64) -> String {
         .unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "share_approval_tests.rs"]
 mod tests;

@@ -476,6 +476,6 @@ pub(super) fn set_for_test(
     set(dir, state, id, enabled, None, None, None)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "accounts_tests.rs"]
 mod tests;

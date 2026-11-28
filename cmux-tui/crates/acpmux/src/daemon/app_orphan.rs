@@ -664,6 +664,6 @@ fn app_reachable(_socket: &Path) -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "app_orphan_tests.rs"]
 mod tests;

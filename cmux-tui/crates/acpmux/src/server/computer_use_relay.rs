@@ -422,6 +422,6 @@ pub(super) async fn machines(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcEr
     Ok(json!({"machines": rows}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "computer_use_relay_tests.rs"]
 mod tests;

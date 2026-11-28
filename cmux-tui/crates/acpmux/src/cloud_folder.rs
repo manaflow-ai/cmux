@@ -151,6 +151,6 @@ fn git_root(path: &Path) -> Option<PathBuf> {
     path.ancestors().find(|dir| dir.join(".git").exists()).map(Path::to_path_buf)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_folder_tests.rs"]
 mod tests;

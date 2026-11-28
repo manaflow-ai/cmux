@@ -430,6 +430,6 @@ fn append_private(path: &Path) -> std::io::Result<std::fs::File> {
     crate::home_fs::OpenOptions::new().append(true).create(true).open(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "forum_tests.rs"]
 mod tests;

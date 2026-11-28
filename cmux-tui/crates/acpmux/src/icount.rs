@@ -40,6 +40,6 @@ pub fn mcp_connect() -> usize {
 const INITIALIZE: &[u8] = br#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true}},"clientInfo":{"name":"claude-code","version":"2.1.0"}}}"#;
 const TOOLS_LIST: &[u8] = br#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "icount_tests.rs"]
 mod tests;

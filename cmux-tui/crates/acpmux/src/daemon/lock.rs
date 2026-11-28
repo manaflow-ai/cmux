@@ -363,7 +363,7 @@ pub(super) fn fork_a_child_for_tests() {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests {
     use super::*;
 

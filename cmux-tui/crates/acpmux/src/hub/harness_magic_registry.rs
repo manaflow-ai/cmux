@@ -76,7 +76,7 @@ fn map(msg: &mut Value, f: impl FnOnce(&mut serde_json::Map<String, Value>)) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
     use std::collections::HashSet;

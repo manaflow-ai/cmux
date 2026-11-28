@@ -1046,6 +1046,6 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "shell_readonly_tests.rs"]
 mod tests;

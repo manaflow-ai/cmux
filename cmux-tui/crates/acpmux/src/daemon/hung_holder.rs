@@ -424,6 +424,6 @@ pub(crate) fn says_waiter_stands(ready: &str) -> bool {
         == Some(true)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hung_holder_tests.rs"]
 mod tests;

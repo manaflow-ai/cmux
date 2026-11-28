@@ -872,17 +872,17 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
 
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod handback_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod hub_rows_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod roundtrip_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod slot_release_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod snapshot_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod status_state_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests;

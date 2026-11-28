@@ -223,6 +223,6 @@ pub(crate) async fn run(client: &Client, probe: bool, json_out: bool) -> Result<
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_candidates_tests.rs"]
 mod tests;

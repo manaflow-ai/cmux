@@ -194,6 +194,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "pool_pressure_tests.rs"]
 mod tests;

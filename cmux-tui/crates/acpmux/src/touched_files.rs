@@ -474,6 +474,6 @@ pub fn ago_text(ms: u64) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "touched_files_tests.rs"]
 mod tests;

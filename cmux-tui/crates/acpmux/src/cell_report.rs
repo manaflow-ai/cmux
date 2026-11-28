@@ -158,6 +158,6 @@ pub fn lines(report: &Value) -> Vec<String> {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cell_report_tests.rs"]
 mod tests;

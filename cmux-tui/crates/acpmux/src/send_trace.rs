@@ -363,6 +363,6 @@ async fn post(trace_id: String, body: Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "send_trace_tests.rs"]
 mod tests;

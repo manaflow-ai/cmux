@@ -171,5 +171,5 @@ pub(in crate::server) fn qualify_event(peer: &str, event: &mut Value) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests;

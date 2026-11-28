@@ -188,6 +188,6 @@ fn same_less(shape: &Value, value: &Value, skip: &[&str], path: &[&str]) -> bool
     kept == s.len()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "chunk_deltas_tests.rs"]
 mod tests;

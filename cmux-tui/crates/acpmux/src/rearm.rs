@@ -281,6 +281,6 @@ impl Wait {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "rearm_tests.rs"]
 mod tests;

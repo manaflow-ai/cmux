@@ -562,6 +562,6 @@ async fn settled(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "withdraw_tests.rs"]
 mod tests;

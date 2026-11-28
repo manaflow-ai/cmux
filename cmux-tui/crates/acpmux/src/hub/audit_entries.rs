@@ -219,6 +219,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "audit_entries_tests.rs"]
 mod tests;

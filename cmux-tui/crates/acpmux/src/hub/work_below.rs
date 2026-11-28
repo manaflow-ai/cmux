@@ -189,6 +189,6 @@ pub(super) fn names_subagents(head: &crate::store::RecordHead<'_>) -> bool {
             && (head.may_contain(b"\"spawnAgent\"") || head.may_contain(b"\"subagent\":{")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "work_below_tests.rs"]
 mod work_below_tests;

@@ -712,6 +712,6 @@ mod update_cost_bench;
 #[path = "follow_bench.rs"]
 mod follow_bench;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "parse_key_tests.rs"]
 mod parse_key_tests;

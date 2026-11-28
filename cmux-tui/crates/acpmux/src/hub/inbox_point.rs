@@ -135,6 +135,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "inbox_point_tests.rs"]
 mod tests;

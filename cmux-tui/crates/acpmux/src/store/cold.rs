@@ -873,6 +873,6 @@ impl LocalStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cold_tests.rs"]
 mod tests;

@@ -482,6 +482,6 @@ pub(crate) async fn turn_shots(session: &str, turn: &str) -> Value {
     reply
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_shots_tests.rs"]
 mod tests;

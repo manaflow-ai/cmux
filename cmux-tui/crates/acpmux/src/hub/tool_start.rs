@@ -53,6 +53,6 @@ pub fn tool_start(ev: &HubEvent) -> Option<ToolStart> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tool_start_tests.rs"]
 mod tool_start_tests;

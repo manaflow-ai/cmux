@@ -7,10 +7,10 @@
 
 use super::*;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_flap_soak_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_flap_memory_tests.rs"]
 mod memory_tests;

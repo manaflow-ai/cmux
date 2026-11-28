@@ -302,6 +302,6 @@ fn distance(a: &str, b: &str) -> usize {
     row.last().copied().unwrap_or(0)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "no_session_tests.rs"]
 mod tests;

@@ -552,30 +552,30 @@ fn cursor_agent_launcher(path: &str) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "discover_uniichat_tests.rs"]
 mod uniichat_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "discover_chief_tests.rs"]
 mod chief_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "discover_acpx_codex_tests.rs"]
 mod acpx_codex_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "discover_muse_tests.rs"]
 mod muse_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "discover_hermes_tests.rs"]
 mod hermes_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "discover_antigravity_tests.rs"]
 mod antigravity_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "discover_discoverable_tests.rs"]
 mod discoverable_tests;

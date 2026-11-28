@@ -879,6 +879,6 @@ fn through_hub_only(host: &str, why: &str) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "mesh_read_tests.rs"]
 mod tests;

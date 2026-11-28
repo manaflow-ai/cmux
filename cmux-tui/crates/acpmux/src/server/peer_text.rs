@@ -144,6 +144,6 @@ fn mask_field(field: Option<&mut Value>) -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "peer_text_tests.rs"]
 mod tests;

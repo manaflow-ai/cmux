@@ -1073,6 +1073,6 @@ impl Drop for Keys {
     fn drop(&mut self) {}
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "process_tests.rs"]
 mod tests;

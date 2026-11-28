@@ -24,7 +24,7 @@ pub mod range;
 pub mod session;
 pub mod signature;
 pub mod sync;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 use std::collections::BTreeMap;

@@ -231,6 +231,6 @@ impl LocalStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "text_index_tests.rs"]
 mod tests;

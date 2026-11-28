@@ -231,6 +231,6 @@ pub(crate) fn apply_codex(argv: &mut Vec<String>, join: &Join) {
     argv.splice(at..at, codex_args(join));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "joined_model_plane_tests.rs"]
 mod tests;

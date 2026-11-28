@@ -220,6 +220,6 @@ fn clock(ms: u64) -> String {
     format!("{:02}:{:02}Z", (secs / 3600) % 24, (secs / 60) % 60)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "native_history_chain_tests.rs"]
 mod tests;

@@ -721,6 +721,6 @@ pub(crate) fn budget_line(v: &Value) -> Option<String> {
     Some(line)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_budget_tests.rs"]
 mod tests;

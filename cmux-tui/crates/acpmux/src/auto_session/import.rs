@@ -23,10 +23,10 @@
 mod bundle;
 mod copy;
 mod folder;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod folder_tests;
 mod mirror;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod mirror_tests;
 mod reconcile;
 

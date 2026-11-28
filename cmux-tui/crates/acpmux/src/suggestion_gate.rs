@@ -335,6 +335,6 @@ pub fn marked_taken(params: &Value) -> bool {
     params.pointer("/_meta/acpmux/promptSuggestion").and_then(Value::as_str) == Some("taken")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "suggestion_gate_tests.rs"]
 mod tests;

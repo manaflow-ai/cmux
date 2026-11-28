@@ -701,8 +701,8 @@ fn usage(msg: &Value) -> Option<u64> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod memory_tests;

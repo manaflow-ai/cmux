@@ -1668,6 +1668,6 @@ pub(super) async fn handle(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "connections_tests.rs"]
 mod tests;

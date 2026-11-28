@@ -62,6 +62,6 @@ impl std::fmt::Display for ServedByThisBuild {
 
 impl std::error::Error for ServedByThisBuild {}
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "take_over_yield_tests.rs"]
 mod tests;

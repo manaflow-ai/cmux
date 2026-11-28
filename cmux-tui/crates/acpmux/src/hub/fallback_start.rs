@@ -217,6 +217,6 @@ pub(super) fn say_fallback(e: &mut RpcError) {
     );
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fallback_start_tests.rs"]
 mod tests;

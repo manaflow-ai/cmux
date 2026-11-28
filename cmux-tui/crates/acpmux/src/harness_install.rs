@@ -175,6 +175,6 @@ fn last_line(stderr: &[u8], stdout: &[u8]) -> String {
         .unwrap_or_else(|| "no output".to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "harness_install_tests.rs"]
 mod tests;

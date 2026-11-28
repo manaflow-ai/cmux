@@ -290,6 +290,6 @@ async fn serve(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_routes_tests.rs"]
 mod tests;

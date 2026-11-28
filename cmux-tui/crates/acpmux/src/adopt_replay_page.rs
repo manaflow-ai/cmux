@@ -341,6 +341,6 @@ pub(super) fn is_prompt(record: &Value) -> bool {
         && claude_steps(record, None).iter().any(|s| matches!(s, Step::Prompt(_)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "adopt_replay_page_tests.rs"]
 mod tests;

@@ -132,6 +132,6 @@ impl SegmentStarts {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "segment_starts_tests.rs"]
 mod tests;

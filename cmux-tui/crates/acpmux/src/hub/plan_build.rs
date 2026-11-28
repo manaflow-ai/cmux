@@ -598,6 +598,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "plan_build_tests.rs"]
 mod tests;

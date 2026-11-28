@@ -175,6 +175,6 @@ fn check_task(task: &Value) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "offer_mcp_tests.rs"]
 mod tests;

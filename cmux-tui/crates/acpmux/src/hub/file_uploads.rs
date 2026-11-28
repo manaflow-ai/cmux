@@ -1191,6 +1191,6 @@ pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     .with_data(json!({"reason": "filePut.unsupported"}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "file_uploads_tests.rs"]
 mod tests;

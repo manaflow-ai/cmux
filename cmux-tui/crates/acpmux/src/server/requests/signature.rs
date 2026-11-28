@@ -38,6 +38,6 @@ pub(super) fn handle(params: Value) -> Result<Value, RpcError> {
     serde_json::to_value(result).map_err(|e| RpcError::internal(format!("session/signature: {e}")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "signature_tests.rs"]
 mod tests;

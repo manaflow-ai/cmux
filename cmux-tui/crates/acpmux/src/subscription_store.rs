@@ -680,5 +680,5 @@ fn legacy_item_provider(record: &Value) -> Option<&'static str> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;

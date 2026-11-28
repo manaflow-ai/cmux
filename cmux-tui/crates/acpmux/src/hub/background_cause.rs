@@ -160,6 +160,6 @@ impl Causes {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "background_cause_tests.rs"]
 mod tests;

@@ -903,6 +903,6 @@ fn full_access_ended() -> RpcError {
     .with_data(json!({"reason": "full_access_ended"}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "policy_mode_tests.rs"]
 mod tests;

@@ -79,10 +79,10 @@ pub(crate) async fn session_info(client: &Client, key: &str, row_will_do: bool) 
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod list_callers_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod tests {
     use super::*;
     use crate::rpc::{Message, RpcError};

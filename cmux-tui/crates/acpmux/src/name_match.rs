@@ -86,6 +86,6 @@ pub fn pick<T>(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "name_match_tests.rs"]
 mod tests;

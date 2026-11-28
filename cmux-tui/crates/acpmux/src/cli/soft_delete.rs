@@ -101,6 +101,6 @@ fn render(v: &Value) -> String {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "soft_delete_tests.rs"]
 mod tests;

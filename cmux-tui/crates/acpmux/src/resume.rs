@@ -108,6 +108,6 @@ impl ResumeWatch {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "resume_tests.rs"]
 mod tests;

@@ -84,6 +84,6 @@ pub(crate) fn request(params: &Value) -> Result<GoalRequest, RpcError> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "goal_tests.rs"]
 mod tests;

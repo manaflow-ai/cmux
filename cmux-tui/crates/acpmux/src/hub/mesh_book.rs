@@ -757,6 +757,6 @@ fn names_by_handle(r: &RemoteSession, key: &str) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "mesh_book_tests.rs"]
 mod tests;

@@ -406,10 +406,10 @@ fn quiet_for(ms: u64) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stalled_turn_loop_episode_tests.rs"]
 mod loop_episode_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stalled_turn_goal_tests.rs"]
 mod goal_tests;

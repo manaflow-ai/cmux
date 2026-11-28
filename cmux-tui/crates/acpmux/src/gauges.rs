@@ -1048,6 +1048,6 @@ fn peak_rss_bytes() -> Option<u64> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "gauges_tests.rs"]
 mod tests;

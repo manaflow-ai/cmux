@@ -77,6 +77,6 @@ fn claims(token: &str) -> Option<serde_json::Map<String, Value>> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "sent_credential_tests.rs"]
 mod tests;

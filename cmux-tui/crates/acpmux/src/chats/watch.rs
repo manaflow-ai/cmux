@@ -605,10 +605,10 @@ fn run(
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "watch_tests.rs"]
 mod tests;
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, acpmux_tests_rest, target_os = "macos"))]
 #[path = "watch_bench_tests.rs"]
 mod bench;

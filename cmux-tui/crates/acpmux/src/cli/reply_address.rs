@@ -254,6 +254,6 @@ fn line(name: &str, host: &str, outcome: Outcome) -> Option<String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "reply_address_tests.rs"]
 mod tests;

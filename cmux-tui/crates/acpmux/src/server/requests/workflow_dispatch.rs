@@ -452,6 +452,6 @@ async fn answer(hub: &Hub, flight: &Flight, id: &str, wait: bool) -> Result<Valu
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "workflow_dispatch_tests.rs"]
 mod tests;

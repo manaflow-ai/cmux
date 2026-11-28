@@ -186,6 +186,6 @@ fn daemon_runs(_state: &Path) -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "worktree_sessions_care_tests.rs"]
 mod care_tests;

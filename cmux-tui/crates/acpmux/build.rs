@@ -83,11 +83,43 @@ fn pane_files(root: &Path) -> Result<Vec<(String, PathBuf)>> {
     Ok(files)
 }
 
+/// The shards of the lib's own `#[cfg(test)]` modules, by top-level module: `hub`, `server`,
+/// `cli` and `rest`. One rustc compiled all of them with the lib (about 305k test lines on 650k)
+/// and peaked past a 16 GiB runner before codegen. `ACPMUX_TEST_SHARD=hub,cli` compiles only
+/// those shards' test modules, so each `cargo test -p acpmux --lib` holds the lib and one part;
+/// unset, every shard compiles, as before. Only acpmux rebuilds when it changes.
+fn test_shards() {
+    const SHARDS: [&str; 4] = ["hub", "server", "cli", "rest"];
+    println!("cargo:rerun-if-env-changed=ACPMUX_TEST_SHARD");
+    let chosen = std::env::var("ACPMUX_TEST_SHARD").ok().filter(|value| !value.trim().is_empty());
+    for shard in SHARDS {
+        println!("cargo::rustc-check-cfg=cfg(acpmux_tests_{shard})");
+    }
+    println!("cargo::rustc-check-cfg=cfg(acpmux_test_shard)");
+    let Some(chosen) = chosen else {
+        for shard in SHARDS {
+            println!("cargo:rustc-cfg=acpmux_tests_{shard}");
+        }
+        return;
+    };
+    println!("cargo:rustc-cfg=acpmux_test_shard");
+    for name in chosen.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+        assert!(
+            name == "none" || SHARDS.contains(&name),
+            "ACPMUX_TEST_SHARD names {name:?}; the shards are {SHARDS:?} (or none)"
+        );
+        if name != "none" {
+            println!("cargo:rustc-cfg=acpmux_tests_{name}");
+        }
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     if let Err(error) = browser_assets() {
         panic!("embedding the production browser pane: {error}");
     }
+    test_shards();
     // clap builds the complete acpmux command tree before dispatch. On Windows,
     // that now exceeds the linker's 1 MiB default main-thread stack and the
     // process aborts before parsing even `status`. Reserve 8 MiB (committed

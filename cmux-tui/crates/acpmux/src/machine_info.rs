@@ -148,6 +148,6 @@ pub(crate) fn render(state: State) -> Value {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_info_tests.rs"]
 mod tests;

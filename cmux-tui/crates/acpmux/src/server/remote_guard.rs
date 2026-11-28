@@ -1658,6 +1658,6 @@ async fn canonical_dir(path: &str) -> Option<String> {
         .then(|| canonical.to_string_lossy().into_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "remote_guard_cloud_chat_tests.rs"]
 mod cloud_chat_tests;

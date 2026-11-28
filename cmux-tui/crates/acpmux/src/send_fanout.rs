@@ -152,6 +152,6 @@ pub fn warning(reply: &Value) -> Option<String> {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "send_fanout_tests.rs"]
 mod tests;

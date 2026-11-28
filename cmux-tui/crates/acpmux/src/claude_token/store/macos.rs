@@ -129,7 +129,7 @@ fn kind(account: &str) -> Option<Option<String>> {
     Some(attributes.get("desc").cloned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

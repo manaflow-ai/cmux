@@ -770,6 +770,6 @@ pub(crate) fn trigger_wait_ms(update: &Value, now_ms: u64) -> Option<u64> {
     Some(expires.saturating_add(COLD_GRACE_MS).saturating_sub(now_ms).max(1))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "surgery_tests.rs"]
 mod tests;

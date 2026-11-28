@@ -180,6 +180,6 @@ impl AgentTools {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_sources_tests.rs"]
 mod tests;

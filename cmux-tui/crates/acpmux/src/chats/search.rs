@@ -225,6 +225,6 @@ pub(crate) fn snippet_around(text: &str, at: usize, before: usize, size: usize) 
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "search_tests.rs"]
 mod tests;

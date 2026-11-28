@@ -129,6 +129,6 @@ pub(crate) fn unpack_folder(host: &str, cwd: &str, pack: &[u8]) -> Result<String
     Ok(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_move_files_tests.rs"]
 mod tests;

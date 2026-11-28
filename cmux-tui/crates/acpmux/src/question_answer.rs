@@ -327,6 +327,6 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "question_answer_tests.rs"]
 mod tests;

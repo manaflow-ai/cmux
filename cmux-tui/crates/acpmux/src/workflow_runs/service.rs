@@ -186,6 +186,6 @@ impl Service {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "service_tests.rs"]
 mod tests;

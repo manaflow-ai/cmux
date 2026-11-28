@@ -77,6 +77,6 @@ pub fn shares_conversations(a: &Path, b: &Path) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "route_shadow_tests.rs"]
 mod tests;

@@ -256,6 +256,6 @@ pub(crate) fn race_text(race: &Value) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "race_tests.rs"]
 mod tests;

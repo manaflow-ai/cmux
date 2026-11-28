@@ -178,6 +178,6 @@ pub(crate) fn add_warning(warning: Option<Value>, text: &str, lane: &Lane) -> Va
     warning
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "lane_fanout_tests.rs"]
 mod tests;

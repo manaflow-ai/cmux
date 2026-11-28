@@ -702,14 +702,14 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "permission_groups_plain_tool_ask_tests.rs"]
 mod plain_tool_ask_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "permission_groups_ask_display_tests.rs"]
 mod ask_display_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "permission_groups_approver_proofs_tests.rs"]
 mod approver_proofs_tests;

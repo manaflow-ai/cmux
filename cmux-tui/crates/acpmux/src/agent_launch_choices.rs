@@ -161,6 +161,6 @@ pub fn apply_codex(argv: &mut Vec<String>, choices: &LaunchChoices) {
     argv.push(format!("personality={}", toml::Value::String(personality.clone())));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_launch_choices_tests.rs"]
 mod tests;

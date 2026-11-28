@@ -756,6 +756,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "restart_resume_tests.rs"]
 mod tests;

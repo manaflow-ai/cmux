@@ -300,6 +300,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "reserved_tests.rs"]
 mod tests;

@@ -451,6 +451,6 @@ impl Table {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "command_shadow_tests.rs"]
 mod tests;

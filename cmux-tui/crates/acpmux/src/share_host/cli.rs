@@ -389,6 +389,6 @@ async fn session() -> Result<()> {
     anyhow::bail!("the share host runs on macOS")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cli_link_tests.rs"]
 mod link_tests;

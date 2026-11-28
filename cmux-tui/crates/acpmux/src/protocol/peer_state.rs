@@ -315,6 +315,6 @@ pub struct PeerStateChanged {
     pub at: u64,
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_state_tests.rs"]
 mod tests;

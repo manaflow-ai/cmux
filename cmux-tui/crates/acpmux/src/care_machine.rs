@@ -327,7 +327,7 @@ fn whoami() -> String {
     std::env::var("USER").unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

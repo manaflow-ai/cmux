@@ -200,7 +200,7 @@ pub fn for_peer(peer: &crate::peer::Peer) -> usize {
     if peer.lists(FEATURE) { CHUNKS } else { 1 }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::*;
     use crate::lost_home_race_tests::isolated;

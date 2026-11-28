@@ -155,6 +155,6 @@ pub fn check() -> Result<(), String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "harness_fixture_tests.rs"]
 mod tests;

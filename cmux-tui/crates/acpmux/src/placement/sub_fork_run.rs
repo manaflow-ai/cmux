@@ -463,6 +463,6 @@ impl<R: AsyncBufRead + Unpin> AsyncBufRead for Owned<R> {
 }
 
 // Forks are git checkouts whose executable bits the tests compare: unix only.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "sub_fork_run_tests.rs"]
 mod tests;

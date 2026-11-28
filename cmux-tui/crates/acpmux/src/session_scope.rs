@@ -707,7 +707,7 @@ pub(crate) fn swap_memory() -> u64 {
         .saturating_mul(1024)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

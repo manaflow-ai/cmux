@@ -237,6 +237,6 @@ pub fn call<D: Daemon>(caller: &Caller<D>, params: &Value) -> Value {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "mcp_defer_tests.rs"]
 mod defer_tests;

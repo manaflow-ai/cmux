@@ -190,6 +190,6 @@ fn looks_like_session_name(word: &str) -> bool {
     !word.is_empty() && !word.starts_with('-') && !word.chars().any(char::is_whitespace)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "command_new_tests.rs"]
 mod tests;

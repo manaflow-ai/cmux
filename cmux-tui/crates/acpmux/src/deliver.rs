@@ -99,7 +99,7 @@ pub async fn deliver_attached(
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod sessions_tests {
     use super::*;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

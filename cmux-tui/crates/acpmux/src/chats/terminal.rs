@@ -167,6 +167,6 @@ fn header_time(file: &File) -> Option<i64> {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "terminal_tests.rs"]
 mod tests;

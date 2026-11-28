@@ -261,6 +261,6 @@ pub(crate) fn events_from_cloud(agent_id: &str, events: &[CloudEvent]) -> Vec<Ev
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "earned_events_tests.rs"]
 mod tests;

@@ -619,6 +619,6 @@ pub fn to_value(r: &Replay) -> Value {
     serde_json::to_value(r).unwrap_or_else(|e| json!({"error": e.to_string()}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "scorecard_replay_tests.rs"]
 mod tests;

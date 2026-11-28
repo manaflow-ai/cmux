@@ -77,6 +77,6 @@ pub(crate) fn render(rows: &[Value]) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "archive_tests.rs"]
 mod tests;

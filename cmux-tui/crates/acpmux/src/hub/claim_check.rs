@@ -612,6 +612,6 @@ fn mask_code(sentence: &str) -> String {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "claim_check_tests.rs"]
 mod tests;

@@ -115,6 +115,6 @@ pub(crate) fn from_config(config: &toml::Table, env: &BTreeMap<String, String>) 
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "codex_provider_tests.rs"]
 mod tests;

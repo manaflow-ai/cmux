@@ -86,6 +86,6 @@ pub fn read(path: &Path) -> Patches {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "model_hot_patch_tests.rs"]
 mod tests;

@@ -276,6 +276,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "auto_background_tests.rs"]
 mod tests;

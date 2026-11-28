@@ -186,6 +186,6 @@ fn refuse_symlinked_home_at(home: &std::path::Path) -> Result<()> {
     .into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "join_input_tests.rs"]
 mod tests;

@@ -500,6 +500,6 @@ fn launchd_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "exe_swap_tests.rs"]
 mod tests;

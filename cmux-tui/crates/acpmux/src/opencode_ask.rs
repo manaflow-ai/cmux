@@ -71,6 +71,6 @@ impl<'de> Deserialize<'de> for Entries {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "opencode_ask_tests.rs"]
 mod tests;

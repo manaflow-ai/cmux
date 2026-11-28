@@ -185,6 +185,6 @@ fn is_id(v: &str, max: usize, extra: &str) -> bool {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_link_tests.rs"]
 mod tests;

@@ -1429,19 +1429,19 @@ fn refuse_stored_fixed_id(store: &dyn crate::store::Store, id: &str) -> Result<(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fixed_id_tests.rs"]
 mod fixed_id_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stop_fence_tests.rs"]
 mod stop_fence_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "probe_off_tests.rs"]
 mod probe_off_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "taken_name_tests.rs"]
 mod taken_name_tests;
 

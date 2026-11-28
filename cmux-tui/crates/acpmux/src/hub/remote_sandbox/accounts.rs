@@ -200,6 +200,6 @@ pub(super) fn parse_passwd(text: &str) -> Result<Vec<Account>, String> {
     Ok(out)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "accounts_tests.rs"]
 pub(super) mod tests;

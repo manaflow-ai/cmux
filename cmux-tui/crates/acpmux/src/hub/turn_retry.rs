@@ -233,6 +233,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_retry_tests.rs"]
 mod tests;

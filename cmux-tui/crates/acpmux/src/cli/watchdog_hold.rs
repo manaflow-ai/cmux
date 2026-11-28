@@ -42,7 +42,7 @@ pub(crate) fn line(answer: &Value) -> Result<String> {
     Ok(json!({"held": held, "until_resume": until_resume}).to_string())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod tests {
     use super::*;
 

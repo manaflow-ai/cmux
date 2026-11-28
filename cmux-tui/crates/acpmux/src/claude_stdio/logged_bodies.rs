@@ -130,6 +130,6 @@ fn bytes(value: &Value) -> usize {
     serde_json::to_string(value).map_or(0, |s| s.len())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "logged_bodies_tests.rs"]
 mod tests;

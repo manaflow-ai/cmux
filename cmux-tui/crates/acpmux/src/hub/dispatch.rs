@@ -194,6 +194,6 @@ pub(crate) fn event(kind: &str, row: &Value) -> Value {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "dispatch_tests.rs"]
 mod tests;

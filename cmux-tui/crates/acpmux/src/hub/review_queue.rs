@@ -553,7 +553,7 @@ fn pr_label(url: &str) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 

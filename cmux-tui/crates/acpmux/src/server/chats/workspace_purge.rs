@@ -144,6 +144,6 @@ fn remove(path: &Path) -> bool {
     removed.is_ok()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "workspace_purge_tests.rs"]
 mod tests;

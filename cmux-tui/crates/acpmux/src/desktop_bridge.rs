@@ -205,6 +205,6 @@ pub fn reply_hint(from: App) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "desktop_bridge_tests.rs"]
 mod tests;

@@ -594,6 +594,6 @@ pub(crate) fn check_base(carry: &Carry, pushed: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "session_move_carry_tests.rs"]
 mod tests;

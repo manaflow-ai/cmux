@@ -137,6 +137,6 @@ pub async fn add_cmd(id: &str, force: bool, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "harness_registry_tests.rs"]
 mod tests;

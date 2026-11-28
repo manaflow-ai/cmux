@@ -163,6 +163,6 @@ fn apply_at(cmd: &mut tokio::process::Command, env: &[(String, String)], cloud: 
     cmd.envs(add);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sccache_env_tests.rs"]
 mod tests;

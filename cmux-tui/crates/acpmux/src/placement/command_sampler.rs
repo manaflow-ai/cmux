@@ -746,6 +746,6 @@ impl Shadow {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "command_sampler_tests.rs"]
 mod tests;

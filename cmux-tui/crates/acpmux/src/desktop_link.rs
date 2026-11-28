@@ -1022,6 +1022,6 @@ pub fn ensure_inbox_relay_once() {
 mod write;
 use write::edit_file;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "desktop_link_tests.rs"]
 mod tests;

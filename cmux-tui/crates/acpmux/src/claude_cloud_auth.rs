@@ -621,6 +621,6 @@ pub(crate) fn apply_team(
     env.extend(pair);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "claude_cloud_auth_tests.rs"]
 mod tests;

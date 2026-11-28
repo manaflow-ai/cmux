@@ -53,6 +53,6 @@ impl super::LocalStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "open_logs_tests.rs"]
 mod tests;

@@ -65,6 +65,6 @@ pub(super) fn arguments(args: &Value, enabled: bool) -> Result<Value, String> {
     Ok(forwarded)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_guest_handoff_tests.rs"]
 mod tests;

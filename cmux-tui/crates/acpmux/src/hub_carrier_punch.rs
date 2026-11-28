@@ -938,6 +938,6 @@ pub fn punch_listener(port: u16) -> std::io::Result<tokio::net::TcpListener> {
         .or_else(|_| listen(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_punch_tests.rs"]
 mod tests;

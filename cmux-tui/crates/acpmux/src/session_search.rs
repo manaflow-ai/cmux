@@ -294,10 +294,10 @@ pub(crate) fn search_messages(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_search_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_search_bench_tests.rs"]
 mod bench_tests;

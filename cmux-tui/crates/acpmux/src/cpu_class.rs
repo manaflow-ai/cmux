@@ -948,6 +948,6 @@ mod imp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cpu_class_tests.rs"]
 mod tests;

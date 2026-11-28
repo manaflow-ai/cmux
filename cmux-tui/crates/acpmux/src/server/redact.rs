@@ -255,6 +255,6 @@ pub(crate) fn url_without_secrets(url: &str) -> String {
     format!("{scheme}://{host}{path}")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "redact_tests.rs"]
 mod tests;

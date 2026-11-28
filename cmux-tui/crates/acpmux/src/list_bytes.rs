@@ -67,6 +67,6 @@ pub fn global() -> &'static ListBytes {
     &GLOBAL
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "list_bytes_tests.rs"]
 mod tests;

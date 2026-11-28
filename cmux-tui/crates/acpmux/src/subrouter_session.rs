@@ -49,6 +49,6 @@ pub fn custom_headers(get: impl Fn(&str) -> Option<String>) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "subrouter_session_tests.rs"]
 mod tests;

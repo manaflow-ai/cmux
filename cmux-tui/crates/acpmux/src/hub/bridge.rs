@@ -1161,6 +1161,6 @@ fn forget_delivered_ids(session_id: &str) {
     delivered_ids().remove(session_id);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "bridge_tests.rs"]
 mod tests;

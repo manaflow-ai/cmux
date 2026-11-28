@@ -627,7 +627,7 @@ impl Hub {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod tests {
     use super::*;
     use crate::workflow_runs::{Child, State, Store};

@@ -400,6 +400,6 @@ fn stamp_card(g: Gathering, msg: &mut Value) {
     super::harness_magic::add_counter(msg, FEATURE, "prs", prs);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_artifacts_tests.rs"]
 mod tests;

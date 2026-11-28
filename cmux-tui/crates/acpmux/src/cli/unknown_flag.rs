@@ -148,6 +148,6 @@ fn send_from_file(send: &clap::Command, rest: &[String], program: &str) -> Optio
     Some(format!("{program} send {} - < {file}", words.join(" ")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "unknown_flag_tests.rs"]
 mod tests;

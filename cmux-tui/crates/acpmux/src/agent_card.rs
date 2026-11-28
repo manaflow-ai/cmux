@@ -548,6 +548,6 @@ pub fn cli(what: &str, json: bool, cwd: &Path) -> String {
 #[path = "agent_card_can_get.rs"]
 pub mod can_get;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "agent_card_tests.rs"]
 mod tests;

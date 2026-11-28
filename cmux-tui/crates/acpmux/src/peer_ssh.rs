@@ -142,6 +142,6 @@ impl Drop for Capture {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_ssh_tests.rs"]
 mod tests;

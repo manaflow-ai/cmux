@@ -289,6 +289,6 @@ impl Timing {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "history_timing_tests.rs"]
 mod tests;

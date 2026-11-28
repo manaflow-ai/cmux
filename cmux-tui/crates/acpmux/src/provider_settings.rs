@@ -141,6 +141,6 @@ impl Launch {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "provider_settings_tests.rs"]
 mod tests;

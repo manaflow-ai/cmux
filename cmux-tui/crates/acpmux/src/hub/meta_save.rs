@@ -505,7 +505,7 @@ fn hold_seam(session_id: &str) {
     let _ = std::fs::remove_file(release);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "meta_save_tests.rs"]
 mod tests;
 

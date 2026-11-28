@@ -589,7 +589,7 @@ fn truncating_stage(stage: &str) -> Option<String> {
     Some(stage.to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

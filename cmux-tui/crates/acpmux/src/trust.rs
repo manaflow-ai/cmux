@@ -578,7 +578,7 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
     Ok(json!({"cwd": cwd, "level": level.as_str()}))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod security_tests {
     use super::*;
 
@@ -610,7 +610,7 @@ mod security_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod scope_tests {
     use super::*;
 
@@ -908,6 +908,6 @@ mod scope_tests {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "trust_torn_tests.rs"]
 mod torn_tests;

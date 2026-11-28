@@ -186,6 +186,6 @@ pub fn not_moved(session: &str, from: Place, to: Place, consent: &Consent) -> Va
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "chat_place_tests.rs"]
 mod tests;

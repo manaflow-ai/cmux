@@ -107,6 +107,6 @@ impl Homes {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_rehome_tests.rs"]
 mod tests;

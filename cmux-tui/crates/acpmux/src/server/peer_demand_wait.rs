@@ -88,6 +88,6 @@ pub(super) async fn use_peer(hub: &Hub, m: &str, params: &Value) -> Option<Value
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "peer_demand_wait_tests.rs"]
 mod tests;

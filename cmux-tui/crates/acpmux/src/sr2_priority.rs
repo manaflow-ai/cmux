@@ -92,6 +92,6 @@ pub fn custom_headers(
     (joined != unchanged).then_some(joined)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sr2_priority_tests.rs"]
 mod tests;

@@ -14,7 +14,7 @@ use sha2::Digest;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "trigger_chat_tests.rs"]
 mod trigger_chat_tests;
 

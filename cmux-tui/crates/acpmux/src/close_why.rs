@@ -128,6 +128,6 @@ impl CloseRecord {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "close_why_tests.rs"]
 mod tests;

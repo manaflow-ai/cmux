@@ -40,6 +40,6 @@ async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
     crate::hub::peer_snapshot::clear_offline(home)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "snapshot_clear_tests.rs"]
 mod tests;

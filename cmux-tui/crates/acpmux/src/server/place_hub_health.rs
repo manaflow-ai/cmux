@@ -125,7 +125,7 @@ fn seed() -> u64 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "place_hub_health_sample_tests.rs"]
 mod sample_tests;
 

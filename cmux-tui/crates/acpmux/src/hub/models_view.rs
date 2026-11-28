@@ -423,6 +423,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "models_view_picker_models_tests.rs"]
 mod picker_models_tests;

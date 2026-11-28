@@ -587,6 +587,6 @@ fn outcome_text(outcome: &OpenOutcome) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "chats_tests.rs"]
 mod tests;

@@ -357,6 +357,6 @@ pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     refused("upload.unsupported", message)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "prompt_uploads_tests.rs"]
 mod tests;

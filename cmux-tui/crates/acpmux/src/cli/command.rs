@@ -176,7 +176,7 @@ pub fn owns_word(word: &str) -> bool {
     Cli::command().find_subcommand(word).is_some() || matches!(word, "stop" | "--skill" | "--guide")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod agent_front_door_tests {
     use super::owns_word;
 
@@ -1963,15 +1963,15 @@ pub enum RouterCmd {
     Serve,
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "command_help_contract_tests.rs"]
 mod help_contract_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "intent_tests.rs"]
 mod intent_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod config_set_tests {
     use super::{Cli, Command};
     use clap::Parser;
@@ -1989,7 +1989,7 @@ mod config_set_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod deadline_defaults_tests {
     use super::{Cli, Command};
     use clap::Parser;

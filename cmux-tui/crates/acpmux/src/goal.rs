@@ -278,6 +278,6 @@ where
     Ok(value.as_ref().and_then(|value| GoalState::from_value(value, None)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "goal_tests.rs"]
 mod tests;

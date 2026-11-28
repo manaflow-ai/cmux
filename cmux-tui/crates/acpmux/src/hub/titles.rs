@@ -759,6 +759,6 @@ fn is_thin_prompt(prompt: &str) -> bool {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "titles_tests.rs"]
 mod tests;

@@ -618,6 +618,6 @@ pub async fn deliver(
     Err("delivering to a Claude Code session is Unix-only".into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "claude_peers_tests.rs"]
 mod tests;

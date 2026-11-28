@@ -618,7 +618,7 @@ fn steer_entered_turn(answer: &Result<Value, RpcError>) -> bool {
         || e.message.starts_with(crate::claude_stdio::STEER_WITHDRAWN))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod tests {
     use super::*;
 
@@ -632,6 +632,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "steer_end_race_tests.rs"]
 mod race_tests;

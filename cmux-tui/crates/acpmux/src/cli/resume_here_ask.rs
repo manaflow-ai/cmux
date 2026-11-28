@@ -375,6 +375,6 @@ fn read_line_within_250ms() -> Read {
 #[cfg(not(unix))]
 async fn stdin_lines(_asking: watch::Receiver<bool>, _tx: mpsc::Sender<String>) {}
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "resume_here_ask_tests.rs"]
 mod tests;

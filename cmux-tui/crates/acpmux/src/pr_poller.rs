@@ -957,6 +957,6 @@ pub fn machine() -> &'static Poller<GhFetch> {
     &POLLER
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "pr_poller_tests.rs"]
 mod tests;

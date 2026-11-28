@@ -161,6 +161,6 @@ fn text(answer: &Value) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "search_all_tests.rs"]
 mod tests;

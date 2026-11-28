@@ -93,6 +93,6 @@ pub fn changes(kind: &str, to: u32) -> bool {
         .is_some_and(|program| !program.is_identity())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "abi_compat_tests.rs"]
 mod tests;

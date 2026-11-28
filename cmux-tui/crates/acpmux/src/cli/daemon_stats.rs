@@ -191,6 +191,6 @@ pub(crate) fn render_list_replies(list: &Value, top: usize) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "daemon_stats_tests.rs"]
 mod tests;

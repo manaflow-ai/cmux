@@ -143,6 +143,6 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
     doc.pointer(&pointer).cloned()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "user_settings_tests.rs"]
 mod tests;

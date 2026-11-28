@@ -1822,7 +1822,7 @@ impl Drop for Reserved<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod same_folder_tests {
     use super::same_folder;
 
@@ -1835,7 +1835,7 @@ mod same_folder_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod parent_side_servers_tests {
     use super::parent_side_servers;
     use serde_json::json;

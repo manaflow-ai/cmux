@@ -122,7 +122,7 @@ impl Store for Files {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod account_tests {
     use super::*;
 

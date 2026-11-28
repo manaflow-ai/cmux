@@ -107,6 +107,6 @@ fn task_result(output: &str) -> &str {
     inner.trim()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "subagents_opencode_tests.rs"]
 mod tests;

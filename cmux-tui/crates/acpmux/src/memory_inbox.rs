@@ -412,6 +412,6 @@ pub fn take(session: &str) -> bool {
     SIGNALS.lock().unwrap_or_else(|e| e.into_inner()).remove(session).is_some_and(|s| s.taught())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "memory_inbox_tests.rs"]
 mod tests;

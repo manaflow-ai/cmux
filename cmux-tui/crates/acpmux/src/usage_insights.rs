@@ -579,6 +579,6 @@ pub fn render(report: &CacheWaste) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "usage_insights_tests.rs"]
 mod tests;

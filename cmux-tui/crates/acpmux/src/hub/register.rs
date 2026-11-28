@@ -904,10 +904,10 @@ fn not_found() -> RpcError {
     .with_data(json!({"reason": "register.no_session"}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "register_name_tests.rs"]
 mod name_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "register_tests.rs"]
 mod tests;

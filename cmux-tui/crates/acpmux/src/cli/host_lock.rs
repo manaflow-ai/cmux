@@ -343,7 +343,7 @@ fn try_flock(file: &File) -> bool {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod umask_tests {
     use super::*;
 

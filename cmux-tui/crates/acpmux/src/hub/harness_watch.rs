@@ -556,6 +556,6 @@ fn run(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "harness_watch_wake_slot_tests.rs"]
 mod wake_slot_tests;

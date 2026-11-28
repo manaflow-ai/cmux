@@ -257,6 +257,6 @@ fn same_under_home(path: &Path, home: &Path, target_home: &str) -> Result<String
     Ok(cwd)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "session_move_plan_tests.rs"]
 mod tests;

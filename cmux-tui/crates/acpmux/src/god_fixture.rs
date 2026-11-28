@@ -493,6 +493,6 @@ pub fn write_scale_home(
     Ok(ids)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "god_fixture_tests.rs"]
 mod tests;

@@ -807,6 +807,6 @@ pub(crate) mod watched {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "secret_scan_tests.rs"]
 mod tests;

@@ -189,6 +189,6 @@ fn router_command(
     command
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "fifo_self_command_tests.rs"]
 mod self_command_tests;

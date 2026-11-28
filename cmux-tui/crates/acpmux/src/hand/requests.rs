@@ -313,6 +313,6 @@ fn apply_patch(files: Vec<Planned>) -> Result<Value, HandError> {
     Ok(json!({ "files": result }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "requests_consent_tests.rs"]
 mod consent_tests;

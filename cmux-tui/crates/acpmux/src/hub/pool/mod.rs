@@ -334,7 +334,7 @@ fn tool_servers(
     names.join(",")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "suggestions_tests.rs"]
 mod suggestions_tests;
 
@@ -354,14 +354,14 @@ pub(super) fn started_on(
     (model, set(current_effort(draft)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "key_tests.rs"]
 mod key_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "model_tests.rs"]
 mod model_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_hub, unix))]
 mod prewarm_tests;
 
 /// The pool's one-reaper claim (`PoolState::reaper`), held by the running reaper task. Dropping
@@ -1510,7 +1510,7 @@ async fn end_pooled_host(record: &HostRecord) {
     agent_host::remove_artifacts(&dir, record);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 mod reaper_claim_tests {
     use super::*;
 

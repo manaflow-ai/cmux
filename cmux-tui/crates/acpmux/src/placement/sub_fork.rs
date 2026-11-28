@@ -733,6 +733,6 @@ fn scope() -> &'static cmux_scope::Scope {
 }
 
 // Forks are git checkouts whose executable bits the tests compare: unix only.
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "sub_fork_tests.rs"]
 pub(crate) mod tests;

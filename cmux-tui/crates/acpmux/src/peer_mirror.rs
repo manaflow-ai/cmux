@@ -475,9 +475,9 @@ impl<'a> Dial<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_mirror_cut_tests.rs"]
 mod cut_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_mirror_tests.rs"]
 mod tests;

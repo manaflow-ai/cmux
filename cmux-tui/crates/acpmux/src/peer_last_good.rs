@@ -184,6 +184,6 @@ fn write_private(path: &Path, text: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_last_good_tests.rs"]
 mod tests;

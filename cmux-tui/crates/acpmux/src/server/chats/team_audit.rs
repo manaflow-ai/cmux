@@ -472,6 +472,6 @@ async fn save_csv(body: &[u8], disposition: Option<&str>) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "team_audit_tests.rs"]
 mod tests;

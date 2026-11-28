@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 pub(crate) const SKILL: &str = include_str!("../../skills/agents/SKILL.md");
 mod presets;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 mod wait_tests;
 pub(crate) use presets::{defaults, preset};
 
@@ -749,7 +749,7 @@ fn unreadable_fallback(
     home.filter(|h| denied && std::fs::read_dir(h).is_ok())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod ensure_cwd_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;

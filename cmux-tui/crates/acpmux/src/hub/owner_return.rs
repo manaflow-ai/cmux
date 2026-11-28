@@ -261,6 +261,6 @@ pub(crate) async fn owner_return_loop(weak: std::sync::Weak<Hub>, mover: &dyn Mo
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "owner_return_tests.rs"]
 mod tests;

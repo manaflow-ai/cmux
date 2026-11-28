@@ -359,6 +359,6 @@ where
 
 /// Table loops stop at their finite inputs. Test services stop on cancellation
 /// (or runtime teardown after a panic); test waits have the `bounded` deadline.
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "proxy_tests.rs"]
 mod tests;

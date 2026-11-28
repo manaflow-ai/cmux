@@ -50,7 +50,7 @@ mod state;
 #[cfg(unix)]
 mod verbs;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod tests;
 
 /// The pids the session records of `home` name, read only: a daemon that came through a restart's

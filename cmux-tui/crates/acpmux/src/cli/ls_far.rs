@@ -601,6 +601,6 @@ pub(crate) async fn relay_rows() -> Vec<Value> {
     far.finish().await.relay.map(|r| r.rows).unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "ls_far_tests.rs"]
 pub(crate) mod tests;

@@ -1356,11 +1356,11 @@ fn listed_worktree(folder: &Path, root: &Path) -> Option<Option<String>> {
     found.then_some(None)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "subsession_worktree_tests.rs"]
 mod base_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

@@ -232,6 +232,6 @@ impl Drop for PressureRelease {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "store_pressure_tests.rs"]
 mod tests;

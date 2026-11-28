@@ -102,10 +102,10 @@ pub(super) async fn initialize(
     Ok(negotiated.result)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "acp_version_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "acp_registry_live_tests.rs"]
 mod registry_live;

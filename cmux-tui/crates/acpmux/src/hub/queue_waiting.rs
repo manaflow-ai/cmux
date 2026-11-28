@@ -280,6 +280,6 @@ impl Digests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "queue_waiting_replay_tests.rs"]
 mod replay_tests;

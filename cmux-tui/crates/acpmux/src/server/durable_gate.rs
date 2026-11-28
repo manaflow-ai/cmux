@@ -331,6 +331,6 @@ fn refused(line: &super::outbound::Line, refusal: &str) -> Option<Option<String>
 #[cfg(test)]
 pub(crate) static TEST_STALL_MS: AtomicU64 = AtomicU64::new(0);
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_server, unix))]
 #[path = "durable_gate_tests.rs"]
 mod durable_gate_tests;

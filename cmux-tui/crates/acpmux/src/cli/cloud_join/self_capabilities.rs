@@ -284,6 +284,6 @@ async fn save_if_unchanged(
     save_at(home, &record).inspect_err(|e| tracing::warn!("machine capabilities: not saved: {e:#}"))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 #[path = "self_capabilities_tests.rs"]
 mod tests;

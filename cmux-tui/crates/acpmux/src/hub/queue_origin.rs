@@ -86,10 +86,10 @@ pub(super) fn person_place(queue: &[super::queue::QueuedPrompt]) -> Option<usize
     queue.iter().position(|q| q.held || (!q.sent_now && !is_persons(q)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "queue_origin_place_tests.rs"]
 mod place_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "queue_origin_tests.rs"]
 mod tests;

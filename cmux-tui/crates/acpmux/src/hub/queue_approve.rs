@@ -342,7 +342,7 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "queue_approve_tests.rs"]
 mod tests;
 

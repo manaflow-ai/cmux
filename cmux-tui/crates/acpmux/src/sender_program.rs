@@ -362,6 +362,6 @@ fn lookup(_pid: u32) -> Option<ProcArgs> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "sender_program_tests.rs"]
 mod tests;

@@ -130,6 +130,6 @@ impl super::remote_rows::RemoteRows {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "former_names_tests.rs"]
 pub(super) mod tests;

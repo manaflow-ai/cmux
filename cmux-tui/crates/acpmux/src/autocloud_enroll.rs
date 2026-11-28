@@ -283,6 +283,6 @@ pub fn caps_now() -> Vec<String> {
     caps
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "autocloud_enroll/tests.rs"]
 mod tests;

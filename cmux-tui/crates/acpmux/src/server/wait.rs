@@ -372,7 +372,7 @@ impl Drop for OpenWait<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod retry_deciding_tests {
     use super::*;
 
@@ -404,7 +404,7 @@ mod retry_deciding_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod agent_messaging_tests {
     use super::*;
 
@@ -429,7 +429,7 @@ mod agent_messaging_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod turn_ended_tests {
     use super::*;
 
@@ -468,6 +468,6 @@ mod turn_ended_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "wait_stream_tests.rs"]
 mod wait_stream_tests;

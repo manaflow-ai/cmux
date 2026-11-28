@@ -361,6 +361,6 @@ pub(super) fn row(hub: &Hub, id: &str) -> Value {
     crate::auto_session::record::AutoRecord::row_of(record.as_ref())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tasks_tests.rs"]
 mod tests;

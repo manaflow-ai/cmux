@@ -425,6 +425,6 @@ pub fn lex(script: &str) -> Option<Lexed> {
     lexer(script).run()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "shell_words_tests.rs"]
 mod tests;

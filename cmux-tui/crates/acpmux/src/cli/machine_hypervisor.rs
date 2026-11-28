@@ -164,7 +164,7 @@ fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_cli, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt as _;

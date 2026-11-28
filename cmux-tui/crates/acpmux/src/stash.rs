@@ -390,6 +390,6 @@ fn write(path: &Path, chat: &str, drafts: &[Draft]) -> io::Result<()> {
     written
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "stash_tests.rs"]
 mod tests;

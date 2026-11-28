@@ -114,6 +114,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "clone_boot_tests.rs"]
 mod tests;

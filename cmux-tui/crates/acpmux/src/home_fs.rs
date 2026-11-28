@@ -1361,6 +1361,6 @@ mod unix {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "home_fs_stable_copy_name_tests.rs"]
 mod stable_copy_name_tests;

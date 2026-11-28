@@ -325,6 +325,6 @@ impl Controls {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "controls_tests.rs"]
 mod tests;

@@ -149,6 +149,6 @@ impl TextChunk {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "transcript_preview_tests.rs"]
 mod tests;

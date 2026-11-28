@@ -69,6 +69,6 @@ fn apply_with(reply: &mut Value, params: &Value, omit_all: bool) {
     reply.insert("timeBreakdownVersion".into(), version.map_or(Value::Null, Value::String));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "time_breakdown_gate_tests.rs"]
 mod tests;

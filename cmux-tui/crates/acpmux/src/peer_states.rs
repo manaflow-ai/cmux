@@ -216,6 +216,6 @@ fn marked(note: &PeerStateChanged) -> Value {
     json!({ (STATE_NOTE): note })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "peer_states_tests.rs"]
 mod tests;

@@ -282,6 +282,6 @@ fn age(ms: u64) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "acpmux_mcp_bg_list_tests.rs"]
 mod tests;

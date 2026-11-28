@@ -748,14 +748,14 @@ fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
     Some(format!("acpmux: {warning}"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "client_cancel_tests.rs"]
 mod cancel_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "client_lineage_tests.rs"]
 mod lineage_tests;

@@ -91,6 +91,6 @@ pub(super) fn update_of_the_fork(session: &Session, p: &Value) -> bool {
     !session.subagents.lock().unwrap_or_else(|e| e.into_inner()).knows(sid)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "fork_replay_tests.rs"]
 mod tests;

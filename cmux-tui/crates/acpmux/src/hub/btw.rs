@@ -1046,6 +1046,6 @@ fn newest(text: &str, max: usize) -> (bool, &str) {
     (true, &text[start..])
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "btw_tests.rs"]
 mod tests;

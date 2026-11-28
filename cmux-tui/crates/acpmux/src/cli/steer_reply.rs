@@ -241,6 +241,6 @@ fn turn_end(m: &str, p: &Value) -> Option<(String, Result<Value>)> {
     Some((turn, end))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "steer_reply_tests.rs"]
 mod tests;

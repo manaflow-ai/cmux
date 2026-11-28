@@ -438,6 +438,6 @@ pub(crate) async fn stop_at_shutdown(hub: &Arc<Hub>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "machine_enroll_tests.rs"]
 mod tests;

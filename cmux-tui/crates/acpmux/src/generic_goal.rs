@@ -214,6 +214,6 @@ fn continuation(goal: &GoalState, count: u64) -> String {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "generic_goal_tests.rs"]
 mod tests;

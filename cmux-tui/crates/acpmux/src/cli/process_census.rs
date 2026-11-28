@@ -781,6 +781,6 @@ fn log_state_removal(path: &Path) {
     );
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "process_census_tests.rs"]
 mod tests;

@@ -63,6 +63,6 @@ fn note(target: &mut Value, canonical: impl FnOnce() -> Option<String>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "tool_paths_tests.rs"]
 mod tests;

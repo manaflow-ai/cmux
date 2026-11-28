@@ -555,6 +555,6 @@ fn after_cold_commit(hub: &Hub, session: &Session) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "cold_archive_tests.rs"]
 mod tests;

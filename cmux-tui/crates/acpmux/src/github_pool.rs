@@ -371,7 +371,7 @@ pub fn parse_reading(body: &[u8], now_ms: u64) -> Option<Readings> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

@@ -893,12 +893,12 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "emit_lines_tests.rs"]
 mod emit_lines_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "pack_through_kept_tests.rs"]
 mod kept_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "transfer_history_tests.rs"]
 mod tests;

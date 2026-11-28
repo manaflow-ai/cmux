@@ -30,23 +30,23 @@ mod session_resources;
 mod signature;
 mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "requests/op_once_tests.rs"]
 mod op_once_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "requests/reopen_attach_bytes_tests.rs"]
 mod reopen_attach_bytes_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "requests/session_load_newest_tests.rs"]
 mod session_load_newest_tests;
 mod settled_attach;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "requests/settled_attach_tests.rs"]
 mod settled_attach_tests;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "requests/sub_session_start_tests.rs"]
 mod sub_session_start_tests;
 mod successor;
@@ -4728,10 +4728,10 @@ fn refuse_full_access_policy(hub: &Hub, policy: Option<PermissionPolicy>) -> Res
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod dispatch_policy_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod admission_force_tests {
     use super::*;
 
@@ -4909,7 +4909,7 @@ fn shutdown_reason(params: &Value) -> String {
     given.chars().take(SHUTDOWN_REASON_MAX).map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod shutdown_reason_tests {
     use super::shutdown_reason;
     use serde_json::json;
@@ -4987,7 +4987,7 @@ async fn bounded_preparation<T>(
     result
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod cloud_preparation_tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};

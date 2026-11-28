@@ -221,6 +221,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "pack_as_it_grows_tests.rs"]
 mod tests;

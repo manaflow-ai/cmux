@@ -1179,7 +1179,7 @@ fn the_lint_finds_each_shape_of_a_check_by_path() {
                 std::fs::symlink_metadata(self.cold_path(id)).is_ok()
             }
         }
-        #[cfg(all(test, unix))]
+        #[cfg(all(test, acpmux_tests_rest, unix))]
         mod tests {
             fn t(p: &std::path::Path) -> bool { p.exists() }
         }

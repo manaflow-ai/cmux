@@ -109,6 +109,6 @@ impl Unstarted {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "unstarted_prompt_tests.rs"]
 mod tests;

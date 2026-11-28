@@ -419,10 +419,10 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
     anyhow::bail!("native workflows require the cmux executable beside acpmux")
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "workflow_runs_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "workflow_runs_build_space_tests.rs"]
 mod build_space_tests;

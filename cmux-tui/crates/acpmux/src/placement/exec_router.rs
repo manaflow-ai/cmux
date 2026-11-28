@@ -285,6 +285,6 @@ pub fn trace_main(last: usize, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "exec_router_tests.rs"]
 mod tests;

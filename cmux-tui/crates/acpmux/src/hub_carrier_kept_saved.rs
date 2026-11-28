@@ -223,6 +223,6 @@ impl HubCarrier {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_kept_saved_tests.rs"]
 mod tests;

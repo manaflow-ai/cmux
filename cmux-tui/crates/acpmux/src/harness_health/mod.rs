@@ -805,6 +805,6 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "tests.rs"]
 mod tests;

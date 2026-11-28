@@ -241,6 +241,6 @@ fn read(
     StatusFacts { auth_source, route, settings, plan_limits }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "session_status_tests.rs"]
 mod tests;

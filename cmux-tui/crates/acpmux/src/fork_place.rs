@@ -106,6 +106,6 @@ fn valid_machine(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "fork_place_tests.rs"]
 mod tests;

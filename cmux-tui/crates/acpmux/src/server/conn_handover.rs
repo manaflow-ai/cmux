@@ -277,7 +277,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for KeepOpen<W> {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_server, unix))]
 mod tests {
     use super::*;
     use tokio::io::AsyncWriteExt as _;

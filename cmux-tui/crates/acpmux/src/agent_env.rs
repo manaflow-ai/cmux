@@ -142,7 +142,7 @@ pub fn excluded(name: &str, patterns: &[String]) -> bool {
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
     use serde_json::json;

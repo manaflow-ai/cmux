@@ -363,6 +363,6 @@ async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "pull_request_actions/tests.rs"]
 mod tests;

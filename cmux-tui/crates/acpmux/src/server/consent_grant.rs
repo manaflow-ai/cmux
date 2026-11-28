@@ -210,7 +210,7 @@ fn no_carrier() -> Value {
         "error": "this acpmux was built without the hub carrier"})
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
 

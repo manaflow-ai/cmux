@@ -520,6 +520,6 @@ fn transcript_end(file: &std::path::Path, codex: bool) -> (u64, bool) {
     (len, items)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "release_to_watch_tests.rs"]
 mod tests;

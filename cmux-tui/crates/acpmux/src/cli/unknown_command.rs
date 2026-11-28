@@ -173,6 +173,6 @@ pub(crate) fn stdin_dash(
     Some(AppError::new(Code::Usage, "prompt_stdin", message).with_data(data))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "unknown_command_tests.rs"]
 mod tests;

@@ -270,6 +270,6 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     transient_cause(raw).or_else(|| transient_cause(shown))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "turn_errors_tests.rs"]
 mod tests;

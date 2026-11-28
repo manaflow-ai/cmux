@@ -136,6 +136,6 @@ pub(super) fn add_cache_rebuild(session: &Session, msg: &mut Map<String, Value>)
     msg.extend(fields);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "cache_rebuild_tests.rs"]
 mod tests;

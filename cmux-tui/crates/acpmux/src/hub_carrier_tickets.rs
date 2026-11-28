@@ -304,6 +304,6 @@ impl Tickets for CachedTickets {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "hub_carrier_tickets_tests.rs"]
 mod tests;

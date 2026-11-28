@@ -102,6 +102,6 @@ pub(crate) fn claude_args(meta: &crate::store::SessionMeta) -> Vec<String> {
     ["--setting-sources", "user", "--strict-mcp-config"].map(str::to_owned).into()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "restricted_tests.rs"]
 mod tests;

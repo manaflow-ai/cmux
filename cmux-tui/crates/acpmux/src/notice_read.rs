@@ -130,6 +130,6 @@ fn links_of(line: &str) -> Vec<Value> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "notice_read_tests.rs"]
 mod tests;

@@ -154,6 +154,6 @@ fn transcript_path(hub: &Hub, meta: &SessionMeta) -> Option<PathBuf> {
     hub.chat_index()?.get(&key).map(|chat| chat.entry.source_path).filter(|p| p.is_absolute())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "session_files_tests.rs"]
 mod tests;

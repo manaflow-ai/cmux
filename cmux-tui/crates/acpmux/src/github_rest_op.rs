@@ -279,6 +279,6 @@ fn run_gh_blocking(plan: &Plan, gh: &str) -> Gh {
     Gh::Ran(Answer { status: answer_status, ok: status.success(), body })
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "github_rest_op_tests.rs"]
 mod tests;

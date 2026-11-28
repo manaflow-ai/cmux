@@ -71,6 +71,6 @@ pub fn ensure(home: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "cloud_readme_tests.rs"]
 mod tests;

@@ -524,6 +524,6 @@ fn quote(text: &str) -> String {
     if plain { text.to_owned() } else { format!("'{}'", text.replace('\'', r"'\''")) }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "hint_tests.rs"]
 mod tests;

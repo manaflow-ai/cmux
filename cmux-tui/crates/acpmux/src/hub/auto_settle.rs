@@ -539,6 +539,6 @@ fn brought_back(m: &SessionMeta) -> (serde_json::Map<String, Value>, Vec<String>
     (set, vec![ARCHIVED_TAG.to_owned(), SETTLED_TAG.to_owned()])
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "auto_settle_tests.rs"]
 mod tests;

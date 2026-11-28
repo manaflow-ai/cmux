@@ -335,6 +335,6 @@ pub fn stall_dollars(seconds: f64) -> f64 {
     seconds / 3_600.0 * STALL_DOLLARS_PER_HOUR
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "work_place_tests.rs"]
 mod tests;

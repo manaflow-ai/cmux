@@ -169,6 +169,6 @@ pub fn status_line(carrier: &Value) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("; "))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "carrier_tests.rs"]
 mod tests;

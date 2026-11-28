@@ -195,6 +195,6 @@ impl ChatQuery {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "query_tests.rs"]
 mod tests;

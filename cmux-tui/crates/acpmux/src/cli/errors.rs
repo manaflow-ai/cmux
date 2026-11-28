@@ -363,10 +363,10 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
     std::process::exit(app.exit_status());
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "errors_typed_kind_tests.rs"]
 mod typed_kind_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "errors_typed_error_tests.rs"]
 mod typed_error_tests;

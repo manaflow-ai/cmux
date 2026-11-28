@@ -282,6 +282,6 @@ fn gave_up(mut e: RpcError, tries: u32) -> RpcError {
     e
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "start_retry_tests.rs"]
 mod tests;

@@ -286,6 +286,6 @@ fn stamp_watch(w: &mut Watch, msg: &mut Value) {
     super::harness_magic::add_counter(msg, FEATURE, "due", due);
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "best_of_n_tests.rs"]
 mod tests;

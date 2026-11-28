@@ -216,6 +216,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "github_owner_tests.rs"]
 mod tests;

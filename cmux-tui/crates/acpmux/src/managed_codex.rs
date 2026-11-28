@@ -239,6 +239,6 @@ pub fn configured_path() -> Option<PathBuf> {
     is_ready().then(managed_path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "managed_codex_tests.rs"]
 mod tests;

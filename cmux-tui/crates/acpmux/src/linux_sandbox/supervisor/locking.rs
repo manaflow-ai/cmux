@@ -103,6 +103,6 @@ pub(super) fn acquire(file: &OwnedFd, stop: RawFd, listener: RawFd) -> Result<Gu
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "locking_tests.rs"]
 mod tests;

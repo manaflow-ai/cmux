@@ -847,6 +847,6 @@ fn look_now(session: &str) -> Value {
 #[path = "turn_frames_shape.rs"]
 pub(super) mod shape;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "turn_frames_tests.rs"]
 mod tests;

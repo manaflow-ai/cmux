@@ -266,6 +266,6 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "stop_if_idle_tests.rs"]
 mod stop_if_idle_tests;

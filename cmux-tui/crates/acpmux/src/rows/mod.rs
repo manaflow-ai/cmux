@@ -23,7 +23,7 @@ mod serve;
 
 #[cfg(test)]
 mod bench;
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests;
 
 pub use fold::{Patch, Row, RowHead, RowKind, RowTable};

@@ -542,6 +542,6 @@ pub(crate) async fn peer_back_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_peering_tests.rs"]
 mod tests;

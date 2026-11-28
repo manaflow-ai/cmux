@@ -970,14 +970,14 @@ pub(crate) fn until_line(until: u64) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "rate_hold_sleep_tests.rs"]
 mod sleep_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "rate_hold_moved_tests.rs"]
 mod moved_tests;
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "rate_hold_tests.rs"]
 mod tests;

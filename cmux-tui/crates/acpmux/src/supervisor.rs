@@ -172,7 +172,7 @@ pub fn decide(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
     use crate::close_why::{CloseActor, CloseRecord};

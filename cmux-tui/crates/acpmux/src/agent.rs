@@ -111,7 +111,7 @@ pub enum Inbound {
     LinkBroken { agent: u64 },
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "agent_idle_tests.rs"]
 mod idle_tests;
 
@@ -2132,12 +2132,12 @@ impl ChildAgent {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod spawn_error_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod fence_tests;
 
 /// Review findings F1 and F4 of #41285 on a cancelled agent request (`request_cancel.rs`).
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod cancel_tests;

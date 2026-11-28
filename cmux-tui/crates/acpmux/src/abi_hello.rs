@@ -128,6 +128,6 @@ pub fn status() -> Value {
     json!({"abi": crate::protocol::ABI, "peers": peers, "omitted": omitted})
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "abi_hello_tests.rs"]
 mod tests;

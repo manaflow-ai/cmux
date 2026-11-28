@@ -496,6 +496,6 @@ fn refusal(reason: &'static str, message: &str) -> RpcError {
     RpcError::new(-32000, message).with_data(json!({"reason": reason}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "machine_tunnel_tests.rs"]
 mod tests;

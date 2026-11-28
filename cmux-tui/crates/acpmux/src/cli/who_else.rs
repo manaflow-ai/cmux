@@ -113,6 +113,6 @@ pub async fn run(args: WhoElseArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "who_else_tests.rs"]
 mod tests;

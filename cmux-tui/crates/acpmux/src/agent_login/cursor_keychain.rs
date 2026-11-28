@@ -56,7 +56,7 @@ fn probe_status(command: &mut Command, limit: Duration) -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 mod tests {
     use super::*;
 

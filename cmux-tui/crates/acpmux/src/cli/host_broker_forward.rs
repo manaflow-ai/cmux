@@ -422,6 +422,6 @@ pub(crate) async fn open_pipe(owner: &str, daemon: &Path, early: &[u8]) -> Resul
     Ok(stream)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "host_broker_forward_tests.rs"]
 mod tests;

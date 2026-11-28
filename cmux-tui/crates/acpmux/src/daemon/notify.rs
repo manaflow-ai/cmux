@@ -96,6 +96,6 @@ fn stall_text(name: &str, msg: &Value) -> String {
     format!("Still waiting {minutes} min: {}", permission_text(name, &msg["request"]))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "notify_tests.rs"]
 mod tests;

@@ -449,6 +449,6 @@ fn linux(load: &mut Load) {
     load.cpu_busy = before.zip(stat()).and_then(|(a, b)| p::cpu_busy(a, b));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "host_load_tests.rs"]
 mod tests;

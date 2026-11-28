@@ -171,7 +171,7 @@ fn mark(e: &mut RpcError, key: &str, value: &str) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 mod tests {
     use super::*;
 

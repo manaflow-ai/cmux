@@ -276,6 +276,6 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     *blocks = out;
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "prompt_attribution_tests.rs"]
 mod tests;

@@ -95,6 +95,6 @@ pub fn forget(home: &Path, session: &str) {
     let _ = crate::home_fs::remove_dir_all(session_dir(home, session));
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "subagent_call_tests.rs"]
 mod tests;

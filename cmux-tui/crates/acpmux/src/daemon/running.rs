@@ -56,6 +56,6 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "running_tests.rs"]
 mod tests;

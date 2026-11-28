@@ -144,7 +144,7 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "peer_lease_tests.rs"]
 mod tests;
 

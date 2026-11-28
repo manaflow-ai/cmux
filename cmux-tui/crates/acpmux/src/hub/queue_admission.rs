@@ -144,6 +144,6 @@ fn string_bytes(s: &str) -> u64 {
     s.len() as u64 + 2 + escapes * 5
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "queue_admission_tests.rs"]
 mod tests;

@@ -82,6 +82,6 @@ async fn until_either(mut a: watch::Receiver<bool>, mut b: watch::Receiver<bool>
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_server))]
 #[path = "tailnet_front_tests.rs"]
 mod tests;

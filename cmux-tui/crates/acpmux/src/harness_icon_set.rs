@@ -189,6 +189,6 @@ pub fn with_icon(text: &str, icon: Option<&str>) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "harness_icon_set_tests.rs"]
 mod tests;

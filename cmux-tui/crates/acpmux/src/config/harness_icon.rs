@@ -410,6 +410,6 @@ fn is_flag(text: &str) -> bool {
     text.chars().all(|c| (0x1F1E6..=0x1F1FF).contains(&(c as u32)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "harness_icon_tests.rs"]
 mod tests;

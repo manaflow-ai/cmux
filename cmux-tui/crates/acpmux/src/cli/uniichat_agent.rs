@@ -619,6 +619,6 @@ async fn run_prompt(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_cli))]
 #[path = "uniichat_agent_tests.rs"]
 mod tests;

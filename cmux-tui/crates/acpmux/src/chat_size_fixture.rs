@@ -434,6 +434,6 @@ pub fn write_chat(home: &Path, work: &Path, bytes: u64) -> io::Result<Written> {
     Ok(written)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "chat_size_fixture_tests.rs"]
 mod tests;

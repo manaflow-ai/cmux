@@ -109,6 +109,6 @@ fn name(mut out: Out, provider: Option<&str>) -> Out {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "provider_tests.rs"]
 mod tests;

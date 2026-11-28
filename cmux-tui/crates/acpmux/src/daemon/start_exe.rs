@@ -185,6 +185,6 @@ pub(crate) fn stale_winner(
     matches!((daemon_commit_time, choice.commit_time), (Some(d), Some(c)) if d < c)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_rest))]
 #[path = "start_exe_tests.rs"]
 mod tests;

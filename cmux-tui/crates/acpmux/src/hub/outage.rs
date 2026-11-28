@@ -104,6 +104,6 @@ pub(crate) fn retry_at(now_ms: u64, delay_ms: Option<u64>) -> Option<u64> {
     delay_ms.map(|d| now_ms.saturating_add(d))
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "outage_tests.rs"]
 mod tests;

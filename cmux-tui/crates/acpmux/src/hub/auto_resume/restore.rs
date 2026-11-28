@@ -471,6 +471,6 @@ fn last_turn_summary(result: &EventRecord) -> Value {
     Value::Object(summary)
 }
 
-#[cfg(test)]
+#[cfg(all(test, acpmux_tests_hub))]
 #[path = "restore_tests.rs"]
 mod tests;

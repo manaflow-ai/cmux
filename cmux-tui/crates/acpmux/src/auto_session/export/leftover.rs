@@ -114,6 +114,6 @@ pub(crate) async fn discard(leftover: &Leftover) {
     let _ = tokio::task::spawn_blocking(move || crate::home_fs::remove_file(path)).await;
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 #[path = "leftover_tests.rs"]
 mod tests;

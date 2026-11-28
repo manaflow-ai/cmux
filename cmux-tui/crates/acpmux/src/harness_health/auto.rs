@@ -317,7 +317,7 @@ impl HealthService {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, acpmux_tests_rest, unix))]
 mod owner_only_tests {
     use super::*;
 
