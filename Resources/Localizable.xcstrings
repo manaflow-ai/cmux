@@ -121245,6 +121245,131 @@
         }
       }
     },
+    "cli.vm.reference.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ matches more than one machine: %2$@. Use the machine id from `cmux vm ls`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ passt auf mehr als eine Maschine: %2$@. Verwende die Maschinen-ID aus `cmux vm ls`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ correspond à plusieurs machines : %2$@. Utilisez l’identifiant de machine indiqué par `cmux vm ls`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطابق %1$@ أكثر من جهاز واحد: %2$@. استخدم معرّف الجهاز من `cmux vm ls`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ coincide con más de una máquina: %2$@. Usa el id de máquina de `cmux vm ls`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 符合多台機器：%2$@。請使用 `cmux vm ls` 中的機器 ID。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 匹配多台机器：%2$@。请使用 `cmux vm ls` 中的机器 ID。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@이(가) 둘 이상의 머신과 일치합니다: %2$@. `cmux vm ls`에 표시된 머신 ID를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は複数のマシンに一致します: %2$@。`cmux vm ls` に表示されるマシン ID を使ってください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ odgovara više od jedne mašine: %2$@. Koristite ID mašine iz `cmux vm ls`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ matcher mere end én maskine: %2$@. Brug maskine-id'et fra `cmux vm ls`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ corrisponde a più di una macchina: %2$@. Usa l'id della macchina mostrato da `cmux vm ls`."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ត្រូវគ្នានឹងម៉ាស៊ីនច្រើនជាងមួយ៖ %2$@។ សូមប្រើលេខសម្គាល់ម៉ាស៊ីនពី `cmux vm ls`។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ samsvarer med mer enn én maskin: %2$@. Bruk maskin-ID-en fra `cmux vm ls`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pasuje do więcej niż jednej maszyny: %2$@. Użyj identyfikatora maszyny z `cmux vm ls`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ corresponde a mais de uma máquina: %2$@. Use o id da máquina mostrado em `cmux vm ls`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ соответствует нескольким машинам: %2$@. Используйте идентификатор машины из `cmux vm ls`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ตรงกับเครื่องมากกว่าหนึ่งเครื่อง: %2$@ ใช้รหัสเครื่องจาก `cmux vm ls`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ birden fazla makineyle eşleşiyor: %2$@. `cmux vm ls` çıktısındaki makine kimliğini kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ відповідає кільком машинам: %2$@. Використайте ідентифікатор машини з `cmux vm ls`."
+          }
+        }
+      }
+    },
     "cli.vm.rename.cleared": {
       "extractionState": "manual",
       "localizations": {

@@ -20,6 +20,8 @@ type CloudDb = ReturnType<typeof createPostgresJsDb>;
 type CloudDbState = {
   db: CloudDb;
   close: () => Promise<void>;
+  /** Closes the client without waiting on its queries; see discardCloudDb. */
+  abandon: () => Promise<void>;
   /** Opens one pooled connection ahead of the first query; see preconnectCloudDb. */
   warm: () => Promise<void>;
   key: string;
@@ -29,6 +31,16 @@ const globalForDb = globalThis as typeof globalThis & {
   __cmuxCloudDb?: CloudDbState;
 };
 
+/**
+ * How long an RDS pool request waits for a connection: a new connect (IAM
+ * token fetch, TCP and TLS, auth) or a free pooled client. Without it a connect
+ * that never finished, and every request queued behind the full pool, waited
+ * until Vercel killed the function at maxDuration (960 s on the VM routes).
+ * Past it the query fails and the route answers its retryable database error.
+ * Kept inside the VM list's 20 s database budget.
+ */
+export const CLOUD_DB_CONNECT_TIMEOUT_MS = 10_000;
+
 export function createAwsRdsIamPool(
   config: CloudDbAwsRdsIamConfig,
   overrides: Partial<ConstructorParameters<typeof Pool>[0] & object> = {},
@@ -36,6 +48,7 @@ export function createAwsRdsIamPool(
   return new Pool({
     ...awsRdsConnectionOptions(config),
     max: config.poolMax,
+    connectionTimeoutMillis: CLOUD_DB_CONNECT_TIMEOUT_MS,
     ...overrides,
     Client: overrides.Client ?? CancellableRdsClient,
   });
@@ -276,6 +289,9 @@ export function cloudDb(): CloudDb {
     globalForDb.__cmuxCloudDb = {
       db,
       close: () => pool.end(),
+      // node-postgres has no forced end: idle clients close now, and a
+      // checked-out client closes when its query settles.
+      abandon: () => pool.end(),
       warm: coalesceWarm(async () => {
         const client = await pool.connect();
         client.release();
@@ -293,12 +309,62 @@ export function cloudDb(): CloudDb {
   globalForDb.__cmuxCloudDb = {
     db,
     close: () => sql.end(),
+    abandon: () => sql.end({ timeout: CLOUD_DB_DISCARD_GRACE_SECONDS }),
     warm: coalesceWarm(async () => {
       await sql`select 1`;
     }),
     key,
   };
   return db;
+}
+
+/**
+ * This process's database client, opened if needed, or undefined when no
+ * database is configured. For callers that only need a handle to compare
+ * against later (see discardCloudDb), where a missing database is the read's
+ * own error to report, not theirs.
+ */
+export function cloudDbIfConfigured(): CloudDb | undefined {
+  try {
+    return cloudDb();
+  } catch {
+    return undefined;
+  }
+}
+
+/** How long a discarded postgres.js client lets its in-flight queries finish before it drops their sockets. */
+const CLOUD_DB_DISCARD_GRACE_SECONDS = 5;
+
+/**
+ * How long a discarded client keeps serving the requests already using it
+ * before it is closed. Other requests' queries and transactions on the old
+ * pool get this long to finish; only connections still stuck past it are cut.
+ */
+const CLOUD_DB_DISCARD_CLOSE_AFTER_MS = 60_000;
+
+/**
+ * Drops `db`, the client a timed-out read was using, so the next query opens a
+ * new one. Does nothing if `db` is no longer this process's client: a later
+ * timeout from a read that queued on the same dead pool must not drop the
+ * fresh pool another request has opened since.
+ *
+ * For a pool that stopped answering: a query queued behind wedged
+ * connections is never sent, so no abort or deadline reaches it, and every
+ * later query on the same pool queues behind it too. New queries go to a new
+ * client at once; the old one is closed in the background after a grace
+ * (postgres.js then allows a few more seconds for in-flight queries).
+ */
+export function discardCloudDb(
+  db: CloudDb | undefined,
+  { closeAfterMs = CLOUD_DB_DISCARD_CLOSE_AFTER_MS }: { readonly closeAfterMs?: number } = {},
+): void {
+  const state = globalForDb.__cmuxCloudDb;
+  if (!db || !state || state.db !== db) return;
+  globalForDb.__cmuxCloudDb = undefined;
+  const timer = setTimeout(() => {
+    void state.abandon().catch(() => undefined);
+  }, closeAfterMs);
+  (timer as { unref?: () => void }).unref?.();
 }
 
 /**

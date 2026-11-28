@@ -106,7 +106,15 @@ extension CMUXCLI {
         ))
     }
 
-    func runVMPushCommand(rest: [String], client: SocketClient, jsonOutput: Bool, quiet: Bool = false) throws {
+    /// `resolvesMachineReference` is set by the `cmux vm push` entry point, where the
+    /// machine may be a label from `vm ls`; internal callers already hold an id.
+    func runVMPushCommand(
+        rest: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        quiet: Bool = false,
+        resolvesMachineReference: Bool = false
+    ) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmPushUsage)
             return
@@ -166,7 +174,6 @@ extension CMUXCLI {
         guard positional.count >= 2, positional.count <= 3 else {
             throw CLIError(message: Self.vmPushUsage)
         }
-        let vmID = positional[0]
         let localPath = (positional[1] as NSString).expandingTildeInPath
         let localURL = URL(fileURLWithPath: localPath)
 
@@ -175,13 +182,15 @@ extension CMUXCLI {
             throw CLIError(message: "No such local path: \(localPath)")
         }
         let remotePath = positional.count == 3 ? positional[2] : localURL.lastPathComponent
+        let vmReference = positional[0]
 
         if secret {
             guard !watch, extraExcludes.isEmpty, useDefaultExcludes else {
                 throw CLIError(message: "vm push --secret delivers one file once; it does not combine with --watch, --exclude, or --no-default-excludes\n\n\(Self.vmPushUsage)")
             }
             try pushSecretFile(
-                vmID: vmID,
+                vmReference: vmReference,
+                resolvesMachineReference: resolvesMachineReference,
                 localURL: localURL,
                 localPath: localPath,
                 isDirectory: isDirectory.boolValue,
@@ -210,11 +219,13 @@ extension CMUXCLI {
         if !allowLarge {
             let measured = Self.vmPushInputBytes(root: localURL, isDirectory: isDirectory.boolValue, excludes: excludes,
                                                  stoppingAbove: Self.vmPushLargeInputBytes)
-            try Self.vmPushCheckInputSize(measured, localPath: localPath, vmID: vmID)
+            try Self.vmPushCheckInputSize(measured, localPath: localPath, vmID: vmReference)
         }
         let initialWatchSignature = watch
             ? Self.vmPushTreeSignature(root: localURL, isDirectory: isDirectory.boolValue, excludes: excludes)
             : nil
+        // Resolve after local validation so a refused push never reaches the socket.
+        let vmID = try resolvesMachineReference ? resolveVMReference(vmReference, client: client) : vmReference
 
         let outcome = try performVMPush(
             vmID: vmID,
@@ -465,7 +476,8 @@ extension CMUXCLI {
     /// terminal's screen. The app runs the receiver protocol (`CloudFileDelivery`);
     /// the CLI only reads the file and reports what landed.
     private func pushSecretFile(
-        vmID: String,
+        vmReference: String,
+        resolvesMachineReference: Bool,
         localURL: URL,
         localPath: String,
         isDirectory: Bool,
@@ -491,6 +503,7 @@ extension CMUXCLI {
                 nothing secret go through `cmux vm push` without --secret.
                 """)
         }
+        let vmID = try resolvesMachineReference ? resolveVMReference(vmReference, client: client) : vmReference
         let started = Date()
         let response = try client.sendV2(
             method: "vm.file_put",
@@ -684,7 +697,14 @@ extension CMUXCLI {
 
     // MARK: - pull
 
-    func runVMPullCommand(rest: [String], client: SocketClient, jsonOutput: Bool, quiet: Bool = false) throws {
+    /// `resolvesMachineReference`: see `runVMPushCommand`.
+    func runVMPullCommand(
+        rest: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        quiet: Bool = false,
+        resolvesMachineReference: Bool = false
+    ) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmPullUsage)
             return
@@ -699,7 +719,7 @@ extension CMUXCLI {
         guard positional.count >= 2, positional.count <= 3 else {
             throw CLIError(message: Self.vmPullUsage)
         }
-        let vmID = positional[0]
+        let vmID = try resolvesMachineReference ? resolveVMReference(positional[0], client: client) : positional[0]
         let remotePath = positional[1]
         let remoteBasename = (remotePath as NSString).lastPathComponent
         let localPath = (positional.count == 3 ? positional[2] : remoteBasename)
@@ -796,7 +816,7 @@ extension CMUXCLI {
             print(Self.vmWaitUsage)
             return
         }
-        var vmID: String?
+        var vmReference: String?
         var timeoutSeconds = 180
         var wake = false
         var index = 0
@@ -816,16 +836,17 @@ extension CMUXCLI {
                 guard !arg.hasPrefix("--") else {
                     throw CLIError(message: "Unknown option \(arg)\n\n\(Self.vmWaitUsage)")
                 }
-                guard vmID == nil else {
+                guard vmReference == nil else {
                     throw CLIError(message: Self.vmWaitUsage)
                 }
-                vmID = arg
+                vmReference = arg
                 index += 1
             }
         }
-        guard let vmID else {
+        guard let vmReference else {
             throw CLIError(message: Self.vmWaitUsage)
         }
+        let vmID = try resolveVMReference(vmReference, client: client)
 
         let readiness = try waitForVMReady(vmID: vmID, timeoutSeconds: timeoutSeconds, client: client)
         let lastStatus = readiness.status

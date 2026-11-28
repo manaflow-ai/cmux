@@ -261,7 +261,7 @@ LogLevel ERROR
                 if watch.poll() is None:
                     watch.kill()
                     watch.wait()
-            assert all(r["method"] in {"vm.scp_info", "vm.file_transfer_failure"} for r in requests), requests
+            assert all(r["method"] in {"vm.list", "vm.scp_info", "vm.file_transfer_failure"} for r in requests), requests
             failures = [r["params"] for r in requests if r["method"] == "vm.file_transfer_failure"]
             assert len(failures) == 3, failures
             assert {p["phase"] for p in failures} == {"process", "connect", "request"}

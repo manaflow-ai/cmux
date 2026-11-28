@@ -14,7 +14,7 @@ import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/v
 
 import type { Span } from "@opentelemetry/api";
 import * as Effect from "effect/Effect";
-import { preconnectCloudDb } from "../../../db/client";
+import { cloudDbIfConfigured, discardCloudDb, preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   verifyRequest,
@@ -81,7 +81,7 @@ import {
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
-import { createRouteAnswerDeadline } from "../../../services/vms/routeDeadline";
+import { createRouteAnswerDeadline, VM_LIST_DATABASE_BUDGET_MS } from "../../../services/vms/routeDeadline";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -100,9 +100,10 @@ import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePub
 
 
 // Provisioning can run minutes; without an explicit budget the platform
-// default killed it mid-provision. 960 s leaves a create answered "in
-// progress" (routeDeadline.ts, 25 s) its full 15-minute provider deadline plus
-// failure bookkeeping, well below the 20-minute stuck-provisioning alert. The
+// default killed it mid-provision. 960 s fits a create's full 15-minute
+// provider deadline plus failure bookkeeping, answered inline for the Mac app
+// and CLI or "in progress" at 25 s for a shorter stated budget
+// (routeDeadline.ts), well below the 20-minute stuck-provisioning alert. The
 // plan allows more (app/v1/responses/route.ts uses 1800).
 export const maxDuration = 960;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
@@ -172,7 +173,19 @@ export async function GET(request: Request): Promise<Response> {
       // from this list as of this instant, so a machine created after it
       // (newer row clock) survives the replace published below.
       const listObservedAtMs = Date.now();
-      const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
+      // Bounded: a wedged database pool once held this read for the route's
+      // whole maxDuration. Past the budget it answers the retryable 503 and
+      // drops this instance's client so the next request reconnects.
+      // The client this read runs on; only it is dropped at the deadline.
+      const listDb = cloudDbIfConfigured();
+      const listed = await runVmRoute(listUserVms(user.id, billingTeamId), {
+        request,
+        databaseDeadline: {
+          operation: "listUserVms",
+          budgetMs: VM_LIST_DATABASE_BUDGET_MS,
+          onDeadline: () => discardCloudDb(listDb),
+        },
+      });
       if (!listed.ok) return listed.response;
       const entries = listed.value;
       // Converge the realtime `vms` collection on exactly what this list shows;

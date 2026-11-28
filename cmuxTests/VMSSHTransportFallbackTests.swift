@@ -7,7 +7,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("vm-ssh-freestyle-remote")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-        let vmID = "vm-freestyle-remote"
+        let vmID = "vm-11111111111111111111111111111111" // id-shaped: no vm.list lookup first
         let homeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vm-ssh-home-\(UUID().uuidString)", isDirectory: true)
 
@@ -129,7 +129,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("vm-ssh-provider-failure")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-        let vmID = "vm-freestyle-provider-failure"
+        let vmID = "vm-22222222222222222222222222222222" // id-shaped: no vm.list lookup first
 
         defer {
             Darwin.close(listenerFD)
@@ -186,7 +186,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("vm-ssh-generic-404")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-        let vmID = "vm-freestyle-generic-404"
+        let vmID = "vm-33333333333333333333333333333333" // id-shaped: no vm.list lookup first
 
         defer {
             Darwin.close(listenerFD)

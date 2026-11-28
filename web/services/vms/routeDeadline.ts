@@ -7,7 +7,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Runtime from "effect/Runtime";
 import { hasProviderGuestUnresponsiveCause, isProviderHangCause } from "./drivers/types";
-import { VmOperationDeadlineError, type VmWorkflowError } from "./errors";
+import { VmDatabaseError, VmOperationDeadlineError, type VmWorkflowError } from "./errors";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { scrubErrorForLog } from "../observability/report";
 import { forceFlushTraces, withPrioritySpan, type MaybeAttributes } from "../telemetry";
@@ -125,11 +125,15 @@ export const VM_ROUTE_DEADLINES = {
   /** Session attach 16 min, like attach. */
   sessionOpen: { clientTimeoutMs: 960_000, maxDurationMs: 960_000, mutating: true },
   /**
-   * Mac/CLI/iOS 16 min. A create answers by maxDuration - margin - reserve
-   * (25 s) and keeps running in the background for the reserve, so "in
-   * progress" is true: it ends running or failed with its credit refunded
-   * before the function stops. Creates finish in ~8 s at p99 (18 s max seen).
-   * Retries reuse the Idempotency-Key.
+   * Mac/CLI 16 min. A client that waits the reserve gets the create's own
+   * outcome inline (vmRouteDeadlinePlan); the Mac app and CLI read "in
+   * progress" as a failure. A client with a shorter stated budget gets "in
+   * progress" by maxDuration - margin - reserve (25 s) while the create keeps
+   * running in the background for the reserve, so "in progress" is true: it
+   * ends running or failed with its credit refunded before the function
+   * stops. Creates usually finish in seconds; under Freestyle's start
+   * capacity queue they took 2 min (production 2026-11-27). Retries reuse
+   * the Idempotency-Key.
    */
   create: { clientTimeoutMs: 960_000, maxDurationMs: 960_000, mutating: true, reserveAfterAnswerMs: VM_CREATE_RESERVE_AFTER_ANSWER_MS },
 } as const satisfies Record<string, VmRouteDeadlineEntry>;
@@ -161,6 +165,13 @@ export function vmRouteTotalBudgetMs(entry: VmRouteDeadlineEntry, statedClientTi
  * When a route answers and how long its work may continue afterwards. A route
  * with a reserve never takes the floor: its answer may come at once so the
  * reserve stays whole.
+ *
+ * A route with a reserve whose client waits at least that reserve answers
+ * inline instead, by the client's budget: its work is bounded by the reserve,
+ * so it has its outcome by then. The Mac app and `cmux vm new` wait 16 min for
+ * a create and read every error, "in progress" included, as final; answering
+ * them at 25 s turned every create slower than that into "Couldn't create
+ * machine" (production 2026-11-27, Freestyle's start capacity queue).
  */
 export function vmRouteDeadlinePlan(
   operation: VmRouteDeadlineOperation,
@@ -168,14 +179,17 @@ export function vmRouteDeadlinePlan(
 ): { readonly answerWithinMs: number; readonly continueForMs: number } {
   const entry: VmRouteDeadlineEntry = VM_ROUTE_DEADLINES[operation];
   const elapsedMs = Math.max(0, input.elapsedMs);
-  const totalBudgetMs = vmRouteTotalBudgetMs(entry, input.clientTimeoutMs);
-  const answerWithinMs = entry.reserveAfterAnswerMs === undefined
-    ? vmRouteAnswerBudgetMs(totalBudgetMs, elapsedMs)
-    : Math.max(0, totalBudgetMs - elapsedMs);
-  return {
+  const lastAnswerMs = entry.maxDurationMs - VM_ROUTE_ANSWER_MARGIN_MS;
+  const continueAfter = (answerWithinMs: number) => ({
     answerWithinMs,
-    continueForMs: Math.max(0, entry.maxDurationMs - VM_ROUTE_ANSWER_MARGIN_MS - elapsedMs - answerWithinMs),
-  };
+    continueForMs: Math.max(0, lastAnswerMs - elapsedMs - answerWithinMs),
+  });
+  if (entry.reserveAfterAnswerMs === undefined) {
+    return continueAfter(vmRouteAnswerBudgetMs(vmRouteTotalBudgetMs(entry, input.clientTimeoutMs), elapsedMs));
+  }
+  const clientWaitsMs = Math.min(lastAnswerMs, (input.clientTimeoutMs ?? entry.clientTimeoutMs) - VM_ROUTE_ANSWER_MARGIN_MS);
+  if (clientWaitsMs - elapsedMs >= entry.reserveAfterAnswerMs) return continueAfter(clientWaitsMs - elapsedMs);
+  return continueAfter(Math.max(0, vmRouteTotalBudgetMs(entry, input.clientTimeoutMs) - elapsedMs));
 }
 
 /** What remains of a total budget after `elapsedMs` went to auth and lookup; never below the floor. */
@@ -287,6 +301,32 @@ function summarizeCause(cause: Cause.Cause<unknown>): string {
   return scrubErrorForLog(failure).slice(0, 300);
 }
 
+/**
+ * The HTTP status and error code of the first provider answer in a failure's
+ * cause chain (Freestyle's `429 INFRASTRUCTURE_OVERLOADED`), never its text.
+ * A workflow error's own message is often empty, so without these a failed
+ * continuation logged nothing about why the provider refused.
+ */
+function providerAnswerDetail(cause: Cause.Cause<unknown>): Record<string, unknown> {
+  let current: unknown = Cause.squash(cause);
+  for (let depth = 0; depth < 8 && current && typeof current === "object"; depth += 1) {
+    const record = current as { status?: unknown; code?: unknown; cause?: unknown };
+    if (typeof record.status === "number") {
+      return {
+        providerStatus: record.status,
+        ...(typeof record.code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(record.code) ? { providerCode: record.code } : {}),
+      };
+    }
+    current = record.cause;
+  }
+  return {};
+}
+
+/** A failed continuation's log fields: its scrubbed cause and the provider's answer. */
+function failureDetail(cause: Cause.Cause<unknown>): Record<string, unknown> {
+  return { cause: summarizeCause(cause), ...providerAnswerDetail(cause) };
+}
+
 export type VmAnswerDeadlineOptions<A, E, R> = {
   /** Milliseconds from now within which the caller must have an answer. */
   readonly answerWithinMs: number;
@@ -359,7 +399,7 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
       }
       flushAfterResponse(logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
         ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS,
-        ...(inline.value._tag === "Failure" ? { cause: summarizeCause(inline.value.cause) } : {}),
+        ...(inline.value._tag === "Failure" ? failureDetail(inline.value.cause) : {}),
       }));
       return yield* inline.value;
     }
@@ -373,7 +413,7 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
       Effect.matchCauseEffect({
         onSuccess: (finished) => Effect.promise(() => logContinuationResult(options.label, finished._tag === "Success" ? "completed" : "failed", {
           ...log,
-          ...(finished._tag === "Failure" ? { cause: summarizeCause(finished.cause) } : {}),
+          ...(finished._tag === "Failure" ? failureDetail(finished.cause) : {}),
         })),
         // Stop the work first, so nothing it does lands after the recorded stop.
         onFailure: () => Fiber.interruptFork(fiber).pipe(
@@ -510,6 +550,49 @@ export function withVmReadDeadline<A, E, R>(
   const elapsedMs = deadline.elapsedMs ?? (startedAtMs === undefined ? 0 : performance.now() - startedAtMs);
   const answerWithinMs = vmReadAnswerBudgetMs(deadline.operation, elapsedMs);
   return Effect.flatMap(Clock.currentTimeMillis, (nowMs) => Effect.locally(program, VmProviderReadDeadline, nowMs + answerWithinMs));
+}
+
+// ---- Database reads: GET /api/vm. ----
+
+/**
+ * How long GET /api/vm waits on its database read. The list is a pure
+ * database read on the route that shares create's 960 s maxDuration; on
+ * 2026-11-25 instances with a wedged pool held list requests for all of it,
+ * long after the Mac app, the CLI and `cmux vm env set` gave up. Well under
+ * the smallest of those clients' budgets.
+ */
+export const VM_LIST_DATABASE_BUDGET_MS = 20_000;
+
+export type VmDatabaseReadDeadline = {
+  /** The repository operation the 503 names. */
+  readonly operation: string;
+  readonly budgetMs: number;
+  /** Runs once when the budget elapses, before the route answers. */
+  readonly onDeadline: () => void;
+};
+
+/**
+ * Bounds a database read: past `budgetMs` the read is interrupted and fails
+ * {@link VmDatabaseError}, the retryable 503 with Retry-After. Times come
+ * from the Effect clock.
+ */
+export function withVmDatabaseReadDeadline<A, E, R>(
+  program: Effect.Effect<A, E, R>,
+  deadline: VmDatabaseReadDeadline,
+): Effect.Effect<A, E | VmDatabaseError, R> {
+  return program.pipe(
+    Effect.timeoutTo({
+      duration: Math.max(0, deadline.budgetMs),
+      onSuccess: (value): Effect.Effect<A, VmDatabaseError> => Effect.succeed(value),
+      onTimeout: () => Effect.sync(deadline.onDeadline).pipe(
+        Effect.andThen(Effect.fail(new VmDatabaseError({
+          operation: deadline.operation,
+          cause: new Error(`database read exceeded ${deadline.budgetMs} ms`),
+        }))),
+      ),
+    }),
+    Effect.flatten,
+  );
 }
 
 /**

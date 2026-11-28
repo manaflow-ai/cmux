@@ -19,7 +19,7 @@ import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
 import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type ProviderCustomer } from "./drivers/types";
-import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
+import { isVmProviderHang, VM_ROUTE_ANSWER_MARGIN_MS, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -39,7 +39,7 @@ import type {
   VMStats,
   VMStatus,
 } from "./drivers";
-import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { isProviderId, providerExecTimeoutMs, vmCapabilitiesFor } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -126,7 +126,7 @@ import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderMachineGone, isProviderNotFoundError } from "./providerErrors";
-import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
+import { withVmDatabaseReadDeadline, withVmReadDeadline, type VmDatabaseReadDeadline, type VmReadDeadline } from "./routeDeadline";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -339,7 +339,11 @@ const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
 const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
 /** A pause retry must not wait on a provider status read that has stopped answering. */
 export const PAUSE_STATE_PROBE_TIMEOUT_MS = 5_000;
-/** A provider pause is an out-of-band lifecycle operation; bound its foreground wait. */
+/**
+ * Bounds provider pause and resume calls the crons make, which have no route
+ * deadline. A person's pause is bounded by the pause route's deadline instead
+ * (routeDeadline.ts): Freestyle pauses can take longer than this.
+ */
 export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
 /**
  * How long the status cron waits before pausing a machine it found running
@@ -402,9 +406,14 @@ export const vmWorkflowRuntime = ManagedRuntime.make(VmWorkflowLive);
  */
 export function runVmWorkflowExit<A>(
   program: VmWorkflowProgram<A>,
-  options: { readonly readDeadline?: VmReadDeadline; readonly deadline?: VmRouteDeadline } = {},
+  options: {
+    readonly readDeadline?: VmReadDeadline;
+    readonly deadline?: VmRouteDeadline;
+    readonly databaseDeadline?: VmDatabaseReadDeadline;
+  } = {},
 ): Promise<Exit.Exit<A, VmWorkflowError>> {
-  const bounded = options.deadline ? withVmRouteDeadline(program, options.deadline) : program;
+  const databaseBounded = options.databaseDeadline ? withVmDatabaseReadDeadline(program, options.databaseDeadline) : program;
+  const bounded = options.deadline ? withVmRouteDeadline(databaseBounded, options.deadline) : databaseBounded;
   return vmWorkflowRuntime.runPromiseExit(options.readDeadline ? withVmReadDeadline(bounded, options.readDeadline) : bounded);
 }
 
@@ -2516,20 +2525,24 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
         if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
         yield* pause(vm.provider, providerVmId);
       });
-      const attempt = pauseOperation.pipe(
-        Effect.timeoutFail({
-          duration: PAUSE_OPERATION_TIMEOUT_MS,
-          onTimeout: () => new VmOperationDeadlineError({
-            operation: "pause",
-            mutating: true,
-            waitedMs: PAUSE_OPERATION_TIMEOUT_MS,
-          }),
-        }),
-      );
-      // The idle cron reads a failed pause back: a lost answer may hide a pause that went through.
+      // A person's pause is not capped here: the route answers in progress at
+      // the client's budget and its continuation finishes the pause by
+      // maxDuration (routeDeadline.ts). The idle cron has no route deadline,
+      // so it bounds the call and reads a failed pause back: a lost answer may
+      // hide a pause that went through.
       yield* expectIdleEpoch === undefined
-        ? attempt.pipe(clearPauseIntentOnFailure(repo, vm.id, intent))
-        : attempt.pipe(Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)));
+        ? pauseOperation.pipe(clearPauseIntentOnFailure(repo, vm.id, intent))
+        : pauseOperation.pipe(
+          Effect.timeoutFail({
+            duration: PAUSE_OPERATION_TIMEOUT_MS,
+            onTimeout: () => new VmOperationDeadlineError({
+              operation: "pause",
+              mutating: true,
+              waitedMs: PAUSE_OPERATION_TIMEOUT_MS,
+            }),
+          }),
+          Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)),
+        );
     }
     const recorded = yield* repo.markProviderObservedStatus({
       id: vm.id,
@@ -4893,10 +4906,13 @@ export function execVm(input: {
       { maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     const execStartedAtMs = yield* Clock.currentTimeMillis;
+    // The provider may cap the command below what the caller asked for; that
+    // cap is the command's real timeout.
+    const commandTimeoutMs = providerExecTimeoutMs(vm.provider, input.timeoutMs);
     // A dispatched command always gets its own timeout window, so a slow
     // resume can never turn into a 124 for a command that had no time to run;
     // in the normal case the request deadline is the later of the two.
-    const answerWithinMs = Math.max(input.timeoutMs, deadlineAtMs - execStartedAtMs);
+    const answerWithinMs = Math.max(commandTimeoutMs, deadlineAtMs - execStartedAtMs);
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
       providerMetadata: vm.providerMetadata,
@@ -4904,16 +4920,16 @@ export function execVm(input: {
       // A provider failure after the command's own timeout has elapsed says
       // nothing about the machine: the command ran out of time, and that is
       // the answer. Earlier failures stay provider errors.
-      Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= input.timeoutMs
+      Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= commandTimeoutMs
         ? Effect.sync(() => {
           // Kept for operators: the answer is the timeout, the cause is the provider's.
           console.error(`[vm] exec failed after its command timeout for ${input.providerVmId}`, errorMessage("cause" in err ? err.cause : err));
-          return execTimedOutResult(input.timeoutMs);
+          return execTimedOutResult(commandTimeoutMs);
         })
         : Effect.fail(err))),
       (dispatched) => withVmAnswerDeadline(dispatched, {
         answerWithinMs,
-        onDeadline: () => Effect.succeed(execTimedOutResult(input.timeoutMs)),
+        onDeadline: () => Effect.succeed(execTimedOutResult(commandTimeoutMs)),
         // The answer is the timeout and nothing is recorded later, so a hung
         // provider call is not kept alive up to the route's maxDuration.
         continueForMs: 0,
@@ -6029,8 +6045,12 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
  * 2026-10-11) reaches nobody. 45 s leaves room for the response to arrive.
  */
 export const SCP_ANSWER_BUDGET_MS = 45_000;
-/** How long an unfinished SCP setup may continue after the answer (well inside the route's 300 s maxDuration). */
-const SCP_BACKGROUND_CONTINUE_MS = 60_000;
+/**
+ * The scp-endpoint route's maxDuration (app/api/vm/[id]/scp-endpoint/route.ts).
+ * Unfinished setup continues after the answer until then: a resume takes
+ * ~107 s at the median, longer than the answer budget.
+ */
+const SCP_ROUTE_MAX_DURATION_MS = 300_000;
 /** The operation always gets this long, even when auth and lookup spent the budget. */
 const SCP_PREPARE_MIN_WINDOW_MS = 25_000;
 
@@ -6054,7 +6074,11 @@ export function prepareScpEndpoint(input: {
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
-    const deadlineAtMs = (yield* Clock.currentTimeMillis) + (input.answerWithinMs ?? SCP_ANSWER_BUDGET_MS);
+    const startedAtMs = yield* Clock.currentTimeMillis;
+    const answerWithinMs = input.answerWithinMs ?? SCP_ANSWER_BUDGET_MS;
+    const deadlineAtMs = startedAtMs + answerWithinMs;
+    // The route started when the answer budget did; auth and lookup spent the difference.
+    const routeStartedAtMs = startedAtMs - Math.max(0, SCP_ANSWER_BUDGET_MS - answerWithinMs);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
@@ -6066,27 +6090,41 @@ export function prepareScpEndpoint(input: {
     // The first setup failure, kept so a deadline that fires during recovery
     // answers with it: an early refusal (a 401, a fast 500) keeps its own code.
     let firstSetupFailure: VmWorkflowError | undefined;
-    const atDeadline = (): VmWorkflowError => firstSetupFailure && !isVmProviderHang(firstSetupFailure)
-      ? firstSetupFailure
-      : new VmProviderOperationError({
+    // A machine still waking (the preflight resume, or the first setup after
+    // it) is in progress, not stuck: the work continues and a retry finds it running.
+    let preflightFinished = false;
+    let resumedThisRequest = false;
+    const atDeadline = (): VmWorkflowError => {
+      if (firstSetupFailure && !isVmProviderHang(firstSetupFailure)) return firstSetupFailure;
+      if (!preflightFinished || (resumedThisRequest && !firstSetupFailure)) {
+        return new VmOperationDeadlineError({
+          operation: preflightFinished ? "prepareSCP" : `resume(${input.providerVmId})`,
+          mutating: true,
+          waitedMs: setupWindowMs,
+        });
+      }
+      return new VmProviderOperationError({
         provider: vm.provider,
         operation: "prepareSCP",
         cause: new ProviderGuestUnresponsiveError(vm.provider, `SCP preparation in ${input.providerVmId}: no answer within ${Math.round(setupWindowMs / 1000)}s`),
       });
+    };
     const setup = prepareSCP(vm.provider, input.providerVmId, input.publicKey).pipe(
       Effect.tapError((error) => Effect.sync(() => { firstSetupFailure ??= error; })),
     );
     // One deadline covers the preflight resume, the setup, and any status
     // probe, resume and second attempt after it: a later answer reaches no
     // one. At the deadline the answer is the first setup failure when there
-    // was one that is not a hang, else the stuck guest. withVmAnswerDeadline
+    // was one that is not a hang, "in progress" while the machine is still
+    // waking, else the stuck guest. withVmAnswerDeadline
     // never interrupts the work, so a resume past the deadline still finishes
     // its bookkeeping in the background. A guest that did not answer is not
     // retried here: a probe or resume inside the same request does not fix it.
     const endpoint = yield* Effect.gen(function* () {
-      yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
+      resumedThisRequest = yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
         forceProviderProbe: true, maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
       });
+      preflightFinished = true;
       return yield* withResumeOnSuspendedAfterFailure(
         repo,
         providers,
@@ -6103,9 +6141,9 @@ export function prepareScpEndpoint(input: {
       (work) => withVmAnswerDeadline(work, {
         answerWithinMs: setupWindowMs,
         onDeadline: () => Effect.fail(atDeadline()),
-        // A resume still under way finishes its bookkeeping inside the
-        // route's 300 s maxDuration, then the call is interrupted.
-        continueForMs: SCP_BACKGROUND_CONTINUE_MS,
+        // A resume still under way finishes, with its setup, inside the
+        // route's maxDuration, then the call is interrupted.
+        continueForMs: Math.max(0, routeStartedAtMs + SCP_ROUTE_MAX_DURATION_MS - VM_ROUTE_ANSWER_MARGIN_MS - (setupStartedAtMs + setupWindowMs)),
         label: "/api/vm/[id]/scp-endpoint",
       }),
     );

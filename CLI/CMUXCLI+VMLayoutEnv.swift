@@ -304,7 +304,7 @@ extension CMUXCLI {
         let tail = Array(rest.dropFirst()).filter { $0 != "--json" }
         switch verb {
         case "set", "add":
-            let (machine, sources) = try Self.vmEnvSetInputs(tail)
+            let (machineRef, sources) = try Self.vmEnvSetInputs(tail)
             var assignments: [VMEnvAssignment] = []
             do {
                 for source in sources {
@@ -332,6 +332,7 @@ extension CMUXCLI {
                 throw CLIError(message: String(format: String(localized: "cli.vm.env.setGiveKEYVALUEPairsFromFileEnv", defaultValue: "vm env set: give KEY=VALUE pairs, --from-file <.env>, or - for stdin\n\n%1$@"), String(describing: Self.vmEnvUsage)), exitCode: 2)
             }
             let merged = Self.mergedVMEnvAssignments(assignments)
+            let machine = try resolveVMReference(machineRef, client: client)
             // Values go to the app over the local socket and from there over the machine's
             // link into `cmux env receive` (CloudEnvDelivery) — never `vm.exec`, never argv on
             // the machine, never a visible screen. The app answers with names only.
@@ -361,9 +362,10 @@ extension CMUXCLI {
                 throw CLIError(message: String(format: String(localized: "cli.vm.env.lsUnknownFlag", defaultValue: "vm env ls: unknown flag '%1$@'\n\n%2$@"), String(describing: unknown), String(describing: Self.vmEnvUsage)))
             }
             let positional = tail.filter { !$0.hasPrefix("-") }
-            guard let machine = positional.first, !machine.isEmpty, positional.count == 1 else {
+            guard let machineRef = positional.first, !machineRef.isEmpty, positional.count == 1 else {
                 throw CLIError(message: Self.vmEnvUsage)
             }
+            let machine = try resolveVMReference(machineRef, client: client)
             let result = try runVMShim(
                 Self.vmEnvListCommand(show: show, json: jsonOutput),
                 machine: machine,
@@ -377,7 +379,7 @@ extension CMUXCLI {
             if let unknown = tail.first(where: { $0.hasPrefix("-") }) {
                 throw CLIError(message: String(format: String(localized: "cli.vm.env.rmUnknownFlag", defaultValue: "vm env rm: unknown flag '%1$@'\n\n%2$@"), String(describing: unknown), String(describing: Self.vmEnvUsage)))
             }
-            guard let machine = tail.first, !machine.isEmpty else { throw CLIError(message: Self.vmEnvUsage) }
+            guard let machineRef = tail.first, !machineRef.isEmpty else { throw CLIError(message: Self.vmEnvUsage) }
             let keys = Array(tail.dropFirst())
             guard !keys.isEmpty else {
                 throw CLIError(message: String(format: String(localized: "cli.vm.env.rmGiveAtLeastOneKEY", defaultValue: "vm env rm: give at least one KEY\n\n%1$@"), String(describing: Self.vmEnvUsage)), exitCode: 2)
@@ -385,6 +387,7 @@ extension CMUXCLI {
             if let bad = keys.first(where: { !Self.isValidVMEnvKey($0) }) {
                 throw CLIError(message: String(format: String(localized: "cli.vm.env.rmInvalidVariableNameKeysMatchA", defaultValue: "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"), String(describing: bad)), exitCode: 2)
             }
+            let machine = try resolveVMReference(machineRef, client: client)
             let result = try runVMShim(
                 Self.vmEnvRemoveCommand(keys: keys),
                 machine: machine,
@@ -406,7 +409,8 @@ extension CMUXCLI {
             }
 
         case "path":
-            guard let machine = tail.first, !machine.isEmpty else { throw CLIError(message: Self.vmEnvUsage) }
+            guard let machineRef = tail.first, !machineRef.isEmpty else { throw CLIError(message: Self.vmEnvUsage) }
+            let machine = try resolveVMReference(machineRef, client: client)
             let result = try runVMShim("cmux env path", machine: machine, client: client, timeoutMs: Self.vmEnvExecTimeoutMs, feature: "env")
             Self.printVerbatim(result.stdout)
 

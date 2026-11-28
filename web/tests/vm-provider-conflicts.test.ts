@@ -61,6 +61,61 @@ describe("a provider capacity refusal", () => {
   });
 });
 
+// Production 2026-11 (https://github.com/manaflow-ai/cmux/issues/39766):
+// Freestyle answered pause and exec with 429 TOO_MANY_REQUESTS in ~0.2 s and
+// resume with 429 INFRASTRUCTURE_OVERLOADED after ~130 s, and each was
+// answered as the operator-fault 502. A 429 is the provider asking us to come
+// back later: the same retryable capacity 503 as a 409 placement refusal.
+describe("a provider rate limit or overload", () => {
+  const tooManyRequests = () => new FreestyleApiError(429, { code: "TOO_MANY_REQUESTS", message: "too many requests" });
+  const overloaded = () => new FreestyleApiError(429, { code: "INFRASTRUCTURE_OVERLOADED", message: "infrastructure overloaded: VM start capacity queue wait expired" });
+  const cases: Array<[string, string, Record<string, unknown>, (provider: FreestyleProvider) => Promise<unknown>]> = [
+    ["pause", "429 TOO_MANY_REQUESTS", { pause: async () => { throw tooManyRequests(); } }, (provider) => provider.pause("vm-1")],
+    ["exec", "429 TOO_MANY_REQUESTS", { exec: async () => { throw tooManyRequests(); } }, (provider) => provider.exec("vm-1", "true", { timeoutMs: 1_000 })],
+    ["resume", "429 INFRASTRUCTURE_OVERLOADED", { start: async () => { throw overloaded(); } }, (provider) => provider.resume("vm-1")],
+  ];
+  test.each(cases)("a %s refused with %s answers the retryable capacity 503", async (operation, _label, vms, run) => {
+    const cause = await failure(() => run(providerWith(vms)));
+    const { response, payload } = await answer(operation, cause);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect(payload).toMatchObject({ error: "vm_provider_capacity", retryable: true });
+    expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(false);
+  });
+});
+
+// Production 2026-11-27: Freestyle answered `POST /v5/vms/<id>/start` with
+// 409 CONFLICT "start did not complete successfully (current state: Stopped)"
+// (or "Paused") on 10 machines, in the same minutes as PLACEMENT_REJECTED
+// "memory headroom exhausted" and 429 INFRASTRUCTURE_OVERLOADED for the same
+// machines. Freestyle documents start's 409 as "no capacity is available"
+// (the other case, an ephemeral machine deleted at shutdown, answers not
+// found). Each was answered as the generic 502 "temporarily unavailable"
+// with the provider's "conflict" text, and the Mac app retried one 32 vCPU
+// machine's resume every ~2 minutes for over 3 hours. Nothing was lost: the
+// machine and its disk are where they were, and the same resume can succeed
+// once the provider has room.
+describe("a start the provider could not complete", () => {
+  const startDidNotComplete = (state: string) => () => new FreestyleApiError(409, {
+    code: "CONFLICT",
+    message: `conflict: vm vm-1 start did not complete successfully (current state: ${state})`,
+  });
+  const refusals: Array<[string, () => FreestyleApiError]> = [
+    ["the machine stayed stopped", startDidNotComplete("Stopped")],
+    ["the machine stayed paused", startDidNotComplete("Paused")],
+  ];
+  test.each(refusals)("a resume refused because %s answers the retryable capacity 503", async (_label, refusal) => {
+    const provider = providerWith({ start: async () => { throw refusal(); } });
+    const cause = await failure(() => provider.resume("vm-1"));
+    const { response, payload } = await answer("resume", cause);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect(payload).toMatchObject({ error: "vm_provider_capacity", retryable: true, phase: "resume" });
+    expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable|conflict:/i);
+    expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(false);
+  });
+});
+
 describe("a machine-state conflict", () => {
   test("an exec on a machine that is still starting answers 409 with a wait-and-retry action", async () => {
     const provider = providerWith({ exec: async () => { throw stillStarting(); } });

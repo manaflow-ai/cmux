@@ -7,7 +7,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("vm-ssh")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-        let vmID = "vm-test-1234567890"
+        // An id-shaped reference (CloudVMReference.looksLikeMachineID) goes straight to vm.ssh_info; a label is
+        // listed first (vm.list), which tests/test_cli_vm_mutation_arguments.py covers.
+        let vmID = "vm-0123456789abcdef0123456789abcdef"
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:vm"
         let windowID = "22222222-2222-2222-2222-222222222222"

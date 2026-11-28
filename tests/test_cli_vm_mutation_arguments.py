@@ -145,8 +145,11 @@ class VMMutationArgumentTests(unittest.TestCase):
             with self.subTest(verb=verb):
                 outcome = self.run_command(verb, *arguments)
                 self.assertNotIn("error", outcome)
-                self.assertEqual(len(outcome["requests"]), 1)
-                request = outcome["requests"][0]
+                # A reference that is not id-shaped is first resolved with a
+                # read-only vm.list; exactly one mutating request follows.
+                mutating = [r for r in outcome["requests"] if r["method"] != "vm.list"]
+                self.assertEqual(len(mutating), 1)
+                request = mutating[0]
                 self.assertEqual(request["method"], method)
                 self.assertEqual(request["params"][key], identifier)
                 if verb in ("snapshot", "checkpoint", "fork", "promote-template"):

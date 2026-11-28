@@ -44,17 +44,16 @@ actor SimulatorDeviceChromeLoader {
         guard let bundleURL = findDeviceType(identifier: deviceTypeIdentifier),
               let profile = dictionary(at: bundleURL.appendingPathComponent("Contents/Resources/profile.plist")),
               let chromeIdentifier = profile["chromeIdentifier"] as? String,
-              let rawWidth = number(profile["mainScreenWidth"]),
-              let rawHeight = number(profile["mainScreenHeight"]),
-              let scale = number(profile["mainScreenScale"]), scale > 0,
+              let screen = mainScreen(profile: profile, resources: bundleURL
+                .appendingPathComponent("Contents/Resources", isDirectory: true)),
               let chromeResources = findChromeResources(identifier: chromeIdentifier),
               let data = try? Data(contentsOf: chromeResources.appendingPathComponent("chrome.json")),
               let chrome = try? JSONDecoder().decode(SimulatorDeviceChrome.self, from: data) else {
             return nil
         }
 
-        let screenWidth = rawWidth / scale
-        let screenHeight = rawHeight / scale
+        let screenWidth = screen.width / screen.scale
+        let screenHeight = screen.height / screen.scale
         var leading = chrome.images.sizing.leftWidth
         var trailing = chrome.images.sizing.rightWidth
         var top = chrome.images.sizing.topHeight
@@ -196,6 +195,27 @@ actor SimulatorDeviceChromeLoader {
             return nil
         }
         return value as? [String: Any]
+    }
+
+    /// The main screen's pixel size and scale. Older device types put it in profile.plist
+    /// (mainScreenWidth/Height/Scale); newer ones (iPhone Air, iPhone 16 Pro, iPad Pro M4/M5)
+    /// only list it as the screenID 1 display in capabilities.plist.
+    private func mainScreen(profile: [String: Any], resources: URL) -> (width: Double, height: Double, scale: Double)? {
+        if let width = number(profile["mainScreenWidth"]),
+           let height = number(profile["mainScreenHeight"]),
+           let scale = number(profile["mainScreenScale"]), scale > 0 {
+            return (width, height, scale)
+        }
+        guard let capabilities = dictionary(at: resources.appendingPathComponent("capabilities.plist"))?["capabilities"]
+                as? [String: Any],
+              let displays = capabilities["displays"] as? [[String: Any]],
+              let main = displays.first(where: { number($0["screenID"]) == 1 }),
+              let width = number(main["width"]),
+              let height = number(main["height"]),
+              let scale = number(main["scale"]), scale > 0 else {
+            return nil
+        }
+        return (width, height, scale)
     }
 
     private func number(_ value: Any?) -> Double? {

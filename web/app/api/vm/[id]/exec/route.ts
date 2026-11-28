@@ -8,6 +8,10 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { execAnswerBudgetMs, execVm } from "../../../../../services/vms/workflows";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
+import {
+  FREESTYLE_MAX_COMMAND_BYTES,
+  freestyleExecCommand,
+} from "../../../../../services/vms/drivers/freestyle";
 
 
 // Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
@@ -57,16 +61,21 @@ export async function POST(
         });
       }
       const commandBytes = Buffer.byteLength(command, "utf8");
-      const MAX_PROVIDER_COMMAND_BYTES = 64 * 1024;
-      if (commandBytes > MAX_PROVIDER_COMMAND_BYTES) {
+      // Freestyle's limit applies to the command it receives: public exec
+      // wraps the caller's command in a home-normalizing shell and quotes it,
+      // and every single quote grows to four bytes. Measure that wire form so
+      // an oversized command answers 413 here instead of reaching the
+      // provider's BAD_REQUEST, which surfaces as a retryable 502.
+      const providerCommandBytes = Buffer.byteLength(freestyleExecCommand(command), "utf8");
+      if (providerCommandBytes > FREESTYLE_MAX_COMMAND_BYTES) {
         return vmErrorResponse({
           error: "vm_command_too_large",
           status: 413,
-          message: `Cloud VM commands must be 64 KiB or smaller. This command is ${commandBytes} bytes.`,
+          message: `Cloud VM commands must be 64 KiB or smaller once quoted for the machine. This command is ${providerCommandBytes} bytes quoted (${commandBytes} bytes as sent).`,
           action: "Split the command into smaller requests or upload a script and execute the script path.",
           phase: "exec",
           retryable: false,
-          details: { commandBytes, maxCommandBytes: MAX_PROVIDER_COMMAND_BYTES },
+          details: { commandBytes, providerCommandBytes, maxCommandBytes: FREESTYLE_MAX_COMMAND_BYTES },
         });
       }
       // Clamp the timeout so a client can't tie up provider quota on a runaway exec. Upper
