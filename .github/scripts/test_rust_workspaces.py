@@ -191,6 +191,19 @@ class RustWorkspacesTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("solo needs exactly one of", result.stdout)
 
+    def test_a_key_a_merge_left_twice_fails_check_and_plan_naming_file_and_line(self) -> None:
+        # cmux#58656: a merge left `url.workspace = true` twice in one Cargo.toml; cargo said
+        # "duplicate key" and these steps died in a traceback. Every bad manifest gets one line.
+        self.write("ws/crates/a/Cargo.toml", '[package]\nname = "a"\n\n[dependencies]\nurl.workspace = true\n'
+                   'serde.workspace = true\nurl.workspace = true\n')
+        self.change("ws/crates/c/Cargo.toml", '[package]\nname = "c"\nname = "c"\n')
+        for args in (("check",), ("plan", "--base", self.base)):
+            result = self.script(*args)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertIn("::error file=ws/crates/a/Cargo.toml,line=7,title=Cargo.toml does not parse::", result.stdout)
+            self.assertIn("::error file=ws/crates/c/Cargo.toml,line=3,", result.stdout)
+
     # plan
 
     def test_a_change_plans_every_workspace_using_it_by_path(self) -> None:
