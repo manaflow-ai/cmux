@@ -374,9 +374,11 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
-    console.error(
-      `tvWhy: ${JSON.stringify(await page.evaluate(() => (globalThis as Record<string, unknown>).__tvWhy ?? null))}`,
-    );
+    {
+      const why = JSON.stringify(await page.evaluate(() => (globalThis as Record<string, unknown>).__tvWhy ?? null));
+      console.error(`tvWhy: ${why}`);
+      if (process.env.TV_WHY_OUT) (await import("node:fs")).appendFileSync(process.env.TV_WHY_OUT, `${why}\n`);
+    }
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.
     await page.waitForTimeout(FLUSH_WAIT_MS);
