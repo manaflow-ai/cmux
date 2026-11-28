@@ -25,7 +25,7 @@ rounds="${FOLD_ROUNDS:-15}"
 scratch="$(mktemp -d)"
 trees=()
 cleanup() {
-  for tree in "${trees[@]}"; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
+  for tree in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -82,7 +82,7 @@ for label in base head; do
   while IFS= read -r name; do
     [[ -e "$bin/$name" ]] && folded+=("$name")
   done < <("$root/scripts/cmux-next/link-folded-hosts.sh" --list "$bin/cmux")
-  (( ${#folded[@]} )) && "$root/scripts/cmux-next/link-folded-hosts.sh" "$bin" "${folded[@]}" | sed "s/^/FOLD-LINK $label /"
+  (( ${#folded[@]} )) && "$root/scripts/cmux-next/link-folded-hosts.sh" "$bin" ${folded[@]+"${folded[@]}"} | sed "s/^/FOLD-LINK $label /"
   total=0
   for file in "$bin"/*; do
     if [[ -L "$file" ]]; then echo "FOLD-SIZE $label $(basename "$file") link"; continue; fi
