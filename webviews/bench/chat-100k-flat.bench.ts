@@ -522,6 +522,7 @@ try {
         const said: string[] = [];
         page.on("console", (message) => {
           if (message.text().startsWith("cmux.hiddenRebuild")) rebuilds++;
+          if (message.text().startsWith("dbg.")) console.log(`  [page ${index}] ${message.text()}`);
           said.push(`${message.type()}: ${message.text().slice(0, 300)}`);
           if (said.length > 40) said.shift();
         });

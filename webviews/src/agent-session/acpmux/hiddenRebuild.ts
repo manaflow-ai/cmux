@@ -98,6 +98,7 @@ export function installHiddenRebuild(doc: Document = document, options: HiddenRe
   const look = () => {
     timer = undefined;
     const block = rebuildBlock(doc, grownFrames, minGapMs, now());
+    console.info(`dbg.hiddenRebuild block=${block} frames=${frames}` + (block === "scroll" ? " " + [...doc.querySelectorAll<HTMLElement>("*")].filter((e) => e.getAttribute("data-cmux-swap-scroll") !== "kept" && (Math.abs(e.scrollTop) > 1 || Math.abs(e.scrollLeft) > 1 || e.getAttribute("data-cmux-swap-scroll") === "end")).map((e) => `${e.tagName}.${e.className}[${e.getAttribute("data-cmux-swap-scroll")}] top=${e.scrollTop} left=${e.scrollLeft} sh=${e.scrollHeight} ch=${e.clientHeight}`).join(" | ") : ""));
     if (block === "shown") return;
     if (block) return void (timer = timers.set(look, recheckMs));
     try {
@@ -105,7 +106,7 @@ export function installHiddenRebuild(doc: Document = document, options: HiddenRe
     } catch {
       return;
     }
-    if (!prepareSwap(doc)) return;
+    if (!prepareSwap(doc)) return void console.info("dbg.hiddenRebuild prepareSwap=false");
     console.info(`cmux.hiddenRebuild frames=${frames}`);
     reload();
   };
