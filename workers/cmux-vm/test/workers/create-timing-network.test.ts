@@ -291,6 +291,10 @@ describe("the vm_create and vm_start lines", () => {
     for (const line of lines) {
       expect(Number(line["startMs"])).toBeGreaterThanOrEqual(0);
       expect(Number(line["totalMs"])).toBeGreaterThanOrEqual(Number(line["startMs"]));
+      // Where the rest of totalMs went: entry to proven ownership, and a budgeted key's running/spend check.
+      for (const field of ["ownMs", "gateMs"]) expect(Number(line[field]), field).toBeGreaterThanOrEqual(0);
+      expect(Number(line["totalMs"])).toBeGreaterThanOrEqual(Number(line["ownMs"]) + Number(line["gateMs"]) + Number(line["startMs"]));
+      expect(line).not.toHaveProperty("enteredAt");
     }
   });
 

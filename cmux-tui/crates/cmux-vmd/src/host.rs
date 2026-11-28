@@ -240,6 +240,26 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
+/// How long [`sync_clock`] waits for the guest agent.
+const CLOCK_SYNC_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Steps a just-resumed guest's clock to the host's over its agent ([`vsock::set_clock`]).
+/// kvmclock stops while a VM is paused or saved, so without this a restored guest reads the
+/// time it was snapshotted at until something sets it, and cmux-host (which re-reads its
+/// identity on the clock-set wake that step fires) waits that long to bind. Best effort: an
+/// older agent without the op, or one that does not answer in time, leaves the machine running
+/// and is reported in the timings as `{"error": ..}`; `{"stepped_ms": ..}` otherwise.
+async fn sync_clock(vsock_uds: &Path) -> serde_json::Value {
+    let t = Instant::now();
+    match vsock::set_clock(vsock_uds, CLOCK_SYNC_TIMEOUT).await {
+        Ok(stepped_ns) => json!({"stepped_ms": stepped_ns / 1_000_000, "sync_ms": ms(t)}),
+        Err(e) => {
+            eprintln!("cmux-vmd: guest clock not set after resume: {e:#}");
+            json!({"error": format!("{e:#}")})
+        }
+    }
+}
+
 fn ms(since: Instant) -> f64 {
     (since.elapsed().as_secs_f64() * 10_000.0).round() / 10.0
 }
@@ -685,7 +705,8 @@ impl Host {
         .await?;
         let resume_ms = ms(t);
         self.set_state(id, RunState::Running).await?;
-        Ok(json!({"resume_ms": resume_ms}))
+        let clock = sync_clock(&self.machine_dir(id).join("v.sock")).await;
+        Ok(json!({"resume_ms": resume_ms, "clock": clock}))
     }
 
     /// Full snapshot: pause, write vmstate and memory, copy the disk while still paused (so it
@@ -715,9 +736,13 @@ impl Host {
             Ok::<_, VmdError>((snapshot_ms, ms(t)))
         }
         .await;
-        if m.state == RunState::Running {
+        let clock = if m.state == RunState::Running {
             fc::call(&api, "PATCH", "/vm", Some(&json!({"state": "Resumed"}))).await?;
-        }
+            // The pause spanned the memory write and the disk copy.
+            sync_clock(&mdir.join("v.sock")).await
+        } else {
+            serde_json::Value::Null
+        };
         let (snapshot_ms, disk_ms) = match result {
             Ok(r) => r,
             Err(e) => {
@@ -738,7 +763,7 @@ impl Host {
         self.lock_state().snapshots.insert(sid, meta.clone());
         Ok((
             meta,
-            json!({"pause_ms": pause_ms, "snapshot_ms": snapshot_ms, "disk_ms": disk_ms, "total_ms": ms(t)}),
+            json!({"pause_ms": pause_ms, "snapshot_ms": snapshot_ms, "disk_ms": disk_ms, "total_ms": ms(t), "clock": clock}),
         ))
     }
 
@@ -809,6 +834,8 @@ impl Host {
             self.abandon(&dir, &slot, Some(pid)).await;
             return Err(e.context("forked guest agent never answered").into());
         }
+        // The snapshot's clock is the bake's: step it to now before cmux-host looks again.
+        let clock = sync_clock(&dir.join("v.sock")).await;
         let name = if req.name.is_empty() { id.clone() } else { req.name.clone() };
         let mut labels = req.labels;
         labels.entry("cmux.vmd/forked-from".into()).or_insert_with(|| sid.to_owned());
@@ -830,7 +857,7 @@ impl Host {
         self.lock_state().machines.insert(id, meta.clone());
         Ok((
             meta,
-            json!({"net_ms": net_ms, "disk_ms": disk_ms, "restore_ms": restore_ms, "ready_ms": ready_ms, "total_ms": ms(t_all)}),
+            json!({"net_ms": net_ms, "disk_ms": disk_ms, "restore_ms": restore_ms, "ready_ms": ready_ms, "total_ms": ms(t_all), "clock": clock}),
         ))
     }
 
@@ -961,6 +988,77 @@ mod tests {
         // cmux-host accepts only [A-Za-z0-9._-]{1,128} as an instance id.
         assert!(id.len() <= 128);
         assert!(id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')));
+    }
+
+    /// A stand-in for Firecracker's vsock bridge and one guest agent connection: answers the
+    /// `CONNECT` line, reads one framed request, replies `reply(req)` and hands the request back.
+    fn fake_agent(
+        name: &str,
+        reply: fn(&GuestRequest) -> GuestResponse,
+    ) -> (PathBuf, tokio::sync::oneshot::Receiver<GuestRequest>) {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vmd-clock-test-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("v.sock");
+        let _ = std::fs::remove_file(&sock);
+        let listener = tokio::net::UnixListener::bind(&sock).unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (s, _) = listener.accept().await.unwrap();
+            let mut s = BufReader::new(s);
+            let mut line = String::new();
+            s.read_line(&mut line).await.unwrap();
+            assert_eq!(line, format!("CONNECT {}\n", crate::proto::GUEST_AGENT_PORT));
+            s.get_mut().write_all(b"OK 1073741824\n").await.unwrap();
+            let mut len = [0u8; 4];
+            s.read_exact(&mut len).await.unwrap();
+            let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
+            s.read_exact(&mut body).await.unwrap();
+            let req: GuestRequest = serde_json::from_slice(&body).unwrap();
+            let out = serde_json::to_vec(&reply(&req)).unwrap();
+            s.get_mut().write_all(&(out.len() as u32).to_be_bytes()).await.unwrap();
+            s.get_mut().write_all(&out).await.unwrap();
+            let _ = tx.send(req);
+        });
+        (dir, rx)
+    }
+
+    fn unix_ns_now() -> u64 {
+        u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()).unwrap()
+    }
+
+    /// A guest restored from a snapshot an hour old: the resume step sends it the host's time,
+    /// and the guest's answer (how far its clock moved) reaches the timings.
+    #[tokio::test]
+    async fn a_resumed_guest_gets_the_hosts_clock() {
+        let (dir, seen) = fake_agent("set", |req| match req {
+            GuestRequest::SetClock { unix_ns } => GuestResponse::Clock {
+                stepped_ns: crate::proto::clock_step_ns(unix_ns - 3_600_000_000_000, *unix_ns),
+            },
+            _ => GuestResponse::Error { message: "not set_clock".into() },
+        });
+        let before = unix_ns_now();
+        let clock = sync_clock(&dir.join("v.sock")).await;
+        let after = unix_ns_now();
+        assert_eq!(clock["stepped_ms"], 3_600_000, "{clock}");
+        let GuestRequest::SetClock { unix_ns } = seen.await.unwrap() else {
+            panic!("the host sent something other than set_clock")
+        };
+        assert!((before..=after).contains(&unix_ns), "{before} <= {unix_ns} <= {after}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An agent from before set_clock answers "bad request": the resume still succeeds, and the
+    /// timings say why the clock was not set.
+    #[tokio::test]
+    async fn an_old_agent_without_set_clock_does_not_fail_the_resume() {
+        let (dir, _seen) = fake_agent("old", |_| GuestResponse::Error {
+            message: "bad request: unknown variant `set_clock`".into(),
+        });
+        let clock = sync_clock(&dir.join("v.sock")).await;
+        assert!(clock["error"].as_str().unwrap().contains("unknown variant"), "{clock}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

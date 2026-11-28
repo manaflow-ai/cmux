@@ -1371,6 +1371,9 @@ jobs:
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
+          # One job per 3 GiB of a memory-capped pool slot: -j at every host thread SIGKILLed rustc (job 140983092431).
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
           cargo build -p cmux-tui --bin cmux-tui --locked
 
       # Pull request caches stay read-only. main publishes the build they reuse,
