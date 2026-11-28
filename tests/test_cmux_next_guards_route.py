@@ -37,7 +37,8 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         for name in ("fast-check-route", "security-holes", "workflow-start-lint"):
             with self.subTest(job=name):
                 runs_on = jobs[name]["runs-on"]
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on)
+                # Our own persistent Linux pool, cmux-linux, since #54437 (the linux_2 pool variable is gone).
+                self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
                 self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", runs_on)
                 self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
 
