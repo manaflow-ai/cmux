@@ -1600,6 +1600,11 @@ class FakeGitHub(janitor.GitHub):
             return {}
         raise AssertionError(f"unexpected {method} {path}")
 
+    def branch_tips(self, branches):
+        # `git ls-remote` in the janitor; here the same branch -> head map GET /branches/<branch> reads.
+        self.log.append(("LS-REMOTE", ",".join(branches)))
+        return {branch: self.branches[branch] for branch in branches if branch in self.branches}
+
     def download(self, artifact):
         self.calls += 1
         self.log.append(("DOWNLOAD", artifact["archive_download_url"]))
@@ -2740,7 +2745,8 @@ class ReadTokenSplitTests(unittest.TestCase):
     def test_the_sweep_leaves_a_3000_call_floor_by_default(self):
         self.assertEqual(janitor.READ_TOKEN_FLOOR, 3000)
         text = (ROOT / ".github/workflows/ci-queue-janitor.yml").read_text()
-        self.assertIn("READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}", text)
+        self.assertIn("READ_TOKEN_FLOOR: ${{ steps.pool-read.outputs.token != '' && '500' || vars.CI_JANITOR_READ_TOKEN_FLOOR }}",
+                      text)
 
     def test_no_read_token_or_one_of_the_sweeps_own_changes_nothing(self):
         for read in ("", "bot", "workflow"):
@@ -2763,11 +2769,12 @@ class ReadTokenSplitTests(unittest.TestCase):
                     self.assertEqual(janitor.main(argv), 0)
             self.assertEqual(taken, want)
 
-    def test_the_workflow_passes_glaeda_route_as_the_read_token_only_beside_cmux_bot(self):
+    def test_the_workflow_passes_a_pool_or_glaeda_route_read_token_only_beside_cmux_bot(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         step = next(s for s in workflow["jobs"]["sweep"]["steps"] if s.get("name") == "Cancel wasted macOS runs")
         self.assertEqual(step["env"]["READ_TOKEN"],
-                         "${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}")
+                         "${{ steps.cmux-bot-token.outputs.token && (steps.pool-read.outputs.token || "
+                         "steps.glaeda-token.outputs.token) || '' }}")
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || "
                                                   "steps.glaeda-token.outputs.token || github.token }}")
 
@@ -6672,6 +6679,17 @@ class JoblessRunTests(unittest.TestCase):
         options = {"max_cancels": 5, "exclude_ids": set(), "rerun_state": True, "cmux_bot": True, **kwargs}
         return janitor.build_jobless_plan(jobless, {MACHINES: [self.pr] if prs is None else prs}, **options)
 
+    def test_a_full_branch_listing_with_no_run_ahead_is_unknown_never_jobless(self):
+        # Review of #47915 (F1): branch_runs() reads one page of the newest runs. A full page of newer, finished
+        # runs can hide an older holder, so no run ahead on it proves nothing: the run is left alone, not cancelled.
+        newer = [tui_push(status="completed", sha=f"n{i:02d}", age=10) for i in range(janitor.BRANCH_RUNS_PAGE)]
+        holders, jobless, notes = self.find([self.parked], self.jobs, listed=newer)
+        self.assertEqual((holders, jobless), ([], []))
+        self.assertTrue(any("listing" in note and str(self.parked["id"]) in note for note in notes), notes)
+        # A page short of full is the whole branch: no run ahead there is jobless, as before.
+        holders, jobless, _ = self.find([self.parked], self.jobs, listed=newer[:-1])
+        self.assertEqual([o.run["id"] for o in jobless], [self.parked["id"]])
+
     def test_the_44272405805_shape_force_cancels_its_superseded_holder(self):
         # The holder is outside the in-flight inventory, as during the 112-run backlog: the branch listing finds it.
         holders, jobless, notes = self.find([self.parked], self.jobs, listed=[self.holder])
@@ -6703,6 +6721,24 @@ class JoblessRunTests(unittest.TestCase):
             holders, jobless, notes = self.find([self.parked], {**self.jobs, same_head["id"]: []}, listed=[ahead])
             self.assertEqual((holders, jobless), ([], []), ahead)
             self.assertIn(f"waits behind run {ahead['id']}", notes[0])
+
+    def test_a_same_head_run_ahead_keeps_even_a_stranded_superseded_holder(self):
+        # The same-head run may be the one holding the group; force-cancelling the older superseded run frees nothing.
+        same_head = tui_push(status="queued", sha="b953f55a", age=500)
+        jobs = {**self.jobs, same_head["id"]: []}
+        holders, jobless, notes = self.find([self.parked], jobs, listed=[self.holder, same_head])
+        self.assertEqual((holders, jobless), ([], []))
+        self.assertIn(f"waits behind run {same_head['id']}", notes[0])
+
+    def test_a_cancel_sent_with_its_outcome_unknown_keeps_the_re_run(self):
+        # cancel_orphans() answers CANCEL_SENT after a non-409 error: the cancel may have taken, so the entry stays
+        # and plan_lost_reruns() re-runs it once the run reads cancelled.
+        _, jobless, _ = self.find([self.parked], self.jobs)
+        [decision] = self.plan(jobless)
+        result = {self.parked["id"]: f"{janitor.CANCEL_SENT}POST /cancel failed (502)"}
+        [entry] = janitor.jobless_reruns([decision], result, now=NOW)
+        self.assertEqual((entry["run_id"], entry["jobless"], entry["cancel_unconfirmed"]),
+                         (self.parked["id"], True, True))
 
     def test_young_jobful_protected_and_already_cancelled_runs_are_not_candidates(self):
         young = tui_push(status="pending", sha="a", age=59)
@@ -6895,6 +6931,243 @@ class JoblessSweepTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [])
         self.assertFalse(any("/actions/workflows/" in path and "status" not in path for _, path in fake.log))
 
+
+HEAL = "lane/rd-host-heal-scope"
+
+
+class PushHolderTests(unittest.TestCase):
+    """2026-11-20: run 44428962232 (cmux-tui artifacts, a push to lane/rd-host-heal-scope at 08139f38) held
+    `cmux-tui-artifacts-ref-<ref>` with only two jobs queued on ubuntu-24.04 with no runner, while run 44807860049
+    at the branch tip ab5e6cb2 sat `pending`."""
+
+    def setUp(self):
+        self.holder = tui_push(status="queued", sha="08139f38", age=2750, branch=HEAL)
+        self.newer = tui_push(status="pending", sha="ab5e6cb2", age=135, branch=HEAL)
+        self.jobs = stranded_jobs(480)
+
+    def judge(self, tip="ab5e6cb2", jobs=None, newer=None):
+        return janitor.judge_push_holder(self.holder, newer or self.newer, tip,
+                                         self.jobs if jobs is None else jobs, now=NOW)
+
+    def test_the_44428962232_shape_is_a_holder(self):
+        self.assertEqual(janitor.push_holder_pairs([self.holder, self.newer], "manaflow-ai/cmux"),
+                         [(self.holder, self.newer)])
+        found, why = self.judge()
+        self.assertEqual(why, "")
+        self.assertIs(found.run, self.holder)
+        self.assertIsNone(found.job_id)  # never re-run
+        self.assertIn("`ubuntu-24.04`", found.evidence)
+
+    def test_a_run_with_no_job_started_and_none_finished_is_a_holder(self):
+        never = [{"status": "queued", "name": "build", "labels": [HOSTED], "created_at": iso(2700), "runner_name": None}]
+        self.assertIsNotNone(self.judge(jobs=never)[0])
+
+    def test_a_job_with_a_runner_waiting_for_approval_or_queued_briefly_keeps_the_run(self):
+        for job in (gate_job(age=400, status="in_progress", runner="r1"), gate_job(age=400, runner="r1"),
+                    gate_job(age=400, status="waiting"), gate_job(age=3)):
+            found, why = self.judge(jobs=[job])
+            self.assertIsNone(found, job)
+            self.assertIn("has a runner", why)
+
+    def test_the_tip_must_be_the_newer_runs_head_and_not_the_holders(self):
+        self.assertIn("still the branch tip", self.judge(tip="08139f38")[1])
+        self.assertIn("not at the branch tip", self.judge(tip="c0ffee00")[1])
+        self.assertIn("not read or the branch is gone", self.judge(tip=None)[1])
+
+    def test_only_lane_branch_push_runs_with_a_newer_waiting_run_are_paired(self):
+        kept = []
+        for branch in ("main", "feat-cmux-next", "nightly-next", "release/1.2", "next-batch/7", "cmux-tui-pin-abc",
+                       "rc/0.64", "v0.64.1"):
+            kept += [tui_push(status="queued", sha="old", age=300, branch=branch),
+                     tui_push(status="pending", sha="new", age=30, branch=branch)]
+        pull_request = dict(tui_push(status="queued", sha="old", age=300, branch="lane/a"), event="pull_request")
+        rerun = tui_push(status="queued", sha="old", age=300, branch="lane/b", attempt=2)
+        fork = make_run(event="push", status="queued", sha="old", age=300, branch="lane/c", path=TUI_ARTIFACTS,
+                        owner="someone")
+        nightly = nightly_run("old", 300, branch="lane/d")
+        lone = tui_push(status="queued", sha="old", age=300, branch="lane/e")
+        same_head = [tui_push(status="queued", sha="old", age=300, branch="lane/f"),
+                     tui_push(status="pending", sha="old", age=30, branch="lane/f")]
+        older_waiting = [tui_push(status="queued", sha="new", age=30, branch="lane/g"),
+                         tui_push(status="pending", sha="old", age=300, branch="lane/g")]
+        other_workflow = [tui_push(status="queued", sha="old", age=300, branch="lane/h"),
+                          make_run(event="push", status="pending", sha="new", age=30, branch="lane/h", path=WEB)]
+        newer = [dict(tui_push(status="pending", sha="new", age=30, branch=branch), path=run["path"])
+                 for branch, run in (("lane/a", pull_request), ("lane/b", rerun), ("lane/c", fork),
+                                     ("lane/d", nightly))]
+        runs = [*kept, pull_request, rerun, fork, nightly, lone, *same_head, *older_waiting, *other_workflow, *newer]
+        self.assertEqual(janitor.push_holder_pairs(runs, "manaflow-ai/cmux"), [])
+
+    def test_ls_remote_answers_exactly_the_branches_asked_for(self):
+        text = f"ab5e6cb2\trefs/heads/{HEAL}\n1111\trefs/heads/x/{HEAL}\n2222\trefs/heads/other\n"
+        self.assertEqual(janitor.parse_ls_remote(text, [HEAL, "gone"]), {HEAL: "ab5e6cb2"})
+
+    def test_the_plan_honours_no_janitor_unread_pull_requests_and_its_cap(self):
+        found, _ = self.judge()
+        cases = {
+            "pull requests were not read": {},
+            "labelled `no-janitor`": {HEAL: [make_pr(48001, head="ab5e6cb2", labels=("no-janitor",))]},
+            "not fully read": {HEAL: [make_pr(48001, head="ab5e6cb2", labels_truncated=True)]},
+            "push holder cap of 0": {HEAL: [make_pr(48001, head="ab5e6cb2")]},
+        }
+        for why, prs in cases.items():
+            [decision] = janitor.build_push_holder_plan([found], prs, exclude_ids=set(),
+                                                        max_cancels=0 if "cap" in why else 5)
+            self.assertEqual(decision.action, "skip", why)
+            self.assertIn(why, decision.note)
+        closed = make_pr(47000, state="CLOSED", head="08139f38", labels=("no-janitor",))
+        [decision] = janitor.build_push_holder_plan([found], {HEAL: [make_pr(48001, head="ab5e6cb2"), closed]},
+                                                    exclude_ids=set(), max_cancels=5)
+        self.assertEqual(decision.action, "cancel")
+        self.assertEqual(janitor.build_push_holder_plan([found], {HEAL: []}, exclude_ids={self.holder["id"]},
+                                                        max_cancels=5), [])
+
+
+class PushHolderSweepTests(unittest.TestCase):
+    def sweep(self, *args, truncated=False):
+        holder = tui_push(status="queued", sha="08139f38", age=2750, branch=HEAL)
+        newer = tui_push(status="pending", sha="ab5e6cb2", age=135, branch=HEAL)
+        fake = FakeGitHub({r["id"]: dict(r) for r in (holder, newer)},
+                          {holder["id"]: stranded_jobs(480), newer["id"]: []},
+                          ignore_cancel=[holder["id"]])
+        fake.branches = {HEAL: "ab5e6cb2"}
+        fake.prs = {HEAL: [make_pr(48001, head="ab5e6cb2")]}
+        real_listing = janitor.listing_state
+        listing = (lambda github, unlisted: {**real_listing(github, unlisted), "truncated": True}) if truncated \
+            else real_listing
+        with tempfile.TemporaryDirectory() as temp:
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none"), *args]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch.object(janitor, "listing_state", listing), \
+                    mock.patch("builtins.print"):
+                code = janitor.main(argv)
+            return code, fake, summary.read_text(), holder
+
+    def test_a_truncated_sweep_still_force_cancels_the_holder(self):
+        code, fake, text, holder = self.sweep(truncated=True)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [[str(holder["id"]), "cancel"], [str(holder["id"]), "force-cancel"]])
+        self.assertIn("plus the superseded lane push holders", text)
+        self.assertIn("### Superseded lane push holders", text)
+        self.assertIn("force-cancelled", text)
+
+    def test_a_complete_sweep_cancels_it_once(self):
+        code, fake, text, holder = self.sweep()
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [[str(holder["id"]), "cancel"], [str(holder["id"]), "force-cancel"]])
+        self.assertIn(holder["html_url"], text)
+
+    def test_dry_run_reports_and_cancels_nothing(self):
+        code, fake, text, holder = self.sweep("--dry-run", truncated=True)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [])
+        self.assertIn("would cancel", text)
+        self.assertIn(holder["html_url"], text)
+
+    def test_a_job_that_started_before_the_cancel_keeps_the_run(self):
+        holder = tui_push(status="queued", sha="08139f38", age=2750, branch=HEAL)
+        started = [dict(job, status="in_progress", runner_name="r1") if job["status"] == "queued" else job
+                   for job in stranded_jobs(480)]
+        fake = FakeGitHub({holder["id"]: dict(holder)}, {holder["id"]: started})
+        decision = janitor.OrphanDecision(janitor.Orphan(holder, "superseded", "verify", NOW, 0), "cancel")
+        results, failures = janitor.cancel_push_holders(fake, [decision], now=NOW)
+        self.assertEqual((results, failures), ({holder["id"]: "kept: a job of it started since the first read"}, 0))
+        self.assertEqual(fake.posts(), [])
+
+    def test_zero_cap_reads_no_tips(self):
+        code, fake, text, _ = self.sweep("--max-push-holder-cancels", "0", "--max-jobless-cancels", "0", truncated=True)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [])
+        self.assertFalse(any(method == "LS-REMOTE" for method, _ in fake.log))
+        self.assertIn("No superseded push holders to clear.", text)
+
+
+def truncate(fake):
+    """The in-flight listing hits its page ceiling, as run 44702795585's did (queued 3992/3992 truncated)."""
+    listed = fake.in_flight_runs
+
+    def in_flight_runs():
+        runs = listed()
+        fake.run_listing["queued"] = dict(fake.run_listing.get("queued") or {}, truncated=True, total_at_least=True)
+        return runs
+    fake.in_flight_runs = in_flight_runs
+    return fake
+
+
+class TruncatedJoblessSweepTests(unittest.TestCase):
+    """Run 44702795585 on 2026-11-20: 6059 of at least 6080 in-flight runs listed, so the sweep decided nothing, and
+    a jobless run was never cleared during the backlog that strands them. find_jobless() reads each candidate's own
+    jobs, its workflow's runs on its branch and its holder's jobs, so the jobless pass still acts; nothing else does."""
+
+    sweep = JoblessSweepTests.sweep
+    world = JoblessSweepTests.world
+
+    def orphan_world(self):
+        stuck, fake = self.world()
+        orphan = make_run(status="queued", age=340, branch="ci/macos26-app-host-repair")
+        fake.runs[orphan["id"]] = dict(orphan)
+        # A newer job on its pool got a runner: the orphan pass's evidence (TruncatedSweepTests' world).
+        busy = make_run(status="in_progress", age=20, branch="busy")
+        fake.runs[busy["id"]] = dict(busy)
+        fake.job_map[orphan["id"]] = [linux_job(age=330), orphan_job(age=220)]
+        fake.job_map[busy["id"]] = [served_job(age=15)]
+        return stuck, orphan, fake
+
+    def test_a_complete_sweep_cancels_the_orphan_and_the_jobless_run(self):
+        stuck, orphan, fake = self.orphan_world()
+        with tempfile.TemporaryDirectory() as temp:
+            code, text, load, _ = self.sweep(fake, temp)
+        self.assertEqual(code, 0, text)
+        self.assertIs(load["truncated"], False)
+        self.assertIn([str(orphan["id"]), "cancel"], fake.posts())
+        self.assertIn([str(stuck["id"]), "cancel"], fake.posts())
+
+    def test_a_truncated_sweep_still_clears_a_jobless_run_at_an_open_head_and_re_runs_it(self):
+        stuck, fake = self.world()
+        truncate(fake)
+        with tempfile.TemporaryDirectory() as temp:
+            code, text, load, _ = self.sweep(fake, temp)
+            self.assertEqual(code, 0, text)
+            self.assertIs(load["truncated"], True)
+            self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"], [str(stuck["id"]), "force-cancel"]])
+            [entry] = load["lost_reruns"]
+            self.assertEqual((entry["run_id"], entry["jobless"], entry["open_head"]), (stuck["id"], True, True))
+            self.assertIn("### Jobless runs", text)
+            self.assertIn("only the jobless pass acted", text)
+            self.assertIn("Jobless pass on this partial sweep: force-cancel 0 holder(s), cancel 1 jobless run(s)", text)
+            # The next sweep is truncated too: the settled cancel is re-run whole at the same head.
+            fake.runs[stuck["id"]].update(status="completed", conclusion="cancelled")
+            fake.snapshots.append(load)
+            code, text, load, _ = self.sweep(fake, temp)
+            self.assertEqual(code, 0, text)
+            self.assertEqual(fake.posts()[-1], [str(stuck["id"]), "rerun"])
+            self.assertTrue(fake.app_only_posts[-1].endswith(f"/runs/{stuck['id']}/rerun"))
+            self.assertEqual(load["lost_reruns"], [])
+
+    def test_a_truncated_sweep_cancels_no_orphan_or_superseded_run_and_carries_other_re_runs(self):
+        stuck, orphan, fake = self.orphan_world()
+        truncate(fake)
+        other = {"run_id": 999001, "attempt": 1, "head_sha": "abc", "branch": "elsewhere",
+                 "cancelled_at": iso(5), "open_head": True}
+        fake.snapshots[-1]["lost_reruns"] = [other]
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(janitor, "skip_superseded_delivery") as delivery, \
+                mock.patch.object(janitor, "skip_superseded_dev_publish") as dev:
+            code, text, load, _ = self.sweep(fake, temp)
+        self.assertEqual(code, 0, text)
+        self.assertNotIn([str(orphan["id"]), "cancel"], fake.posts())
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"], [str(stuck["id"]), "force-cancel"]])
+        delivery.assert_not_called()
+        dev.assert_not_called()
+        # A pending entry that is not a jobless run's is carried forward as it was, never read or re-run.
+        self.assertEqual(load["lost_reruns"][0], other)
+        self.assertEqual([e["run_id"] for e in load["lost_reruns"]], [999001, stuck["id"]])
+        self.assertIn("decided nothing else", text)
 
 
 class JobListingIsCompleteTests(unittest.TestCase):

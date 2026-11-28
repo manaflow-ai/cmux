@@ -50,6 +50,8 @@ EXEMPT = {
     "calls (one branch read, at most one dispatch a tick) are the dispatch path the floor keeps calls for",
     "ci-main-full-suite.yml:report": "runs on the three-hourly tick only (8 a day) and once per completed "
     "full-suite run; its reads go out as the cmux-bot App (gh_app_token.sh --reads-only)",
+    "cloud-vm-image-roll-tick-dispatch.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint "
+    "or as spare reads (one runs listing and at most one dispatch a tick)",
     "cmux-next-perf-cron-dispatch.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint "
     "or as spare reads (one runs listing and at most one dispatch a tick)",
     "cmux-next-post-merge-dispatch.yml:tick": "a dispatch path (two reads a tick); cmux#55829 moves it to the "
@@ -140,6 +142,34 @@ class Detector(unittest.TestCase):
         self.assertEqual(runs_per_day("11,41 * * * *"), 48)
         self.assertEqual(runs_per_day("37 2,8,14,20 * * *"), 4)
         self.assertEqual(runs_per_day("3-59/10 * * * *"), 144)
+
+
+    def test_the_floor_runs_from_a_checkout_that_has_it(self):
+        # job_token_floor.py is on main only. A job whose workspace is feat-cmux-next ran it as "can't open file";
+        # the step is continue-on-error, so the floor never held and cmux-tui-channel-heal.yml spent the hour into
+        # HTTP 403 for 18 h (2026-11-28). The floor runs from a main checkout's path, as ui-proof-stale-sweep.yml.
+        def own_branch(ref: object) -> bool:
+            return ref in (None, "main", "refs/heads/main", "${{ github.sha }}", "${{ github.workflow_sha }}",
+                           "${{ github.event.repository.default_branch }}")
+
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for name, job in (data.get("jobs") or {}).items():
+                steps = job.get("steps") or []
+                checkouts = [(step.get("with") or {}) for step in steps
+                             if str(step.get("uses", "")).startswith("actions/checkout@")]
+                workspace = next((c for c in checkouts if not c.get("path")), None)
+                mains = {str(c["path"]).rstrip("/") for c in checkouts if c.get("path") and own_branch(c.get("ref"))}
+                for step in steps:
+                    run = str(step.get("run") or "")
+                    if "job_token_floor.py" not in run:
+                        continue
+                    with self.subTest(job=f"{path.name}:{name}"):
+                        if workspace is not None and own_branch(workspace.get("ref")):
+                            continue
+                        self.assertTrue(any(f"{m}/scripts/ci/job_token_floor.py" in run for m in mains),
+                                        "the workspace is another branch, which has no job_token_floor.py: check "
+                                        "main out to a path (as ui-proof-stale-sweep.yml's floor/) and run it there")
 
 
 class Floor(unittest.TestCase):

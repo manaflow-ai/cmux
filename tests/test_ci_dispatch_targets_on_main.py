@@ -25,6 +25,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Not on main, but registered: GitHub answers GET actions/workflows/<file> with 200.
 REGISTERED_ELSEWHERE = {
+    # cmux-tui-artifacts.yml and cmux-machine-channel.yml on feat-cmux-next dispatch it there many times a day.
+    "cloud-vm-image-roll.yml": "dispatched and push-triggered on feat-cmux-next",
     # feat-cmux-next's own push and pull_request triggers run it there.
     "ios-review-gate.yml": "push trigger on feat-cmux-next",
     # Registered 2026-10-22 by an earlier run on feat-cmux-next.

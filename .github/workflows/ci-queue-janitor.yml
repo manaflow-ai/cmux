@@ -38,6 +38,17 @@ name: CI queue janitor
 # the `macos-pool-load` snapshot below, which the next sweep reads back. It
 # shares the cancel cap.
 #
+# Every sweep, a truncated one too, also clears superseded lane push holders: a
+# push run of a lane branch's old head (not main, feat-cmux-next, nightly*,
+# release*, rc/*, next-batch/* or cmux-tui-pin-*; never a nightly, DEV,
+# promote or release workflow) whose unfinished jobs have all queued with no
+# runner for 10 minutes, while a newer push run of the same workflow at the
+# branch tip waits behind it. cmux-tui-artifacts.yml's per-branch group never
+# cancels in progress, so such a run held the tip's run `pending` for hours.
+# The tip comes from one `git ls-remote`, the jobs are read again before the
+# cancel, a `no-janitor` pull request keeps it, and a cancel that does not
+# take is force-cancelled. It has its own cap and is never re-run.
+#
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool. It carries the gates' own state per glaeda label as `gates`
@@ -227,6 +238,35 @@ jobs:
         with:
           persist-credentials: false
 
+      # Every job that mints cmux-bot reads its pool after the mint and at the end, so its spend lands in the
+      # app-spend ledger (tests/test_ci_app_spend_mark.py holds every minting job to it).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-queue-janitor/sweep
+
+      # The sweep's GET reads (run pages, every in-flight run's job listing: up to 2,000 a sweep) go on a quota-goblin
+      # CI pool token (quota-goblin-9008/9009, pushed as CI_POOL_TOKEN_1/2 by the key home), not on the routing
+      # App's (5067688) one hour that the build controller and the runner scaler share: at 04:01Z on 2026-11-28 it
+      # held 541 of 5,000 burning 144/min, with the controller itself ~6/min of that. Leo: "use the pools we have".
+      # No pool token with room (or no secret) leaves this empty, and the glaeda-route read token is used as before.
+      - name: Pick a quota-goblin pool read token
+        id: pool-read
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+          probe: sweep-read
+
       # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this recurring pass sends
       # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
       - name: Read the GITHUB_TOKEN floor
@@ -261,10 +301,12 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.fresh.outputs.skip != 'true'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -283,9 +325,11 @@ jobs:
           # budget while cmux-bot's token is GH_TOKEN; writes, GraphQL and the cmux-bot re-run stay on GH_TOKEN, and a
           # refused read moves back to it (queue_janitor.GitHub.use_read_token()). A backed-up queue made each sweep
           # list ~1,000-2,000 runs' jobs on the cmux-bot installation every reconciler shares.
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}
+          # A quota-goblin pool token first (the step above), else glaeda-route.
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && (steps.pool-read.outputs.token || steps.glaeda-token.outputs.token) || '' }}
           # The calls an hour the sweep leaves on that installation for the runner scaler's JIT creates (default 3000).
-          READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}
+          # A pool token's installation carries no JIT creates: the sweep leaves 500 there for the pool's other jobs.
+          READ_TOKEN_FLOOR: ${{ steps.pool-read.outputs.token != '' && '500' || vars.CI_JANITOR_READ_TOKEN_FLOOR }}
           # Under that floor the reads go on cmux-bot's token while it has more than this left (default 4000), so the
           # sweep still writes the pool snapshot; at or under both floors it stops (queue_janitor.SWEEP_TOKEN_READ_FLOOR).
           SWEEP_TOKEN_READ_FLOOR: ${{ vars.CI_JANITOR_SWEEP_TOKEN_READ_FLOOR }}
@@ -364,3 +408,11 @@ jobs:
           path: ${{ runner.temp }}/macos-pool-load.json
           retention-days: 1
           if-no-files-found: ignore
+
+      - name: Read the cmux-bot budget after this job
+        if: always() && steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-queue-janitor/sweep

@@ -2197,8 +2197,9 @@ class BlacksmithStall(unittest.TestCase):
         self.assertIn("blacksmith-6vcpu-macos-15", rescue.retry_labels(
             "jobs:\n  a:\n    strategy:\n      matrix:\n        pool: [blacksmith-6vcpu-macos-15]\n"
             "    runs-on: ${{ matrix.pool }}\n"))
+        # Its retry runner reads the macos_15 pool, which fails over to macOS 26 (.github/runners.json).
         self.assertEqual(rescue.retry_labels((ROOT / ".github/workflows/cmux-tui.yml").read_text()),
-                         {"blacksmith-6vcpu-macos-15"})
+                         {"blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-26"})
         # A retry route a picker job computes may be any picker label, whatever else the file names.
         for name in ("ci.yml", "test-e2e.yml", "test-ios.yml", "ios-screenshots.yml"):
             self.assertEqual(rescue.retry_labels((ROOT / ".github/workflows" / name).read_text()), every, name)
