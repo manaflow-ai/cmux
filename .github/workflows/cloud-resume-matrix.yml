@@ -204,6 +204,8 @@ jobs:
           ARMS: ${{ matrix.arms }}
           PARALLEL: ${{ matrix.parallel }}
           SHARD: ${{ matrix.shard }}
+          # Long pauses run 20 journeys at once: start them 30 s apart (see the shard script).
+          STAGGER_S: ${{ matrix.pause >= 3600 && 30 || 0 }}
         run: bash scripts/cmux-next/cloud-resume-matrix-shard.sh
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -259,6 +261,8 @@ jobs:
           ARMS: ${{ matrix.arms }}
           PARALLEL: ${{ matrix.parallel }}
           SHARD: ${{ matrix.shard }}
+          # Long pauses run 20 journeys at once: start them 30 s apart (see the shard script).
+          STAGGER_S: ${{ matrix.pause >= 3600 && 30 || 0 }}
         run: bash scripts/cmux-next/cloud-resume-matrix-shard.sh
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
