@@ -34,6 +34,8 @@
     "agentPane.composerLook": "studio",
     // The empty message box's text, as in a Codex thread.
     "agentPane.composerPlaceholder": "Ask for follow-up changes",
+    // No context ring at the row's end (parity table, composer): the reference app's composer draws none.
+    "agentPane.showContextUsage": false,
     // The model picker (parity table, model_effort_picker): the reference app's chip opens a short list of
     // models with a check on the current one; the compact menu is that, with Effort as a submenu.
     "agentPane.display.modelPickerStyle": "menu",

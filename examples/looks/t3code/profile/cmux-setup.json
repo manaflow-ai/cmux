@@ -61,8 +61,11 @@
     "agentPane.composerLook": "studio",
     // An empty thread puts its composer in the middle of the page (the draft hero).
     "agentPane.emptyChatComposerPosition": "center",
-    // The empty box reads as the app's does, not cmux's "Type / for commands".
-    "agentPane.composerPlaceholder": "Ask for changes, send follow-ups, or attach images",
+    // The empty box reads as the app's does, not cmux's "Type / for commands" (parity table, composer:
+    // T3 Code's box says "Ask anything, @tag files/folders, $use skills, or / for commands").
+    "agentPane.composerPlaceholder": "Ask anything, @tag files/folders, $use skills, or / for commands",
+    // No context ring at the row's end (parity table, composer): the reference app's composer draws none.
+    "agentPane.showContextUsage": false,
     // The selected thread row is gray, not tinted with the accent, as in the app's sidebar.
     "appearance.selection": "neutral",
     // Sidebar right-click and more menus are drawn by cmux, so the look's menu style reaches them.

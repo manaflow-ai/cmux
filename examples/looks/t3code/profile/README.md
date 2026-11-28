@@ -88,7 +88,7 @@ Shift-Command-F (find) are cmux's defaults already.
 | Edit an earlier prompt, quote a response, suggested next prompt | matched | Edit a prompt, quote a reply, suggested next prompt. |
 | Voice dictation (mod+shift+D) | matched | Shift-Command-D (`palette.toggleDictation`); `agentPane.showDictation`. |
 | Centered empty-thread composer (draft hero) | matched | `agentPane.emptyChatComposerPosition` `center`. |
-| Composer placeholder 'Ask for changes, send follow-ups, or attach images' | matched | `agentPane.composerPlaceholder`. |
+| Composer placeholder 'Ask anything, @tag files/folders, $use skills, or / for commands' | matched | `agentPane.composerPlaceholder` (the r29 parity capture read T3 Code's box; the earlier 'Ask for changes, send follow-ups, or attach images' was not its text). |
 | Model picker with provider rail, keyboard nav, custom models | partial | Shift-Command-M; the look's `cmux.composer.model.picker/1` view adds model search; `agentPane.composerLook` `studio`. Gap: no left provider rail with arrow-key provider switching. |
 | Reasoning effort picker, plus bindable increase/decrease effort | partial | Shift-Command-E opens effort. Gap: no increase or decrease effort action. |
 | Change model or provider mid-thread (hand a Claude thread to Codex) | matched | Switch the harness or model inside a chat. |
