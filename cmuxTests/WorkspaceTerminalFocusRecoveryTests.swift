@@ -531,18 +531,18 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             #expect(window.makeFirstResponder(surfaceView))
             _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
+            // The window can lay the hosted view out before the queued apply runs; force that order.
+            panel.hostedView.needsLayout = true
+            panel.hostedView.layoutSubtreeIfNeeded()
             #expect(panel.hostedView.isSurfaceViewFirstResponder())
             #expect(panel.hostedView.debugRenderStats().desiredFocus)
-            #expect(
-                !panel.surface.debugDesiredFocusState(),
-                "Right-sidebar dock handoff should defer Ghostty focus until geometry is usable"
-            )
+            #expect(!panel.surface.debugDesiredFocusState(), "Right-sidebar dock handoff should defer Ghostty focus until geometry is usable")
 
-            await AppKitTestEventPump().drain()
-            #expect(
-                !panel.surface.debugDesiredFocusState(),
-                "The dock deferred apply can fire while geometry is still unusable"
-            )
+            // As in the tests above, run the deferred apply's body now against the same 0x0 surface.
+            // A drain let the window's layout pass restore the surface first (main run 36748094366).
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
+            #expect(!panel.surface.debugDesiredFocusState(), "The dock deferred apply can fire while geometry is still unusable")
 
             surfaceView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
             surfaceView.layoutSubtreeIfNeeded()
