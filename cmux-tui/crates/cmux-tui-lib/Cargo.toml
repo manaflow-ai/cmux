@@ -221,6 +221,11 @@ cmux-browser-host = { path = "../cmux-browser-host" }
 acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
 cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
+# The agent screen-detection plugin and the Cloud app server run from it by
+# argv[0] (`cmux-agent-screen-detection`, `cmux-cloud`; CMUX-570); main.rs is
+# these sources, so the library needs them as cmux-tui does.
+cmux-agent-screen-detection = { path = "../../bindings/examples/rust-agent-screen-detection" }
+cmux-cloud = { path = "../../../first-party-apps/cloud/server" }
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
 # `cmux cloud journey` (cli/cloud_journey.rs): the agent test account's password sign-in.
@@ -261,6 +266,8 @@ cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true
+# The phone_chat link service (src/link/phone_chat.rs): the same adapter hostd serves.
+cmux-cloud-phone-acp.workspace = true
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 x25519-dalek.workspace = true
