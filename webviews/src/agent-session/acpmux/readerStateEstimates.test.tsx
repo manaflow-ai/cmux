@@ -30,6 +30,8 @@ import {
 import { thoughtChoices } from "./conversation/thoughtChoices";
 import { setCardOpen } from "./turnChanges/openStore";
 import { setEditedFilesSettings } from "./turnChanges/settings";
+import { MessageRow } from "./rows/MessageRow";
+import { resetTranscriptViews, setTranscriptView } from "./conversation/transcriptView";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const CHAT = "reader-state";
@@ -39,12 +41,16 @@ const AIR = LINE - TRANSCRIPT_LINE_WORDS;
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
+let rowRoot: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
+  if (rowRoot) await act(async () => rowRoot!.unmount());
+  rowRoot = undefined;
   resetTranscriptDisclosure();
+  resetTranscriptViews();
   thoughtChoices.clear();
   setCardOpen("edits-2", false);
   setEditedFilesSettings({});
@@ -60,8 +66,9 @@ afterEach(async () => {
 });
 
 /// The reader's click on line `key` of this chat, through the store the rows read (`useTranscriptDisclosure`).
-async function setLine(key: string, open: boolean) {
-  dom ??= new JSDOM("<!doctype html><main id=root></main>", {
+/// `session` null: the line drawn under no chat's provider, on the shared key (DEFAULT_SESSION).
+async function setLine(key: string, open: boolean, session: string | null = CHAT) {
+  dom ??= new JSDOM("<!doctype html><main id=root></main><main id=row></main>", {
     url: "http://localhost/",
   });
   for (const name of ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT"])
@@ -80,9 +87,13 @@ async function setLine(key: string, open: boolean) {
   await act(async () => {
     root ??= createRoot(dom!.window.document.getElementById("root")!);
     root.render(
-      <TranscriptDisclosureProvider sessionId={CHAT}>
+      session === null ? (
         <Line />
-      </TranscriptDisclosureProvider>,
+      ) : (
+        <TranscriptDisclosureProvider sessionId={session}>
+          <Line />
+        </TranscriptDisclosureProvider>
+      ),
     );
   });
   await act(async () => set!(open));
@@ -153,12 +164,32 @@ test("a long prompt the reader opened is estimated whole, over Show less (Prompt
   } as AcpmuxRow;
   // Drawn 503 shut (its 20 lines and Show more), 958 open.
   near(row, 503);
-  await setLine("prompt:user-1", true);
+  // The bubble's fold is on the shared key (rows/MessageRow.tsx draws it under no chat's provider).
+  await setLine("prompt:user-1", true, null);
   near(row, 958);
-  // Another chat's prompt of the same row id is not this one.
-  expect(Math.abs(estimate(row, "another-chat") - 503)).toBeLessThanOrEqual(SPACING);
-  await setLine("prompt:user-1", false);
+  await setLine("prompt:user-1", false, null);
   near(row, 503);
+});
+
+test("a long prompt opened on the shared key, as kept before, draws and is estimated open in Normal and in Verbose", async () => {
+  const text = Array.from({ length: 40 }, (_, n) => `Line ${n + 1} of the long prompt about the retry helper.`).join(
+    "\n",
+  );
+  const row = { id: "user-2", version: 1, at: 0, kind: "user", text } as AcpmuxRow;
+  // The reader's open as the pane kept it before this change: the prompt's fold under no provider.
+  await setLine("prompt:user-2", true, null);
+  // The transcript draws the row as MessageRow for this chat.
+  await act(async () => {
+    rowRoot ??= createRoot(dom!.window.document.getElementById("row")!);
+    rowRoot.render(<MessageRow row={row} sessionId={CHAT} onToggleActivity={() => {}} expanded={false} />);
+  });
+  const drawnOpen = () =>
+    dom!.window.document.querySelector("#row .cv-user__more")?.getAttribute("aria-expanded") ?? "no Show more";
+  expect(drawnOpen()).toBe("true");
+  near(row, 958);
+  await act(async () => setTranscriptView(CHAT, "verbose"));
+  expect(drawnOpen()).toBe("true");
+  near(row, 958);
 });
 
 test("a thought the reader opened is estimated over its text (ThoughtRow.tsx, thoughtChoices.ts)", () => {

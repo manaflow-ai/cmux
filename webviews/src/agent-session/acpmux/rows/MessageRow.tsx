@@ -11,7 +11,6 @@ import { IncomingMessageLine, IncomingNotice } from "../conversation/IncomingMes
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { UserBubble } from "../conversation/UserBubble";
-import { TranscriptDisclosureProvider } from "../conversation/transcriptDisclosure";
 import { ChiefPromptBubble } from "../conversation/ChiefPromptBubble";
 import { ChevronRight } from "../conversation/icons";
 import { CopyButton } from "../conversation/CopyButton";
@@ -38,7 +37,7 @@ const steerControls = (row: AcpmuxRow) =>
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 export const MessageRow = memo(
-  function MessageRow({ row, replyActions, githubRepository, sessionId }: RowProps) {
+  function MessageRow({ row, replyActions, githubRepository }: RowProps) {
     const t = useT();
     const readOnly = useTranscriptReadOnly();
     if (isVisiblyEmptyMessage(row)) return null;
@@ -176,23 +175,19 @@ export const MessageRow = memo(
             // An unread steer shows only queue controls; accepted or read prompts show normal hover actions.
             <>
               {row.author && <AuthorChip author={row.author} />}
-              {/* Its folds (PromptText.tsx `prompt:`) are this chat's, as model.ts estimates them: row
-                  ids repeat across chats. */}
-              <TranscriptDisclosureProvider sessionId={sessionId}>
-                <UserBubble
-                  row={row}
-                  text={row.text ?? ""}
-                  pending={
-                    !readOnly && steerControls(row)
-                      ? (actions, queued) => (
-                          <PendingSteer row={row} send={editQueued} queued={queued}>
-                            {actions}
-                          </PendingSteer>
-                        )
-                      : undefined
-                  }
-                />
-              </TranscriptDisclosureProvider>
+              <UserBubble
+                row={row}
+                text={row.text ?? ""}
+                pending={
+                  !readOnly && steerControls(row)
+                    ? (actions, queued) => (
+                        <PendingSteer row={row} send={editQueued} queued={queued}>
+                          {actions}
+                        </PendingSteer>
+                      )
+                    : undefined
+                }
+              />
             </>
           )}
           <DeliveryFailure row={row} />

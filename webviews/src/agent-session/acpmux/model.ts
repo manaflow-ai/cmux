@@ -3745,8 +3745,9 @@ function measuredRowHeight(
   const entry = preparedRow(cache, row.id);
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   // Whether the reader opened the prompt's fold (PromptText.tsx `prompt:${rowId}`): open, a paste in it
-  // draws whole.
-  const promptOpen = row.kind === "user" && disclosureOpen(sessionId, `prompt:${row.id}`);
+  // draws whole. The bubble draws under no chat's disclosure provider (rows/MessageRow.tsx), so its fold
+  // is on the shared key in every view, and is read there.
+  const promptOpen = row.kind === "user" && disclosureOpen(undefined, `prompt:${row.id}`);
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
   // its height is those lines and Show more, never a lex or measure of megabytes of text.
   // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
