@@ -227,7 +227,11 @@ pub(super) async fn post_or_queue(
         Ok(made) => made,
         Err(e) => return Posted::Answered(Err(e)),
     };
-    if !hub.mesh.gate().may_try() {
+    // A shut gate is never probed by a caller waiting on its answer: the probe is the outbox's
+    // retry of a queued delivery (`relay`, off every caller), so a send to a failing hub answers
+    // at once. A send that took the window's probe waited [`INLINE_WAIT`] for a hub that holds
+    // every post, once a window (1, 2, 4 ... s): the duress bench's hubslow leg, send p99 513 ms.
+    if hub.mesh.gate().shut() {
         let why = "hub failing, retrying (backing off before it is asked again)".to_owned();
         return Posted::Queue { post: message, why, unreached: true };
     }

@@ -399,6 +399,35 @@ async fn a_failing_hub_is_probed_once_per_window_not_by_every_send() {
     assert!(ids.iter().all(|id| !hub.outbox.get(id).unwrap().settled()), "all still kept");
 }
 
+/// A send after the gate's window has passed still answers at once: the probe is the outbox's
+/// retry, never a caller's send waiting `INLINE_WAIT` on a hub that holds every post (the duress
+/// bench's hubslow leg).
+#[tokio::test(start_paused = true)]
+async fn a_send_never_probes_a_shut_gate_the_outbox_retry_does() {
+    let script = vec![Answer::Stall; 1000];
+    let (hub, stub) = setup(StubHub { script: Mutex::new(script.into()), ..StubHub::default() });
+    let (first, _, _) = timed_send(&hub, request("far-host/lane-0", "prompt-probe-0")).await;
+    assert_eq!(first.unwrap()["status"], "queued");
+    assert!(hub.mesh.gate().shut());
+    for n in 1..20 {
+        // Past every window so far: a send here once took the probe and waited.
+        tokio::time::sleep(Duration::from_secs(70)).await;
+        let posts_before = stub.posts.lock().unwrap().len();
+        let started = tokio::time::Instant::now();
+        let params = request(&format!("far-host/lane-{n}"), &format!("prompt-probe-{n}"));
+        let answer = call(&hub, method::MUX_SEND_QUEUE, params).await.unwrap();
+        assert_eq!(answer["status"], "queued", "{answer}");
+        assert!(
+            started.elapsed() < super::super::mesh_send::INLINE_WAIT,
+            "send {n} waited {:?}",
+            started.elapsed()
+        );
+        assert_eq!(stub.posts.lock().unwrap().len(), posts_before, "send {n} asked the hub");
+    }
+    // The outbox's retries did probe the hub in those windows.
+    assert!(stub.posts.lock().unwrap().len() > 1);
+}
+
 /// The before/after numbers in the PR (one harness for both: this test needs nothing the fix
 /// added, so it runs on the base as it is). `n` sends through `_acpmux/send_queue` while the hub
 /// answers 503, then while it stalls (takes the request and never answers), each cut off at
