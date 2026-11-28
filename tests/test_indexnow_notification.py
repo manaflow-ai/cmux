@@ -151,5 +151,30 @@ class IndexNowTests(unittest.TestCase):
             self.assertEqual(result["submitted"], 2)
             self.assertEqual(len(json.loads(state.read_text())["submitted"]), 2)
 
+    def test_state_file_io_error_resubmits_instead_of_failing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "submitted.json"
+            state.write_text("{}")
+            with patch.object(Path, "read_text", side_effect=PermissionError("denied")), \
+                 patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, XML), (202, b"")]):
+                result = notify.run(CONFIG, state)
+            self.assertEqual(result["submitted"], 2)
+
+    def test_state_dir_without_search_permission_resubmits_instead_of_failing(self):
+        # Path.exists() raises PermissionError when a parent directory denies search.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "submitted.json"
+            real_exists = Path.exists
+
+            def exists(path, *args, **kwargs):
+                if path == state:
+                    raise PermissionError("search denied")
+                return real_exists(path, *args, **kwargs)
+
+            with patch.object(Path, "exists", autospec=True, side_effect=exists), \
+                 patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, XML), (202, b"")]):
+                result = notify.run(CONFIG, state)
+            self.assertEqual(result["submitted"], 2)
+
 if __name__ == "__main__":
     unittest.main()
