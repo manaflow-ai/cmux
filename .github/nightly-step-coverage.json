@@ -221,6 +221,8 @@
         "Resolve cmux-tui client commit": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Choose the build commit": {"plumbing": true},
         "Leave the build slot to a newer nightly-next push": {"plumbing": true},
+        "Check out the build ref from the host's git mirror": {"plumbing": true},
+        "Drop the mirror-borrowing git store": {"plumbing": true},
         "Record pending tree dependency": {"nightly_only": "records the selected nightly build's attempt-scoped cmux-tui tree dependency for publication recovery; pull requests do not select or publish a nightly tree"}},
       "prepare-nightly-variant-primary": {
         "Check out the build source from this run's pack": {"plumbing": true},

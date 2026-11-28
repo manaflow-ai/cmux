@@ -802,8 +802,16 @@ class NightlyTrustedRouting(unittest.TestCase):
         # an older run whose resolver finished late could otherwise replace the
         # newer run's waiting build. The resolver re-reads nightly-next last.
         resolver = DOC['jobs']['resolve-nightly-cmux-tui-client']
-        self.assertEqual(resolver['steps'][-1]['id'], 'superseded')
-        self.assertIn('git/ref/heads/nightly-next', resolver['steps'][-1]['run'])
+        # Only output-free cleanup may follow it (#64910 drops the mirror-borrowing git store after):
+        # no step after the re-read can set an output or change what it decided.
+        last = max(i for i, step in enumerate(resolver['steps']) if 'id' in step)
+        self.assertEqual(resolver['steps'][last]['id'], 'superseded')
+        for step in resolver['steps'][last + 1:]:
+            self.assertTrue(step['if'].startswith('always()'), step['name'])
+            self.assertEqual(step['run'], 'rm -rf "$GITHUB_WORKSPACE/.git"', step['name'])
+        run = resolver['steps'][last]['run']
+        script = Path(__file__).resolve().parents[1] / run.split('bash ', 1)[1].strip() if run.startswith('bash scripts/') else None
+        self.assertIn('git/ref/heads/nightly-next', script.read_text() if script else run)
         self.assertIn('superseded', resolver['outputs'])
         context = {'needs.decide.outputs.should_build': 'true', 'github.event_name': 'push',
                    'needs.resolve-nightly-cmux-tui-client.outputs.already_published': 'false',
