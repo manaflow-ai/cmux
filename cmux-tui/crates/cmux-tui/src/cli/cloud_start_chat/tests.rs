@@ -879,6 +879,14 @@ fn the_answer_names_the_journeys_start_marks() {
         json!({"created": 7_000, "connect": 8_500, "session_start": 9_300, "session_ready": 9_900,
                "send": 10_000, "sent": 15_000, "total": 15_000})
     );
+    // One trace id for the start, and its spans from the same marks (no `running`: `vm_running` ends at the create).
+    let id = answer["trace_id"].as_str().unwrap();
+    assert_eq!(id.len(), 32);
+    assert_eq!(answer["trace"]["trace_id"], id);
+    assert_eq!(
+        answer["trace"]["phases_ms"],
+        json!({"select": 0, "vm_running": 7_000, "session_start": 2_300, "session_ready": 600, "sent": 5_100})
+    );
 }
 
 #[test]
@@ -888,6 +896,7 @@ fn a_failure_carries_the_steps_it_ran() {
         panic!()
     };
     assert_eq!(error["details"]["stages_ms"]["steps"][0]["step"], "cloud list-machines");
+    assert_eq!(error["details"]["trace_id"].as_str().map(str::len), Some(32));
 }
 
 /// A run that made its machine and then failed still names it, so its caller can delete what it

@@ -1363,22 +1363,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
     // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
     let outcome = recover::recover(runner, request, began, outcome);
-    explain_account_limit(outcome, &request.agent)
-}
-
-/// A turn that failed on its agent's account (out of usage, or turned off) answers what
-/// happened and the way on, not the agent's bare words (account_limit.rs, cmux#55066).
-fn explain_account_limit(outcome: Outcome, agent: &str) -> Outcome {
-    match outcome {
-        Outcome::Failed { mut error, exit }
-            if at(&error, "code").as_str() == Some("chat.turn_failed") =>
-        {
-            let said = at(&error, "message").as_str().unwrap_or_default().to_owned();
-            super::account_limit::explain(&mut error, &said, agent);
-            Outcome::Failed { error, exit }
-        }
-        outcome => outcome,
-    }
+    // One trace id per start, from tap to first text (start_stages.rs `traced`).
+    super::start_stages::traced(super::account_limit::explain_outcome(outcome, &request.agent))
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
