@@ -25,11 +25,18 @@ separately and are not checked here.
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+# A runs-on line marked `# frozen-label: <why>` (or ephemeral-required, owned-pool-unfit) is one #54437 froze to the
+# one label it resolved to, deleting its CI_CLOUD_OVERFLOW_SAVED arm with the other pickers (Leo, 2026-11-27: the
+# pickers "deleted now, not after a soak"). Its literal is its trust rule; scripts/ci/check_runs_on_pools.py reads the
+# same mark and allows only a Blacksmith label there, so this guard skips it rather than asking the picker back.
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+from check_runs_on_pools import EPHEMERAL_MARK  # noqa: E402
 
 EXCLUDED_NAME = re.compile(
     r"nightly|notarization|^cmux-next-dev-daily\.yml$|release|publish|testflight|app-?store|homebrew"
@@ -122,6 +129,8 @@ def offenders() -> list[str]:
             continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
             code = line.split(" #", 1)[0] if not line.lstrip().startswith("#") else ""
+            if code and EPHEMERAL_MARK.search(line):
+                continue
             # An allowlist of labels vars.LINUX_RUNNER may name is double-quoted JSON, not a
             # runner literal: the switch points that variable at another Blacksmith size.
             code = ALLOWLIST.sub("", code)
