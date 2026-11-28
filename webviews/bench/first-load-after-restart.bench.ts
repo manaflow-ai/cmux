@@ -1893,6 +1893,7 @@ try {
     ends = false,
   ) => {
     await installPaintedFrames(page);
+    if (process.env.DIAG_PUSH === "1") page.on("console", (m) => m.text().startsWith("DIAG") && console.log(m.text()));
     if (BRIDGE) await serveBridge(page);
     await page.addInitScript(installHost, {
       tail,
