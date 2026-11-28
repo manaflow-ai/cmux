@@ -5,7 +5,7 @@ import { useCallback, useContext, useLayoutEffect, useRef, type ReactNode } from
 import { experimentArm } from "../../../experiments/experiment";
 import { FindReveal } from "./chatFind";
 import { runScroll } from "./runScroll.experiment";
-import { ShimmerEnabledContext } from "./ShimmerText";
+import { ShimmerEnabledContext } from "./shimmerEnabledContext";
 
 /// The fades say where more is hidden: `data-fade-top` once scrolled down, `data-fade-bottom` while
 /// more is under the box. Written on the box itself, so a scroll draws the run again never.
