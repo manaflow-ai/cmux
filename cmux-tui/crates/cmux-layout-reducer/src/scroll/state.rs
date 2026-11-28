@@ -357,6 +357,7 @@ impl ColumnScrollState {
         delta
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn sync_against(
         &mut self,
         new: &ColumnStrip,
