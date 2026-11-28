@@ -390,6 +390,7 @@ export function redrawWhy(
   drawn?: AcpmuxSnapshot,
   asIs?: (row: AcpmuxRow) => string,
   thought?: (previous: AcpmuxSnapshot, next: AcpmuxSnapshot, index: number) => string,
+  place?: (row: AcpmuxRow) => string,
 ): string {
   // Whether the pane's drawn snapshot is behind the received one (a bypass drew a record without it):
   // `same`, `drift-rows` (a row moved on through a row's store) or `drift-fields` (Session Info's).
@@ -426,7 +427,7 @@ export function redrawWhy(
     lastWas?.kind === "thought" && lastNow?.kind === "thought" && thought
       ? thought(received, next, index)
       : lastNow?.kind === "tool"
-        ? toolDeclined(received.rows[index]!, next.rows[index]!)
+        ? `${toolDeclined(received.rows[index]!, next.rows[index]!)}@${place ? place(next.rows[index]!) : ""}`
         : "";
   const detail =
     now.kind === "activity"

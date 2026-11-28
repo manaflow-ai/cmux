@@ -15,7 +15,7 @@ import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isQuietThought, isThought } from "./conversation/thoughts";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
-import { drewTail, rowsWithStreamingRow } from "./streamingRow";
+import { drewPlace, rowsWithStreamingRow } from "./streamingRow";
 import { drewEmptyFold, drewRunningTurn, hiddenUnderFold } from "./drawnRows";
 import { lineCalledNow } from "./liveCallLine";
 

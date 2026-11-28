@@ -1076,6 +1076,7 @@ function TranscriptView({
               )
               .join(",")}`
           : "no-streams",
+        new Set(paneRows.map((row) => row.id)),
       );
     if (!streams) return;
     drewThoughts(paneRows);

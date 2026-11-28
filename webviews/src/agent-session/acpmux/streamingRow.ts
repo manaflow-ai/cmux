@@ -57,13 +57,20 @@ export function drewStreamingRow(id: string | undefined, text: string | undefine
 
 /// The tail of the rows the transcript last told its draw from (measuring only, the bench's redraw table).
 export let drewTail = "never";
-export function noteDrewTail(tail: string): void {
+let drewIds: ReadonlySet<string> = new Set();
+export function noteDrewTail(tail: string, ids: ReadonlySet<string>): void {
   drewTail = tail;
+  drewIds = ids;
+}
+/// Where the transcript's last told rows have `row` (measuring only): drawn, or absent and whether
+/// it ran in a background turn.
+export function drewPlace(row: AcpmuxRow): string {
+  return drewIds.has(row.id) ? "in-pane" : `absent,bg=${row.inBackground === undefined ? "n" : "y"}`;
 }
 
 /// How the transcript's drawn reply stands to `row`, for the replay bench's redraw table (measuring only).
 export function drawnReplyState(row: AcpmuxRow): string {
-  if (!drawn) return `none@${drewTail}`;
+  if (!drawn) return `none@${drewPlace(row)}`;
   if (drawn.id !== row.id) return "other-id";
   const text = row.text ?? "";
   if (drawn.text === text) return "as-is";
