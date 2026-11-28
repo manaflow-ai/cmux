@@ -179,7 +179,7 @@ export function thoughtDeclined(previous: AcpmuxSnapshot, next: AcpmuxSnapshot, 
       ? drewEmptyFold() && !isQuietThought(after)
         ? "fold-unquiet"
         : "took"
-      : "undrawn";
+      : `undrawn@${drewPlace(now)}:${isQuietThought(after) ? "quiet" : "loud"}`;
   if (!sameThought(drawnNow, before))
     return drawnNow.text === after.text
       ? "drawn-ahead"
