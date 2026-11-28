@@ -19,7 +19,9 @@
 set -uo pipefail
 # The whole output also goes to $FAST_CHECKS_OUT/tui-idle-ram.log, the file `cmux-bench tui-idle` reads back
 # (cmux-ci test --artifact): the run's printed log keeps only its tail.
-[ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$FAST_CHECKS_OUT/tui-idle-ram.log") 2>&1
+if [ -n "${FAST_CHECKS_OUT:-}" ] && [ "${FAST_CHECKS_OUT_NO_TEE:-0}" != 1 ]; then
+  exec > >(tee -a "$FAST_CHECKS_OUT/tui-idle-ram.log") 2>&1
+fi
 dhat=0
 workspaces=1
 settle=20

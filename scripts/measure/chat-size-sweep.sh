@@ -40,7 +40,9 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 out_dir="${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}}"
 mkdir -p "$out_dir"
 log="$out_dir/chat-size-sweep.log"
-[ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$log") 2>&1
+if [ -n "${FAST_CHECKS_OUT:-}" ] && [ "${FAST_CHECKS_OUT_NO_TEE:-0}" != 1 ]; then
+  exec > >(tee -a "$log") 2>&1
+fi
 head_sha="$(git -C "$root" rev-parse HEAD)"
 echo "CHAT-SIZE-HEAD $head_sha"
 echo "CHAT-SIZE-HOST $(hostname) $(uname -sm)"
