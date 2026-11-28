@@ -57,6 +57,10 @@
 #                       printed as VMMAP-BREAKDOWN lines (default 1; each call bounded at 20 s, outside the window)
 #   chief_steady=S      before each window, wait at most S s until the Chief's process count has not changed for
 #                       10 s (default 60, 0 for no wait): a window then measures one launch state, not a start
+#   chief_up=S          before each window (and before chief_steady=), wait at most S s until the Chief's brain
+#                       (optchat-chief) runs, so the window measures the Chief-up launch state goal ram-baseline
+#                       judges (decision B, 2026-11-28); a launch it never came up in fails (exit 1) and its
+#                       report's launch_state says chief_up_timed_out (default 0: no wait, as before)
 #   home=1              after each arm's idle launches of a round, one more fresh launch of that arm
 #                       (scripts/cmux-next/chief-start-probe.py): at rest, whether the Chief's brain host runs and
 #                       which Home view asked for it; then Home's first open and the first Chief reply after it.
@@ -98,7 +102,7 @@ cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
 base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 settings_open=0 chats_given=false home=0
-relaunch=0 app_env=() vmmap=1 chief_steady=60 dmg="" peer=""
+relaunch=0 app_env=() vmmap=1 chief_steady=60 chief_up=0 dmg="" peer=""
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
@@ -116,6 +120,7 @@ for arg in "$@"; do
     env=*) app_env+=(--env "${arg#env=}") ;;
     vmmap=*) vmmap="${arg#vmmap=}" ;;
     chief_steady=*) chief_steady="${arg#chief_steady=}" ;;
+    chief_up=*) chief_up="${arg#chief_up=}" ;;
     dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
     peer=claude|peer=chatgpt) peer="${arg#peer=}" ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -137,6 +142,7 @@ cell_form='[1-9][0-9]*:(none:rest|(small|large):(rest|scroll))'
 [[ -z "$cells" || "$cells" =~ ^$cell_form(,$cell_form)*$ ]] || { echo "cells= must be CHATS:none:rest or CHATS:small|large:rest|scroll, joined by commas" >&2; exit 2; }
 [[ "$unfocused" =~ ^[0-9]+$ ]] || { echo "bad unfocused=" >&2; exit 2; }
 [[ "$vmmap" =~ ^[01]$ && "$chief_steady" =~ ^[0-9]+$ ]] && (( chief_steady <= 300 )) || { echo "vmmap= must be 0 or 1, chief_steady= 0 to 300" >&2; exit 2; }
+[[ "$chief_up" =~ ^[0-9]+$ ]] && (( chief_up <= 300 )) || { echo "chief_up= must be 0 to 300" >&2; exit 2; }
 [[ "$relaunch" =~ ^(0|1|cold|warm)$ ]] || { echo "relaunch= must be 0, 1 (cold) or warm" >&2; exit 2; }
 for ((k = 1; k < ${#app_env[@]}; k += 2)); do
   [[ "${app_env[k]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo "env= must be NAME=VALUE" >&2; exit 2; }
@@ -320,6 +326,7 @@ attribute=(--attribute --attribute-kinds "$kinds" --attribute-trace "$trace")
 # cmux mcp serve and optchat-chief, parsed per region (vmmap_regions.py); before it, a wait of at most
 # 60 s for the Chief's processes to stop changing, so each window is one launch state (see launch_state).
 (( vmmap )) && attribute+=(--vmmap-breakdown)
+(( chief_up )) && attribute+=(--chief-up "$chief_up")
 (( chief_steady )) && attribute+=(--chief-steady "$chief_steady")
 status=0
 run_arm() {  # run_arm ARM ROUND
