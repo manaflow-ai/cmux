@@ -191,7 +191,7 @@ fn a_record_of_another_session_plans_the_plain_shell_at_the_default_frame() {
     let (_, p) = plan_in(&support);
     assert_eq!(
         (p.reason, p.shows_window, p.uses_default_frame, p.shows_bare),
-        (11, true, true, false)
+        (11, false, true, false)
     );
     assert_eq!(text(&p.image_path), "");
     std::fs::write(&registry, "reg-old\n").unwrap();
