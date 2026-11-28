@@ -60,7 +60,7 @@ impl Cloud for FakeCloud {
 
 struct FakeLocal {
     files: BTreeMap<String, String>,
-    patch: WorkPatch,
+    patch: LocalWork,
 }
 
 impl Local for FakeLocal {
@@ -74,7 +74,7 @@ impl Local for FakeLocal {
             .map(|(p, t)| (p.clone(), t.len() as u64))
             .collect()
     }
-    fn work_patch(&self, _: &Source, _: &str, _checkout: &str) -> Result<WorkPatch, String> {
+    fn work_patch(&self, _: &Source, _: &str, _checkout: &str) -> Result<LocalWork, String> {
         Ok(self.patch.clone())
     }
     fn now_ms(&self) -> i64 {
@@ -132,7 +132,12 @@ fn local() -> FakeLocal {
     files.insert("~/.claude/projects/-Users-me-code-app/abc.jsonl".into(), "{\"m\":1}\n".into());
     FakeLocal {
         files,
-        patch: WorkPatch { work: "diff --git a/x b/x\n".into(), ..WorkPatch::default() },
+        patch: LocalWork {
+            bundle: "YnVuZGxl".into(),
+            work: Some("feedface".into()),
+            files: 2,
+            ..LocalWork::default()
+        },
     }
 }
 
@@ -149,7 +154,10 @@ fn applies_every_checked_step_and_never_sends_a_login() {
     );
     assert!(!cloud.calls.iter().any(|c| c.contains("create off")));
     assert!(
-        cloud.calls.iter().any(|c| c.contains("git apply") && c.contains("/home/cmux/work/app"))
+        cloud
+            .calls
+            .iter()
+            .any(|c| c.contains("git bundle verify") && c.contains("/home/cmux/work/app"))
     );
     assert!(cloud.calls.contains(&"secrets m1 STRIPE_KEY".to_owned()));
     assert!(
@@ -322,30 +330,41 @@ fn a_cursor_folder_without_transcripts_is_left_and_said() {
 }
 
 #[test]
-fn local_work_lands_on_its_base_and_a_rerun_resumes_where_it_failed() {
+fn local_work_goes_as_a_bundle_and_a_rerun_resumes_where_it_failed() {
     let (mut ledger, mut local) = (Ledger::new(), local());
-    local.patch = WorkPatch {
-        commits: "From abc\nSubject: [PATCH] one\n".into(),
-        work: "diff --git a/x b/x\n".into(),
-        base: Some("0123abcd".into()),
+    local.patch = LocalWork {
+        bundle: "YnVuZGxl".into(),
+        head: Some("0123abcd".into()),
+        work: Some("feedface".into()),
+        base: Some("00aa".into()),
         branch: Some("feature/x".into()),
+        commits: 1,
+        files: 2,
     };
-    let mut cloud = FakeCloud { fail_exec: Some("git apply".into()), ..FakeCloud::default() };
+    let mut cloud = FakeCloud { fail_exec: Some("read-tree".into()), ..FakeCloud::default() };
     let out = apply(&plan(), &[], &mut ledger, &mut cloud, &local, &mut |_| {});
     assert_eq!(out.failed, 1, "{:?}", cloud.calls);
+    assert_eq!(
+        cloud.files.get("m1:/home/cmux/.cmux/migrate/worktree.bundle.b64").map(String::as_str),
+        Some("YnVuZGxl")
+    );
     let execs: Vec<&String> = cloud.calls.iter().filter(|c| c.starts_with("exec ")).collect();
-    assert!(execs[0].contains("git checkout --quiet -B 'feature/x' '0123abcd'"), "{execs:?}");
-    assert!(execs[0].contains("git fetch --quiet origin '0123abcd'"), "{execs:?}");
-    assert!(execs[1].contains("git am --abort") && execs[1].contains(" am --3way"), "{execs:?}");
+    assert!(execs[0].contains("base64 -d") && execs[0].contains("git fetch -q"), "{execs:?}");
+    assert!(execs[0].contains("'+refs/cmux-migrate/*:refs/cmux-migrate/*'"), "{execs:?}");
+    assert!(execs[1].contains("git checkout -q -B 'feature/x' '0123abcd'"), "{execs:?}");
+    assert!(execs[1].contains("git fetch -q origin '0123abcd'"), "{execs:?}");
     let entry = ledger.entry("laptop:mac", "~/code/app").unwrap();
-    assert!(entry.done.contains(&"carry-worktree:commits".to_owned()), "{:?}", entry.done);
-    // The rerun neither checks out again nor re-applies the commits: only the work patch.
+    for part in ["carry-worktree:bundle", "carry-worktree:head"] {
+        assert!(entry.done.contains(&part.to_owned()), "{:?}", entry.done);
+    }
+    // The rerun neither sends the bundle again nor checks out again: only the work.
     let mut cloud = FakeCloud::default();
     let out = apply(&plan(), &[], &mut ledger, &mut cloud, &local, &mut |_| {});
     assert_eq!(out.failed, 0, "{:?}", cloud.calls);
     let execs: Vec<&String> = cloud.calls.iter().filter(|c| c.starts_with("exec ")).collect();
     assert_eq!(execs.len(), 1, "{execs:?}");
-    assert!(execs[0].contains("git apply"));
+    assert!(execs[0].contains("git read-tree -u -m HEAD 'feedface' && git reset -q"));
+    assert!(!cloud.calls.iter().any(|c| c.starts_with("write ") && c.contains("bundle")));
     let entry = ledger.entry("laptop:mac", "~/code/app").unwrap();
     assert!(entry.done.contains(&"carry-worktree".to_owned()));
     assert!(!entry.done.iter().any(|d| d.starts_with("carry-worktree:")), "{:?}", entry.done);
@@ -405,59 +424,14 @@ fn an_unsupported_remote_skips_carry_worktree_with_a_note() {
     assert!(why.contains("push it"), "{why}");
 }
 
-/// The script that reads a source's checkout, run here with sh against a real repo: branch,
-/// base, unpushed commits and the working tree with an untracked file, the index untouched.
 #[test]
-fn the_work_patch_script_reads_a_checkout() {
-    let run = |dir: &std::path::Path, args: &[&str]| {
-        let out = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
-        String::from_utf8_lossy(&out.stdout).trim().to_owned()
-    };
-    let tmp = std::env::temp_dir().join(format!("cmux-migrate-wps-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
-    let (origin, work) = (tmp.join("origin.git"), tmp.join("work"));
-    std::fs::create_dir_all(&tmp).unwrap();
-    run(&tmp, &["init", "--quiet", "--bare", origin.to_str().unwrap()]);
-    run(&tmp, &["clone", "--quiet", origin.to_str().unwrap(), work.to_str().unwrap()]);
-    std::fs::write(work.join("a.txt"), "one\n").unwrap();
-    run(&work, &["add", "a.txt"]);
-    run(&work, &["commit", "--quiet", "-m", "first"]);
-    run(&work, &["push", "--quiet", "-u", "origin", "HEAD:main"]);
-    let base = run(&work, &["rev-parse", "HEAD"]);
-    std::fs::write(work.join("a.txt"), "two\n").unwrap();
-    run(&work, &["commit", "--quiet", "-am", "second"]);
-    std::fs::write(work.join("a.txt"), "three\n").unwrap();
-    std::fs::write(work.join("new.txt"), "fresh\n").unwrap();
-    let index_before = std::fs::read(work.join(".git/index")).unwrap();
-    let mut child = std::process::Command::new("sh")
-        .arg("-s")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    use std::io::Write as _;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(remote_patch_script(work.to_str().unwrap()).as_bytes())
-        .unwrap();
-    let out = child.wait_with_output().unwrap();
-    let patch = parse_remote_patch(&String::from_utf8_lossy(&out.stdout)).unwrap();
-    assert_eq!(patch.base.as_deref(), Some(base.as_str()));
-    assert!(patch.branch.is_some());
-    assert!(patch.commits.contains("Subject: [PATCH] second"), "{}", patch.commits);
-    assert!(patch.work.contains("+three"), "{}", patch.work);
-    assert!(patch.work.contains("b/new.txt") && patch.work.contains("+fresh"), "{}", patch.work);
-    assert_eq!(std::fs::read(work.join(".git/index")).unwrap(), index_before);
-    let _ = std::fs::remove_dir_all(&tmp);
-    assert!(parse_remote_patch("cd: no such dir\n").is_err());
+fn an_unreadable_checkout_or_an_oversized_bundle_is_an_error() {
+    assert!(parse_work("cd: no such dir\n").is_err());
+    let huge = format!(
+        "@@cmux-migrate:bundle@@\n{}\n@@cmux-migrate:end@@\n",
+        "A".repeat(MAX_BUNDLE_BYTES / 3 * 4 + 8)
+    );
+    assert!(parse_work(&huge).unwrap_err().contains("push it"));
 }
 
 #[test]
