@@ -102,6 +102,8 @@ PROFILES = {
     "loss-1": "delay 10ms loss random 1%",
     "loss-2": "delay 10ms loss random 2%",
     "loss-5": "delay 10ms loss random 5%",
+    # A 20 ms path that cannot carry the 30 Mbit/s LAN start: what a start guess costs when it is wrong.
+    "thin-12": "delay 10ms rate 12mbit",
 }
 STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
 # Profiles that run host and viewer in the host namespace over its own `lo` (one qdisc, each
@@ -138,6 +140,7 @@ PROFILE_LABELS = {
     "loss-1": "20 ms RTT, 1% loss",
     "loss-2": "20 ms RTT, 2% loss",
     "loss-5": "20 ms RTT, 5% loss",
+    "thin-12": "20 ms RTT, 12 Mbit/s",
 }
 
 
