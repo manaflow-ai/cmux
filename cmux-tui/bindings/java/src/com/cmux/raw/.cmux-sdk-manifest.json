@@ -442,8 +442,8 @@
     },
     {
       "path": "ClientInfo.java",
-      "sha256": "488f27748f93986685a411376bae1d1b7f99b0637e7cc4d2a991a6f91105ba48",
-      "size": 6909
+      "sha256": "c03b437e71855b660e293f2539420aeda25551868ad09aa9ac483c77b18f9397",
+      "size": 7910
     },
     {
       "path": "ClientListInvalidatedEvent.java",
@@ -2342,7 +2342,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0dc6c62f01d3d9fcaccc559567fcf22662d02e5d36075a9ba6068e240dd80ec4",
+      "sha256": "11255e15d2652aa55ba2e7acbb19b0090586dbfa4b6d94971d8eea9e9f808948",
       "size": 8753
     },
     {
@@ -3937,7 +3937,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "667c4fda95527ca187589d3c54df060cbcb7dfcd0438e2baed2d5d150c437e5e",
+  "ir_sha256": "604bfb484cb128e82a93bdd8545eb6e4150a1deba2839699549733137d0b9e97",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
