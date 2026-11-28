@@ -483,7 +483,9 @@ final class ChatReplayPlayer {
         do {
             read = try await chat.source.replayRecording()
         } catch let error as AgentFeatureUnavailable where !chat.source.isOffline {
-            state = .unavailable(error.message)
+            // A kept recording stays on screen here too: a Mac that cannot read the replay
+            // does not draw "unavailable" over the one this phone already plays.
+            if state != .ready { state = .unavailable(error.message) }
             return
         } catch {
             // The kept recording stays on screen; only a replay with none says it failed.
