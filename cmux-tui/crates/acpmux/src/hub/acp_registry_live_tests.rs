@@ -85,9 +85,27 @@ async fn a_registry_agent_passes_the_conformance_cases() {
     println!("acp-agent\t{}\t{}", agent.id, agent.version);
     let which = |p: &str| crate::harness_install::which_on_path(p).map(|p| p.display().to_string());
     let launch = agent.launch(crate::registry::platform(), &which);
-    let Some((argv, env)) = launch.argv_env() else {
-        report.case("launch", false, format!("no start here: {}", launch.method()));
-        panic!("failed: launch");
+    let (argv, env, method) = match launch.argv_env() {
+        Some((argv, env)) => (argv.to_vec(), env.clone(), launch.method().to_owned()),
+        // A reserved id (cursor, gemini, ...) is cmux's built-in harness, which
+        // config/discover.rs finds on PATH by its program's name, not through
+        // the registry entry: the archive's program installed, with its args.
+        None => match crate::registry::platform()
+            .filter(|_| crate::registry::RESERVED_IDS.contains(&agent.id.as_str()))
+            .and_then(|p| agent.binary.get(p))
+            .and_then(|t| {
+                let path = which(&crate::registry::program_name(&t.cmd)?)?;
+                Some((
+                    std::iter::once(path).chain(t.args.iter().cloned()).collect::<Vec<_>>(),
+                    t.env.clone(),
+                ))
+            }) {
+            Some((argv, env)) => (argv, env, "installed (built-in harness)".to_owned()),
+            None => {
+                report.case("launch", false, format!("no start here: {}", launch.method()));
+                panic!("failed: launch");
+            }
+        },
     };
     let profile: HarnessProfile = serde_json::from_value(json!({"argv": argv, "env": env}))
         .expect("a profile from the launch");
@@ -97,11 +115,11 @@ async fn a_registry_agent_passes_the_conformance_cases() {
     // The first process: launch, the v1 initialize and session/new, as a session starts it.
     let child = match start(&profile, &cwd).await {
         Ok(c) => {
-            report.case("launch", true, format!("{} ({})", launch.method(), agent.version));
+            report.case("launch", true, format!("{} ({})", method, agent.version));
             Some(c)
         }
         Err(e) => {
-            report.case("launch", false, format!("{}: {e}", launch.method()));
+            report.case("launch", false, format!("{}: {e}", method));
             None
         }
     };
