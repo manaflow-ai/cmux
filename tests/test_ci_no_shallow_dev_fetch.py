@@ -59,6 +59,8 @@ FETCH = re.compile(r"\bfetch\b")
 # Lines that make a new repository or a submodule shallow, not the caller's checkout.
 NEW_REPOSITORY = re.compile(r"\bclone\b|\bsubmodule\b")
 SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_file")
+# A line that declares a --depth option (argparse, a usage string) names the flag; it fetches nothing.
+FLAG_DEFINITION = re.compile(r"\badd_argument\(")
 # Scripts whose depth-limited fetches target a repository the script created
 # itself (git init into a temp or cache directory), never the caller's clone.
 OWN_REPOSITORY = {
@@ -154,7 +156,7 @@ def unguarded_depth_fetches(text: str) -> list[int]:
     for index, line in enumerate(lines):
         if SHALLOW_CHECK.search(line):
             guarded = True
-        if not DEPTH.search(line) or NEW_REPOSITORY.search(line):
+        if not DEPTH.search(line) or NEW_REPOSITORY.search(line) or FLAG_DEFINITION.search(line):
             continue
         # A fetch call split over lines keeps its arguments within a few lines of `fetch`.
         window = lines[max(0, index - 3):index + 1]
@@ -206,6 +208,8 @@ class NoShallowDevFetchTests(unittest.TestCase):
         self.assertEqual(unguarded_depth_fetches(guarded), [])
         self.assertEqual(unguarded_depth_fetches('git clone --depth 1 "$url" "$dir"\n'), [])
         self.assertEqual(unguarded_depth_fetches('git submodule update --init --depth 1 ghostty\n'), [])
+        # An option declaration whose help text says "fetch" is not a fetch (scripts/measure/memory_bisect.py).
+        self.assertEqual(unguarded_depth_fetches('p.add_argument("--depth", type=int, help="first fetch depth")\n'), [])
 
     def test_fetch_complexity_base_keeps_a_full_clone_full(self):
         script = ROOT / "scripts/ci/fetch-complexity-base.sh"
