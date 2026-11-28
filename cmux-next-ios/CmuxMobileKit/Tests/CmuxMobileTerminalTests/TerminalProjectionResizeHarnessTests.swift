@@ -1,6 +1,7 @@
 // The projection (TerminalProjectingSession) and its FFI are iOS only, so the
 // harness runs on the kit job's iOS simulator leg, not under macOS swift test.
 #if os(iOS)
+import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileTerminal
@@ -24,6 +25,12 @@ import Testing
 /// go in its table.
 @MainActor
 @Suite(.serialized) struct TerminalProjectionResizeHarnessTests {
+    private static func projectionDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(true, forKey: CmuxMobilePreferences.Key.terminalPhoneProjection)
+        return defaults
+    }
+
     typealias Debounce = TerminalSizeClaimDebounce<ContinuousClock.Instant>
 
     /// What the page was told.
@@ -59,7 +66,7 @@ import Testing
     /// The lifecycle, as the page drives its session.
     static func run(columns: Int = 120, rows: Int = 40) -> (steps: [Step], mac: MacPaneMockSession, bytes: Int) {
         let mac = MacPaneMockSession(columns: columns, rows: rows)
-        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
+        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh", defaults: Self.projectionDefaults())
         let page = Page()
         // The production delays (whatever the background grace is, or none).
         var claim = Debounce()
@@ -149,13 +156,13 @@ import Testing
     }
 
     /// Leo, 2026-11-25, of Claude Code on the phone: "the layout calculations too". Projection
-    /// is the default and "Fit to Phone" is never automatic: Claude Code inline on the primary
+    /// is opt-in and "Fit to Phone" is never automatic: Claude Code inline on the primary
     /// screen leaves the Mac pane at its grid while the page claims it; the projection lays its
     /// rules out at the phone's width (cmux-terminal-projection's
     /// claude_codes_bare_rules_are_one_phone_row_each_at_the_macs_width).
     @Test func claudeCodeInlineNeverResizesTheMac() {
         let mac = MacPaneMockSession(columns: 120, rows: 40, program: "claude")
-        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "claude")
+        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "claude", defaults: Self.projectionDefaults())
         let page = Page()
         page.phoneColumns = 54
         session.setClaimsSize(true)
