@@ -64,6 +64,13 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// The folded header counts its groups in words (trayFoldHead.experiment.ts `groups`); its default is now
+// the one `line` ("N subagents working"), which draws the panel button only while open.
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-tray-fold-head": "groups" };
+afterAll(() => {
+  const pins = globalThis.cmuxExperiments as Record<string, string> | undefined;
+  if (pins) delete pins["subagent-tray-fold-head"];
+});
 
 const now = Date.now();
 const agent = (id: string, task: string, startedAgo: number): Subagent => ({
