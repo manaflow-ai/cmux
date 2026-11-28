@@ -94,7 +94,7 @@ jobs:
     # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
     # release guards 20 min, the cmux cloud CLI 15 min): 650 min with 50 shared steps (25 waves) and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 650
+    timeout-minutes: 657
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -196,6 +196,7 @@ jobs:
           # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
           CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
           ROUTER_ONLY: ${{ inputs.only }}
         run: |
           scope=()
@@ -215,7 +216,7 @@ jobs:
               exit 0
             fi
           fi
-          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
+          ci/run run --job linux --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -442,7 +443,8 @@ jobs:
           CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
           CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
           CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
-        run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
+        run: ci/run run --job web-browser --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       - name: Write the green receipt for later heads (pr_receipt.py)
         id: record
         if: ${{ success() && steps.receipt.outputs.key != '' && steps.receipt.outputs.run == '' }}
@@ -977,8 +979,22 @@ jobs:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
           enableCrossOsArchive: true
           key: ${{ steps.xcf-key.outputs.fleet_key }}
+      # The same entry in R2 (ios-link-ffi-cache-seed.yml's r2 job): a Blacksmith Mac's actions/cache reads a store of its
+      # own, which the seed's cmux-linux save never reaches, so the GitHub-store restore above misses there.
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2
+        id: xcf-r2-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
       - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
-        if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' }}
+        if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' || steps.xcf-r2-restore.outputs.cache-hit == 'true' }}
         continue-on-error: true
         run: |
           set -euo pipefail
