@@ -1190,6 +1190,9 @@ class ResourceStream(Generic[ItemT], Iterator[StreamItem[ItemT]]):
                 "stream did not produce an item before the deadline"
             ) from error
         if value is _END:
+            with self._state.lock:
+                if self._state.values.empty():
+                    self._state.values.put_nowait(_END)
             end = self._state.end
             if end is not None and end.reason in {"error", "gap"}:
                 if isinstance(end.error, ResourceError):
