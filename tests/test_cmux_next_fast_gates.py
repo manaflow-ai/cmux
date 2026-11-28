@@ -220,6 +220,30 @@ class PhonePairRequiredGate(unittest.TestCase):
         self.assertIn("inputs.linkage", pair["concurrency"]["group"])
 
 
+    def test_publication_dispatch_authority_never_reaches_pr_execution(self):
+        pair = yaml.safe_load((WORKFLOW.parent / "ios-link-ffi-linux.yml").read_text())
+        metadata = pair["jobs"]["publication-snapshot"]
+        self.assertEqual(metadata["permissions"], {"contents": "read", "actions": "write"})
+        checkout = metadata["steps"][0]
+        self.assertEqual(checkout["with"]["ref"], "main")
+        self.assertFalse(checkout["with"]["persist-credentials"])
+        self.assertEqual(checkout["with"]["sparse-checkout"].strip(), "scripts/ci/ios_snapshot_dispatch.py")
+        dispatch = metadata["steps"][1]
+        self.assertIn('PRODUCER_SHA="$(git rev-parse HEAD)"', dispatch["run"])
+        self.assertIn("python3 -I scripts/ci/ios_snapshot_dispatch.py", dispatch["run"])
+        self.assertIn("head.repo.full_name == github.repository", metadata["if"])
+        pairing = pair["jobs"]["pair-skew"]
+        self.assertEqual(pairing["needs"], "publication-snapshot")
+        self.assertEqual(pairing["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(pair["permissions"], {"contents": "read", "actions": "read"})
+        refresh = next(s for s in pairing["steps"] if s.get("id") == "shipped")
+        for flag in ("producer-run", "producer-sha", "request-id", "head-sha"):
+            self.assertIn("--" + flag, refresh["run"])
+        self.assertEqual(job(workflow(), "pair-skew")["permissions"]["actions"], "write")
+        router = yaml.safe_load((WORKFLOW.parent / "pr-router.yml").read_text())
+        for name in ("fast-gates", "ios-link-ffi-linux"):
+            self.assertEqual(router["jobs"][name]["permissions"]["actions"], "write")
+
     def job_runs(self, name, *, draft=False, ready=False, event="pull_request", affected=True, action="synchronize"):
         # Evaluate the actual job condition (the supported expression subset), not a duplicate routing rule.
         expression = job(workflow(), name)["if"].strip()[3:-2].strip()

@@ -527,7 +527,7 @@ jobs:
       linkage: false
     permissions:
       contents: read
-      actions: read
+      actions: write
   fast-gates:
     name: fast gates
     needs: [resolve]

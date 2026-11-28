@@ -49,6 +49,40 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  publication-snapshot:
+    name: Request protected iOS publication snapshot
+    if: ${{ toJSON(inputs.pair_skew) != 'false' && github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: cmux-linux
+    timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      producer_run: ${{ steps.snapshot.outputs.producer_run }}
+      producer_sha: ${{ steps.snapshot.outputs.producer_sha }}
+      request_id: ${{ steps.snapshot.outputs.request_id }}
+    steps:
+      # This helper ships with the protected main ASC producer before activation
+      # here. Never check out a PR/head/merge ref in this write-enabled job.
+      - name: Checkout the protected dispatcher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/ios_snapshot_dispatch.py
+          sparse-checkout-cone-mode: false
+      - name: Dispatch and await this request's snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SNAPSHOT_TRUSTED: 'true'
+          HEAD_SHA: ${{ inputs.head || github.event.pull_request.head.sha || github.sha }}
+          REQUEST_ID: ${{ github.run_id }}:${{ github.run_attempt }}
+          CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: |
+          PRODUCER_SHA="$(git rev-parse HEAD)" python3 -I scripts/ci/ios_snapshot_dispatch.py
+
   linkage:
     name: Swift to Rust FFI on Linux
     if: ${{ toJSON(inputs.linkage) != 'false' }}
@@ -83,6 +117,12 @@ jobs:
   # host the published NEXT nightly was built from, over every transport, and the daemon
   # channel must answer. Leo, 11-27: "i mean we cant connect to phone anyways right now lol".
   pair-skew:
+    needs: publication-snapshot
+    # PR sources execute with read authority only. Missing dispatch authority
+    # (including a fork) yields no pair verdict, never a successful empty matrix.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       verdict: ${{ steps.matrix.outputs.verdict }}
     name: phone and Mac supported shipped window
@@ -130,11 +170,17 @@ jobs:
         id: shipped
         env:
           GH_TOKEN: ${{ github.token }}
+          SNAPSHOT_RUN: ${{ needs.publication-snapshot.outputs.producer_run }}
+          SNAPSHOT_SHA: ${{ needs.publication-snapshot.outputs.producer_sha }}
+          SNAPSHOT_REQUEST: ${{ needs.publication-snapshot.outputs.request_id }}
+          HEAD_SHA: ${{ inputs.head || github.event.pull_request.head.sha || github.sha }}
         run: |
           history="$RUNNER_TEMP/pair-publication-history/registry.json"
           seed=scripts/ci/mobile_pair_shipped_window.json
           if [ -s "$history" ]; then seed="$history"; fi
-          python3 scripts/ci/mobile_pair_shipped_window.py refresh --registry "$seed" --count 3 --output "$RUNNER_TEMP/pair-shipped.json"
+          python3 scripts/ci/mobile_pair_shipped_window.py refresh --registry "$seed" --count 3 --output "$RUNNER_TEMP/pair-shipped.json" \
+            --producer-run "$SNAPSHOT_RUN" --producer-sha "$SNAPSHOT_SHA" \
+            --request-id "$SNAPSHOT_REQUEST" --head-sha "$HEAD_SHA"
           mkdir -p "$(dirname "$history")"
           cp "$RUNNER_TEMP/pair-shipped.json" "$history"
           python3 scripts/ci/mobile_pair_shipped_window.py resolve --registry "$RUNNER_TEMP/pair-shipped.json" --count 3 --github-output "$GITHUB_OUTPUT" > "$RUNNER_TEMP/pair-window.json"
