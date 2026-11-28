@@ -38,6 +38,7 @@ WORKFLOWS = (
     # "not uptodate; will not remove" and then "Module not found ../images/cmux-vm/pin-cmux-tui.ts" (2026-11-20).
     ROOT / ".github/workflows/cloud-vm-image-bake.yml",
     ROOT / ".github/workflows/cloud-vm-image-roll.yml",
+    ROOT / ".github/workflows/cmux-next-tooling-tests-batch.yml",
 )
 CHECKOUT = re.compile(r"^actions/checkout@")
 POOL = re.compile(r"RUNNER_POOLS|LINUX_RUNNER|linux_runner|mini_runner")
@@ -77,7 +78,10 @@ class Fixture:
     def run_step(self, environment: str = "self-hosted") -> subprocess.CompletedProcess:
         env = git_fixture_env.fixture_env({**os.environ, "HOME": str(self.tmp), "GITHUB_WORKSPACE": str(self.ws),
                                            "RUNNER_ENVIRONMENT": environment})
-        return subprocess.run(["bash", "-e", "-c", step_script()], env=env, capture_output=True, text=True)
+        # `shell: bash` is `bash --noprofile --norc -eo pipefail {0}`: run the step the way the runner does, so a pipe
+        # whose reader exits early (`ls-files -v | grep -q`) fails here as it fails there.
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step_script()], env=env,
+                              capture_output=True, text=True)
 
     def entries(self) -> list[str]:
         return sorted(p.name for p in self.ws.iterdir())
@@ -108,6 +112,25 @@ class StepBehavior(unittest.TestCase):
     def test_a_ref_to_a_missing_object_is_removed(self) -> None:
         (self.fx.ws / ".git/refs/remotes/pull/46338").mkdir(parents=True)
         (self.fx.ws / ".git/refs/remotes/pull/46338/merge").write_text("1" * 40 + "\n")
+        self.assert_removed()
+
+    def test_an_early_skip_worktree_bit_in_a_large_index_is_removed(self) -> None:
+        # A real checkout's `ls-files -v` is megabytes. `| grep -q '^S'` under pipefail exited at an early match, git
+        # died writing the rest, and the pipeline read "no skip-worktree entries": the broken tree stayed.
+        big = self.fx.ws / "z"
+        big.mkdir()
+        for i in range(6000):
+            (big / f"file-{i:05d}-with-a-long-enough-name.txt").write_text("x\n")
+        git(self.fx.ws, "add", "-A")
+        git(self.fx.ws, "commit", "-qm", "B")
+        git(self.fx.ws, "update-index", "--skip-worktree", ".github/rust-workspaces.toml")
+        self.assert_removed()
+
+    def test_an_early_missing_ref_among_many_is_removed(self) -> None:
+        head = git(self.fx.ws, "rev-parse", "HEAD").strip()
+        lines = ["0" * 40 + " refs/remotes/pull/00001/merge\n"]
+        lines += [f"{head} refs/remotes/pull/{i:05d}/head\n" for i in range(2, 4000)]
+        (self.fx.ws / ".git/packed-refs").write_text("".join(lines))
         self.assert_removed()
 
     def test_an_unresolved_head_is_removed(self) -> None:

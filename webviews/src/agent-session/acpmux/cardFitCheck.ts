@@ -1,12 +1,3 @@
-// The geometry check of Leo's card rule (conversation/cardFit.css, 2026-11-22: "overlapping text via
-// the buttosn when the pane is small"): no text run under a button, no button over another, nothing
-// past the card's right edge. No imports, so a browser test can import it and run it in any gallery
-// stage as `(${cardFitProblems})(document)`; cardFit.gallery.ts runs it in its plays.
-
-/** The cards the check reads: every `.cv-fit` card, and the cards that predate it. */
-export const CARD_FIT_CARDS =
-  ".cv-fit, .acpmux-edited, .acpmux-permission-card, .ui-notice, .acpmux-agent-line, .acpmux-bg-card, .acpmux-trust-ask";
-
 /**
  * The places a card's text runs under one of its buttons, its buttons overlap, or either leaves the
  * card past its right edge; empty when every card on the page holds at this width. Self-contained

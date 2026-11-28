@@ -151,7 +151,11 @@ impl Hub {
     fn evacuate_candidates(&self, keep: &[String], moved: &HashMap<String, u64>) -> Vec<Candidate> {
         self.live_session_handles()
             .iter()
-            .filter(|s| s.moving().is_none())
+            .filter(|s| s.moving().is_none() && !self.store_moving(s))
+            // An Auto chat another holder runs for the Cloud store is not here to move.
+            .filter(|s| {
+                self.move_authority(s) != super::move_authority::Authority::Store { here: false }
+            })
             .filter_map(|s| {
                 let (name, gone) = s.read_meta(|m| (m.name.clone(), m.moved_to.is_some()));
                 if gone {
@@ -183,7 +187,15 @@ impl Hub {
         let session = self.session_get(&m.id);
         let Some(session) = session else { return };
         let idle_min = m.idle_ms / 60_000;
-        let back = format!("cmux move {} --from MACHINE --to here", m.name);
+        // An Auto chat goes to the Cloud through the store and comes back the same way
+        // (`move_authority.rs`); any other chat by `cmux move`.
+        let by_store =
+            matches!(self.move_authority(&session), super::move_authority::Authority::Store { .. });
+        let back = if by_store {
+            crate::chat_place::person_command(&m.name, crate::chat_place::Place::Auto)
+        } else {
+            format!("cmux move {} --from MACHINE --to here", m.name)
+        };
         let text = format!(
             "Moved off this machine automatically: {} and this chat was idle for {idle_min} min. \
              To bring it back, run `{back}` with the machine it runs on now; to keep a chat here, \
@@ -197,7 +209,7 @@ impl Hub {
             json!({"text": text, "why": plan.why, "idleMs": m.idle_ms, "back": back,
                    "cooldownSecs": setting.cooldown_secs}),
         );
-        match mover.move_off(&m.id).await {
+        match self.move_off_by_authority(&m.id, mover).await {
             Ok(host) => tracing::info!(
                 session = %m.id, name = %m.name, to = %host, idle_min, why = %plan.why,
                 back = %format!("cmux move {} --from {host} --to here", m.name),

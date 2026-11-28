@@ -20,22 +20,7 @@ use std::time::{Duration, Instant};
 use crate::panic_free::RecoverPoison;
 
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-#[cfg(windows)]
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
-};
-#[cfg(windows)]
-use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, TerminateJobObject,
-};
-#[cfg(windows)]
-use windows_sys::Win32::System::Threading::{
-    CREATE_SUSPENDED, OpenProcess, OpenThread, PROCESS_SET_QUOTA, PROCESS_TERMINATE, ResumeThread,
-    THREAD_SUSPEND_RESUME,
-};
+use cmux_process::job::CREATE_SUSPENDED;
 
 /// Child-exit re-check period where no exit waiter exists (Windows, or a
 /// unix child whose waiter thread could not start).
@@ -110,115 +95,25 @@ impl JournalPluginChild {
     }
 }
 
+/// A plugin's process tree: a kill-on-close job (`cmux_process::job`), so
+/// the plugin and its helpers end with the supervisor, or with the daemon.
 #[cfg(windows)]
-struct WindowsJournalPluginJob {
-    // Keep the kernel handle as an integer in the shared supervisor state.
-    // `windows_sys::HANDLE` is a raw pointer and therefore is not `Send`,
-    // even though Windows kernel handles are process-wide, thread-safe
-    // values. Converting at the FFI boundary preserves the ownership model
-    // without making an unsafe `Send` promise for the containing state.
-    handle: usize,
-}
+struct WindowsJournalPluginJob(cmux_process::job::Job);
 
 #[cfg(windows)]
 impl WindowsJournalPluginJob {
-    fn raw_handle(&self) -> HANDLE {
-        self.handle as HANDLE
-    }
-
     fn assign(child: &Child) -> std::io::Result<Self> {
-        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if handle.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        let job = Self { handle: handle as usize };
-        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-            .expect("Windows job information fits in u32");
-        if unsafe {
-            SetInformationJobObject(
-                job.raw_handle(),
-                JobObjectExtendedLimitInformation,
-                std::ptr::from_ref(&information).cast(),
-                information_size,
-            )
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
-        if process.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        let assigned = unsafe { AssignProcessToJobObject(job.raw_handle(), process) };
-        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
-        unsafe {
-            CloseHandle(process);
-        }
-        if let Some(error) = assign_error {
-            return Err(error);
-        }
-        Ok(job)
+        cmux_process::job::Job::owned(child).map(Self)
     }
 
     fn terminate_descendants(&self) {
-        unsafe {
-            TerminateJobObject(self.raw_handle(), 1);
-        }
-    }
-}
-
-#[cfg(windows)]
-impl Drop for WindowsJournalPluginJob {
-    fn drop(&mut self) {
-        unsafe {
-            CloseHandle(self.raw_handle());
-        }
+        let _ = self.0.terminate();
     }
 }
 
 #[cfg(windows)]
 fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(std::io::Error::last_os_error());
-    }
-    let result = (|| {
-        let mut entry = THREADENTRY32 {
-            dwSize: u32::try_from(size_of::<THREADENTRY32>())
-                .expect("Windows thread entry size fits in u32"),
-            ..THREADENTRY32::default()
-        };
-        if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        loop {
-            if entry.th32OwnerProcessID == child.id() {
-                let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
-                if thread.is_null() {
-                    return Err(std::io::Error::last_os_error());
-                }
-                let resumed = unsafe { ResumeThread(thread) };
-                let error = (resumed == u32::MAX).then(std::io::Error::last_os_error);
-                unsafe {
-                    CloseHandle(thread);
-                }
-                return error.map_or(Ok(()), Err);
-            }
-            if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "suspended journal plugin has no thread to resume",
-                ));
-            }
-        }
-    })();
-    unsafe {
-        CloseHandle(snapshot);
-    }
-    result
+    cmux_process::job::resume(child.id())
 }
 
 /// See [`JournalPluginRuntime::hold_waiter`].

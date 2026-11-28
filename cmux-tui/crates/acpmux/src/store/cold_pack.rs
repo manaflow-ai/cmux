@@ -92,8 +92,8 @@ impl LocalStore {
 
     /// Rebuild every original events file into the private thaw directory before publishing it.
     pub(super) fn thaw_packed(&self, id: &str, cloud: &Cloud, thaw: &Path) -> Result<Header> {
-        let record: PackedArchive =
-            serde_json::from_reader(crate::home_fs::private_state_file(self.cloud_stub_path(id))?)?;
+        let stub = crate::home_fs::private_state_file(self.cloud_stub_path(id))?;
+        let record: PackedArchive = serde_json::from_reader(std::io::BufReader::new(stub))?;
         let cache = self.packed_cache(id)?;
         let pack = fetch::open_pack(&record.history, &cache, cloud)?;
         anyhow::ensure!(pack.manifest.name == id, "history belongs to another chat");

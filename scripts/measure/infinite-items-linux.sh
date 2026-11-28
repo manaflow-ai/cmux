@@ -9,6 +9,7 @@
 #   infinite-items-linux.sh before=ref:REF repeat=3 ...: also builds REF (a commit or branch, e.g. the merge base) in a
 #     worktree of its own and runs it and this head in turn, REPEAT times each (BEFORE rI and AFTER rI lines): a
 #     change's before and after from one harness on one runner in one job.
+#     A REF from before the measure clock (cmux-tui --measure-freeing-clock-fifo) needs --day-clock-seconds=0 on both.
 #   infinite-items-linux.sh before=hosts ...: first runs the same build with CMUX_TUI_TERMINAL_HOST_MODEL=hosts (a
 #     cmux-tui-host per terminal), then the product default (also hosts while the holder is off by default).
 #   infinite-items-linux.sh ... --terminal-host-model=holder: measures the one holder (the harness ignores the caller's env).
@@ -18,6 +19,19 @@
 #     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
 #   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
 #     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
+#   infinite-items-linux.sh freeing=N ...: last, runs the same build with the daemon's own freeing timer at an idle time
+#     of N seconds (--free-idle-seconds N, FREEING lines, rows infinite_items.freeing_idle.*): the simulated day lasts
+#     seconds, so the tabs its workspace switches start (select-workspace wakes a parked tab) are still live at the
+#     sample, while in the product the timer (workspaces.freeing, on, a day idle) parks them again a day later.
+#     Like freed=1, not with before=ref:/own-exe/hosts (those passes end the script first). Runs on the wall clock
+#     (--day-clock-seconds 0), as it did before the measure clock.
+#   The default arm (INFINITE lines, rows infinite_items.nN.*) runs the daemon's freeing timer at its product idle time
+#     (workspaces.freeing, a day) on the measure clock: after each simulated day the bench lets a day pass for the
+#     timer (--day-clock-seconds 86400, --measure-freeing-clock-fifo, idle_freeing.rs), so "day N" is what the
+#     product holds after N real days. INFINITE-CLOCK names the clock each run used.
+#   infinite-items-linux.sh wall=1 ...: first runs the same build on the wall clock (--day-clock-seconds 0, WALL lines,
+#     rows infinite_items.wall_clock.*): the default arm's meaning before the measure clock (a simulated day of
+#     seconds, which the freeing timer never reaches), its before beside its after from one build in one job.
 #   infinite-items-linux.sh alloc_ab=1 [alloc_budget=3000] [alloc_caps=64,off] ...: acpmux several ways from this head
 #     (glibc's malloc, the gnu build's own: arms system and glibc; mimalloc, the musl packages' allocator: feature
 #     mimalloc-gnu; mimalloc2: its v2 line; dhat-heap) and one cmux-tui, run in turn REPEAT times (ALLOC arm=A rI
@@ -43,6 +57,8 @@ repeat=1
 live=0
 live_counts=""
 freed=0
+freeing=0
+wall=0
 cap_ab=""
 alloc_ab=0
 alloc_budget=3000
@@ -61,6 +77,8 @@ for arg in "$@"; do
     live=*) live="${arg#live=}" ;;
     live_counts=*) live_counts="${arg#live_counts=}" ;;
     freed=*) freed="${arg#freed=}" ;;
+    freeing=*) freeing="${arg#freeing=}" ;;
+    wall=*) wall="${arg#wall=}" ;;
     cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
     alloc_ab=*) alloc_ab="${arg#alloc_ab=}" ;;
     alloc_budget=*) alloc_budget="${arg#alloc_budget=}" ;;
@@ -81,21 +99,9 @@ if [[ "$before" == ref:* ]] && [ -n "$(git status --porcelain --untracked-files=
   git status --short --untracked-files=no -- cmux-tui >&2
   exit 2
 fi
-# cmux-tui's terminal engine builds from the ghostty-next submodule, which a fast-checks snapshot leaves empty.
-[ -f ghostty-next/build.zig ] || [ -n "${CMUX_GHOSTTY_SRC:-}" ] || git submodule update --init --depth 1 ghostty-next
-# A bare runner (the perf cron's Linux part): the pinned Rust and Zig and the native build tools.
-command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
-if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
-  # The pinned Zig is ghostty-next's (the classic submodule is not checked out). A runner without passwordless
-  # sudo gets it under RUNNER_TEMP, published only through GITHUB_ENV: read CMUX_ZIG back from a file of our own.
-  zig_env="$(mktemp)"
-  GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh
-  zig_line="$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true)"
-  rm -f "$zig_env"
-  [ -z "$zig_line" ] || export "$zig_line"
-fi
-command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
-export PATH="$HOME/.cargo/bin:$PATH"
+# The ghostty-next submodule, the pinned Rust and Zig, clang (linux-build-env.sh; memory_bisect.py runs it too).
+source scripts/measure/linux-build-env.sh
+measure_linux_build_env "$PWD"
 started_at=$SECONDS
 # alloc_ab=1 builds acpmux three times. The release profile (thin LTO, one codegen unit) took 25 min for one build
 # and 15 min for each rebuild (job e45696a9: 3400 s of builds, no round run), so every arm, the shipped allocator's
@@ -227,6 +233,11 @@ alloc_env() {
     glibc-notrim) echo "CMUX_MALLOC_QUIET_TRIM=0" ;;
     glibc-thr) echo "GLIBC_TUNABLES=$thr" ;;
     glibc-a4thr) echo "MALLOC_ARENA_MAX=4 GLIBC_TUNABLES=$thr" ;;
+    # The daemon's tokio workers (one per core by default): tokio reads TOKIO_WORKER_THREADS when the
+    # runtime sets no count, as the daemon's does (acpmux cli/entry.rs runtime_with).
+    glibc-w2) echo "TOKIO_WORKER_THREADS=2" ;;
+    glibc-w4) echo "TOKIO_WORKER_THREADS=4" ;;
+    glibc-w8) echo "TOKIO_WORKER_THREADS=8" ;;
     *) echo "infinite-items-linux.sh: unknown glibc arm $1" >&2; exit 2 ;;
   esac
 }
@@ -320,11 +331,21 @@ if [[ -n "$cap_ab" ]]; then
   done
   exit "$status"
 fi
+if [[ "$wall" == 1 ]]; then
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "$counts" --days "$days" --day-clock-seconds 0 --row-arm wall_clock \
+    ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/WALL /' || status=$?
+fi
 python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
   --counts "$counts" --days "$days" --out "$out/infinite-items.json" ${extra[@]+"${extra[@]}"} || status=$?
 if [[ "$freed" == 1 ]]; then
   python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
     --counts "$counts" --days "$days" --park-idle ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREED /' || status=$?
+fi
+if [[ "$freeing" != 0 ]]; then
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "$counts" --days "$days" --free-idle-seconds "$freeing" --day-clock-seconds 0 --row-arm freeing_idle \
+    ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREEING /' || status=$?
 fi
 if [[ "$pages" == 1 ]]; then
   cd "$root/webviews"

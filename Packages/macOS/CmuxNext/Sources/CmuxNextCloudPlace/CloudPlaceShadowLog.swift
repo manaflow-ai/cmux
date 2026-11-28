@@ -8,11 +8,11 @@ public struct CloudPlaceShadowLog {
     public init() {}
     public static let cap = 4 << 20
 
-    /// Appends `line` to `auto-shadow.jsonl` in the acpmux `home`, off the caller's thread.
+    /// Appends `line` to `auto-shadow.jsonl` under the acpmux `home`, off the main thread: one detached write that ends.
     public nonisolated static func appendDetached(_ line: String, home: URL) {
         let file = home.appendingPathComponent("auto-shadow.jsonl", isDirectory: false)
         // task-owner: one append off the main thread; it writes the line and ends.
-        Task.detached(priority: .utility) { CloudPlaceShadowLog.append(line, to: file) }
+        Task.detached(priority: .utility) { append(line, to: file) }
     }
 
     public nonisolated static func append(_ line: String, to file: URL) {

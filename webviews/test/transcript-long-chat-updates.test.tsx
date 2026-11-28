@@ -4,10 +4,8 @@
 // that row's drawn height, and turns shaped as a fresh look at the same rows shapes them.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { gridMark, isLineRow, isStatusRow, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { type TurnView, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
-import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
-import { transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { TurnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -51,6 +49,10 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { gridMark, isLineRow, isStatusRow } = await import("../src/agent-session/acpmux/model");
+const { turnView, turnViewFrom } = await import("../src/agent-session/acpmux/conversation/turns");
+const { minimapTurns } = await import("../src/agent-session/acpmux/threadMinimap/model");
+const { transcriptGap } = await import("../src/agent-session/acpmux/transcriptGrid");
 
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });

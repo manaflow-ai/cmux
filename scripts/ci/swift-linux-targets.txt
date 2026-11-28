@@ -70,6 +70,8 @@ Packages/iOS/CmuxMobileSupport  CmuxMobileSupport
 Packages/iOS/CmuxMobileSupport  CmuxMobileSupportTests
 Packages/iOS/CmuxMobileTunnel  CmuxMobileTunnel
 Packages/iOS/CmuxMobileTunnel  CmuxMobileTunnelTests
+Packages/iOS/CmuxPushRegistration  CmuxPushRegistration
+Packages/iOS/CmuxPushRegistration  CmuxPushRegistrationTests
 Packages/iOS/CmuxTabsKit  CmuxTabsKit
 Packages/iOS/CmuxTabsKit  CmuxTabsKitTests
 Packages/macOS/CmuxNext  CmuxNextAgentPanePlacement
