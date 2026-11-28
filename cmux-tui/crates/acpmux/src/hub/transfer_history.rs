@@ -143,6 +143,23 @@ impl Drop for PrepackDone<'_> {
 /// The chat folder's note that its history through a seq has not arrived.
 const PENDING_FILE: &str = "transfer-history-pending.json";
 
+/// The muted notice kind a chat client draws as one line (`server/host_notice.rs`).
+const HOST_NOTICE: &str = crate::server::host_notice::KIND;
+
+/// The line a moved chat shows while its earlier history is on its way.
+pub(in crate::hub) const ARRIVING: &str =
+    "Moved here. Earlier messages are still arriving; you can keep going.";
+
+/// The line a moved chat shows once its earlier history is here.
+pub(in crate::hub) fn arrived_text(records: u64, waited_ms: Option<u64>) -> String {
+    match waited_ms {
+        Some(ms) => {
+            format!("Earlier messages arrived ({records} records, {:.1} s).", ms as f64 / 1000.0)
+        }
+        None => format!("Earlier messages arrived ({records} records)."),
+    }
+}
+
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
@@ -292,10 +309,24 @@ impl Hub {
             return;
         }
         let Some(note) = self.pending_note(&session.id) else { return };
-        let awaited = json!({"afterSeq": after, "digest": token_digest(field(&staged, "token"))});
+        let awaited = json!({"afterSeq": after, "digest": token_digest(field(&staged, "token")),
+                             "at": crate::store::now_ms()});
         if let Err(error) = crate::home_fs::write(&note, awaited.to_string()) {
             tracing::warn!(session = %session.id, "awaited history not noted: {error:#}");
+            return;
         }
+        // Playable before it is fully here (Leo, 11-25: "playable vs fully installed/downloaded
+        // ... or just go"): the chat takes prompts now, and says in one muted line that what came
+        // before is still arriving. No spinner, nothing waits on it.
+        self.append(session, "mux", HOST_NOTICE, json!({"text": ARRIVING, "source": "move"}));
+    }
+
+    /// The history a moved chat here still awaits, for Session Info (`historyFollowing`):
+    /// `{throughSeq, sinceMs}`, None once it arrived (or it never followed). One small file read.
+    pub(in crate::hub) fn history_following(&self, id: &str) -> Option<Value> {
+        let note = read_json(&self.pending_note(id)?)?;
+        let through = field(&note, "afterSeq").as_u64()?;
+        Some(json!({"throughSeq": through, "sinceMs": field(&note, "at").as_u64()}))
     }
 
     /// The history a chat here awaits: `(afterSeq, digest)`.
@@ -743,6 +774,11 @@ impl Hub {
         let records = self
             .adopt_history(&session.id, &file)
             .map_err(|e| transfer_error("history", format!("{e:#}")))?;
+        let waited_ms = self
+            .pending_note(&session.id)
+            .and_then(|note| read_json(&note))
+            .and_then(|note| field(&note, "at").as_u64())
+            .map(|at| crate::store::now_ms().saturating_sub(at));
         if let Some(note) = self.pending_note(&session.id) {
             let _ = crate::home_fs::remove_file(&note);
         }
@@ -751,7 +787,14 @@ impl Hub {
             session,
             "mux",
             "history_arrived",
-            json!({"throughSeq": after, "records": records}),
+            json!({"throughSeq": after, "records": records, "waitedMs": waited_ms}),
+        );
+        // Fully here: the line that said it was arriving gets its answer.
+        self.append(
+            session,
+            "mux",
+            HOST_NOTICE,
+            json!({"text": arrived_text(records, waited_ms), "source": "move"}),
         );
         Ok(json!({"sessionId": session.id, "throughSeq": after, "records": records}))
     }
