@@ -159,6 +159,8 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
       await pause(14 + (index % 3) * 9);
     }
   }
+  const endMarker = (id: string) => `Overlap reply end ${id}.`;
+
   /// One turn as an agent sends it: text, a think, a tool call, more text, a think, a second call
   /// that lands right after the text, the rest of the reply.
   async function turn(id: string, early: () => Promise<unknown> = async () => {}) {
@@ -188,6 +190,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
       await pause(25);
     }
     await words(30);
+    emit("in", "agent_message_chunk", chunk(`\n\n${endMarker(id)}`));
     emit("mux", "turn_result", { status: "completed" });
     status = "idle";
     changed();
@@ -218,6 +221,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     }
     emit("in", "agent_message_chunk", chunk(`Reply to ${id}. `));
     await words(40);
+    emit("in", "agent_message_chunk", chunk(`\n\n${endMarker(id)}`));
     emit("mux", "turn_result", { status: "completed" });
     status = "idle";
     changed();
@@ -597,6 +601,136 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     return page;
   }
 
+  // Read mounted prose before any scrolling: scrolling itself settles folds and tail glides.
+  // A second check may mount a virtualized final reply, but cannot repair the first check's result.
+  async function assertReplyReleased(page: Page, id: string, scrolledUp = false) {
+    const prose = page.locator(".acpmux-row:not(.acpmux-row--fold-ghost) .cv-reply");
+    const finalReply = prose.filter({ hasText: endMarker(id) });
+    if (!scrolledUp) expect(await finalReply.count(), "followed reply must be mounted without scrolling").toBe(1);
+    const inspect = async () => {
+      const hidden = await prose.evaluateAll((replies, marker) => {
+        const problems: string[] = [];
+        const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+        for (const reply of replies) {
+          const owner = reply.closest<HTMLElement>(".acpmux-row")!;
+          const bounds = owner.getBoundingClientRect();
+          // Do not force layout of browser-skipped overscan. Skip only the explicit offscreen
+          // content-visibility:auto state, never an ordinary hidden/clipped reply in the viewport.
+          if (
+            owner.classList.contains("acpmux-row--offscreen") &&
+            getComputedStyle(owner).contentVisibility === "auto" &&
+            (bounds.bottom <= scroller.top || bounds.top >= scroller.bottom) &&
+            !reply.checkVisibility({ contentVisibilityAuto: true })
+          ) {
+            if (reply.textContent?.includes(marker)) problems.push("final reply is still browser-skipped");
+            continue;
+          }
+          const row = reply.closest<HTMLElement>(".acpmux-row")!;
+          const range = document.createRange();
+          const walker = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT);
+          let words = 0;
+          for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+            if (!text.textContent?.trim()) continue;
+            words++;
+            range.selectNodeContents(text);
+            const rects = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+            if (!rects.length) problems.push("text has no drawn bounds");
+            for (let node = text.parentElement; node && node !== row.parentElement; node = node.parentElement) {
+              const style = getComputedStyle(node);
+              if (Number(style.opacity) < 0.99 || style.visibility !== "visible" || style.display === "none")
+                problems.push("prose remains hidden or faded");
+              const box = node.getBoundingClientRect();
+              let top = -Infinity;
+              let bottom = Infinity;
+              if (style.overflowY !== "visible") {
+                top = box.top;
+                bottom = box.bottom;
+              }
+              const clip = /^inset\(([^)]*)\)/.exec(style.clipPath);
+              if (clip) {
+                const sides = clip[1]!.split(/\s+/).map((side) => Number.parseFloat(side) || 0);
+                top = Math.max(top, box.top + (sides[0] ?? 0));
+                bottom = Math.min(bottom, box.bottom - (sides[2] ?? sides[0] ?? 0));
+              } else if (style.clipPath !== "none") problems.push(`unexpected prose clip: ${style.clipPath}`);
+              // A Range can include half-leading; allow that empty space but never a clipped text line.
+              const parentStyle = getComputedStyle(text.parentElement!);
+              const lead =
+                Math.max(
+                  0,
+                  (Number.parseFloat(parentStyle.lineHeight) || 0) - Number.parseFloat(parentStyle.fontSize),
+                ) / 2;
+              if (rects.some((rect) => rect.top + lead < top - 1 || rect.bottom - lead > bottom + 1))
+                problems.push("prose remains clipped");
+            }
+          }
+          if (!words) problems.push("reply has no text");
+        }
+        return [...new Set(problems)];
+      }, endMarker(id));
+      expect(hidden, `mounted replies before/after mounting ${id} must remain readable`).toEqual([]);
+    };
+    // Allow finite entrance effects to finish without changing scroll position or layout styles.
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll(".acpmux-row:not(.acpmux-row--fold-ghost):has(.cv-reply)")].every((row) =>
+          row
+            .getAnimations({ subtree: true })
+            .every(
+              (animation) =>
+                animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity,
+            ),
+        ),
+      undefined,
+      { timeout: 10_000 },
+    );
+    await inspect();
+    if ((await finalReply.count()) === 0) {
+      expect(scrolledUp, "only the scrolled-up case may mount its final reply").toBe(true);
+      await page.locator(".acpmux-scroll").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await finalReply.waitFor({ state: "attached", timeout: 10_000 });
+      await page.waitForFunction(
+        (marker) => {
+          const reply = [...document.querySelectorAll(".cv-reply")].find((node) => node.textContent?.includes(marker));
+          return reply
+            ?.closest(".acpmux-row")
+            ?.getAnimations({ subtree: true })
+            .every((animation) => animation.playState !== "running");
+        },
+        endMarker(id),
+        { timeout: 10_000 },
+      );
+    }
+    expect(await finalReply.count(), "the completed reply must contain its end marker").toBe(1);
+    await inspect();
+  }
+
+  for (const [name] of engines)
+    test(`${name}: settled content check catches clipping before a scroll can clear it`, async () => {
+      const page = await browsers.get(name)!.newPage();
+      try {
+        await page.setContent(`<div class="acpmux-scroll" style="height:100px;overflow:auto">
+          <div class="acpmux-row" style="clip-path:inset(0 0 24px);height:72px;font:20px/24px Arial">
+            <div class="cv-reply">First line<br>Second line<br>${endMarker("scroll-control")}</div>
+          </div><div style="height:500px"></div></div>`);
+        await page.evaluate(() => {
+          document.querySelector(".acpmux-scroll")!.addEventListener("scroll", () => {
+            (document.querySelector(".acpmux-row") as HTMLElement).style.clipPath = "none";
+          });
+        });
+        await expect(assertReplyReleased(page, "scroll-control")).rejects.toThrow("prose remains clipped");
+        expect(await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop)).toBe(0);
+        await page.locator(".acpmux-scroll").evaluate((node) => {
+          node.scrollTop = 1;
+          node.dispatchEvent(new Event("scroll"));
+        });
+        await assertReplyReleased(page, "scroll-control");
+      } finally {
+        await page.close();
+      }
+    });
+
   const cases: { name: string; busy: number; every: number; scrolledUp: boolean }[] = [
     { name: "followed, no lag", busy: 0, every: 0, scrolledUp: false },
     { name: "followed, lagging", busy: 45, every: 60, scrolledUp: false },
@@ -639,15 +773,18 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         );
         const report = await stop(page);
         console.log(`OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: scenario.name, ...report })}`);
+        await assertReplyReleased(page, id, scenario.scrolledUp);
         await page.close();
         expect(report.frames).toBeGreaterThan(20);
         expect({
           overlapFrames: report.overlapFrames,
           examples: report.examples,
+          rest: report.rest,
           heldClips,
         }).toEqual({
           overlapFrames: 0,
           examples: [],
+          rest: [],
           heldClips: 0,
         });
       });
@@ -668,17 +805,23 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         const id = `${name}-msg-${scenario.name.replace(/\W+/g, "-")}`;
         for (let index = 0; index < 3; index++) await messageTurn(`${id}-${index}`);
         await replayCoordinator();
+        // Finish with a known reply, so the recorded history cannot hide missing final content.
+        const finalId = `${id}-final`;
+        await messageTurn(finalId);
+        await page.locator(".acpmux-row--last-footer").waitFor({ timeout: 60_000 });
         // fixed-wait: the last reply's lines drain and its rows come to rest.
         await page.waitForTimeout(800);
         const report = await stop(page);
         console.log(
           `OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: `messages ${scenario.name}`, ...report })}`,
         );
+        await assertReplyReleased(page, finalId);
         await page.close();
         expect(report.frames).toBeGreaterThan(20);
-        expect({ overlapFrames: report.overlapFrames, examples: report.examples }).toEqual({
+        expect({ overlapFrames: report.overlapFrames, examples: report.examples, rest: report.rest }).toEqual({
           overlapFrames: 0,
           examples: [],
+          rest: [],
         });
       });
 });
