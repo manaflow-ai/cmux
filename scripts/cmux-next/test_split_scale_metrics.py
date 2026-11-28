@@ -203,6 +203,24 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(row["settled_ms"], 90)
         self.assertEqual(row["partial_frames"], 1)
 
+    def test_split_composer_first_pixels_equal_settled_pixels(self):
+        # Leo 2026-11-27: "we can just prerender/prefetch the stuff". These are the native
+        # frame_strip/trace schemas, not a narrow browser viewport. A target-sized composer
+        # adopted in the split's first frame has no later content or geometry correction.
+        t, sent = self.aligned([1000, 1000, 1000, 500, 500, 500, 500])
+        frames = [frame(8.33 + i * 8.33, ob=0.2, cb=0.3) for i in range(10)]
+        row = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertNotIn("error", row)
+        self.assertEqual(row["pixel_first_ms"], row["pixel_settled_ms"])
+        self.assertEqual(row["blank_frames"], 0)
+        self.assertEqual(row["partial_frames"], 0)
+        # The layout can be final while the model/effort or composer paints again. The
+        # same native detector must reject that frame; it cannot infer paint from layout.
+        frames[1]["content_vs_final"] = 0.03
+        late = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertGreater(late["pixel_settled_ms"], late["pixel_first_ms"])
+        self.assertEqual(late["partial_frames"], 1)
+
     def test_streaming_content_is_timed_by_the_layout_alone(self):
         t, sent = self.aligned([1000, 1000, 1000, 800, 700, 700, 700])
         frames = [frame(10 + i * 8, ob=0.2, of=0.1 + (i % 2) * 0.05, cb=0.3, cf=0.2) for i in range(12)]

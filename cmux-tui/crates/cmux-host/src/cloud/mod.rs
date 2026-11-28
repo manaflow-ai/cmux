@@ -50,6 +50,10 @@ pub mod additions;
 mod additions_tests;
 #[cfg(target_os = "linux")]
 pub mod additions_thread;
+#[cfg(unix)]
+pub mod agent_home_pull;
+#[cfg(all(test, unix))]
+mod agent_home_pull_tests;
 #[cfg(target_os = "linux")]
 mod agent_socket;
 pub mod apps_call;

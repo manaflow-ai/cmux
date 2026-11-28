@@ -59,6 +59,12 @@
         "after_merge": "push to feat-cmux-next, same paths",
         "why": "advisory timing on display Macs; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       }
+    },
+    "housekeeping": {
+      "ci-pr-superseded-cancel.yml": {
+        "workflow": "CI PR run cleanup",
+        "why": "bookkeeping on the pull request's own runs (job 'Cancel runs on older heads' cancels older heads' runs); it judges no code, so merge_hold (leo-workspace tools/land_judge merge_tier) never waits for or reruns a queued, running, cancelled or stale run of it, whatever the switch; a finished red still holds. cmux#63955 at fa25a779 (2026-11-28): its 3-minute job timed out on a hung checkout and glaeda reran it to rerun_failed_cap"
+      }
     }
   },
   "workflows": {
@@ -69,6 +75,10 @@
     "app-ffi-repin.yml": {
       "kind": "publish",
       "why": "a bot that re-pins the app FFI after a release"
+    },
+    "app-store-shelf-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the App Store shelf check's Cargo build cache seed from the base"
     },
     "chief-evals.yml": {
       "kind": "check",
@@ -257,6 +267,58 @@
     "whats-new-gallery.yml": {
       "kind": "publish",
       "why": "publishes the What's New gallery pictures"
+    },
+    "bench-baselines-nightly.yml": {
+      "kind": "publish",
+      "why": "records the bench baselines from the base and uploads them to R2; a measurement, not a verdict on a change"
+    },
+    "cloud-mvp-nightly-readback.yml": {
+      "kind": "publish",
+      "why": "a probe of a published NIGHTLY: reads the Auto/Cloud MVP back in the app on the build fleet"
+    },
+    "chat-move-nightly-readback.yml": {
+      "kind": "publish",
+      "why": "a probe of a published NIGHTLY: moves a chat Local/Cloud/AutoCloud by the CLI on the build fleet and times it"
+    },
+    "cmux-next-web-perf.yml": {
+      "kind": "publish",
+      "why": "a manual measurement entry point; the push on its own path only registers it for dispatch"
+    },
+    "cmux-tui-clippy-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the base's cmux-tui clippy target as the seed for cold clippy-changed runs"
+    },
+    "cmux-vmd-host-artifacts.yml": {
+      "kind": "publish",
+      "why": "publishes the microVM host bundle (cmux-vmd, Firecracker, kernel, rootfs) to R2 from the base"
+    },
+    "ios-fast-verdict-dispatch.yml": {
+      "kind": "publish",
+      "why": "a recovery bot that re-answers a stale cmux/ios-fast pending; the push only registers it for dispatch"
+    },
+    "ios-fast-verdict-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the warm DerivedData seed for the iOS fast verdict from the base"
+    },
+    "leo-session-archive-bucket.yml": {
+      "kind": "publish",
+      "why": "provisions the session archive R2 bucket and its sealed controller credential"
+    },
+    "mobile-old-phones.yml": {
+      "kind": "publish",
+      "why": "a probe of the deployed mobile API with the last shipped TestFlight phones"
+    },
+    "repo-archive-store.yml": {
+      "kind": "publish",
+      "why": "provisions the repo archive store R2 bucket and refreshes it from the base"
+    },
+    "vault-edge-e2e.yml": {
+      "kind": "publish",
+      "why": "an end-to-end probe of live vault edge grants on a real Cloud VM; the push only registers it for dispatch"
+    },
+    "web-bundle-matrix.yml": {
+      "kind": "check",
+      "why": "catches breaks that only the merged base shows: two pull requests each green alone whose union breaks the web bundles"
     }
   }
 }

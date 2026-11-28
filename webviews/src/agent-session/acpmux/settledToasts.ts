@@ -2,7 +2,7 @@
 // PR merged", for 5 s. On a chat the pane holds it has Undo, which Cmd+Z or Ctrl+Z also presses
 // while it is up; on any other it has Open (below says why). It goes in the page's own stack, never
 // the native `pane.toast`, which has no actions.
-import { useEffect, useEffectEvent, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { NoticeQueue, ToastSpec } from "../../ui/NoticeStack";
 import { type Translate, translate } from "./i18n";
 import { createSettleWatch, isSettleUndoKey, settledToastText } from "./settledChats";
@@ -33,6 +33,20 @@ export function settledToast(
     duration: SETTLE_TOAST_MS,
     ...(action && { actions: [action] }),
   };
+}
+
+/// Whether a chat is one this pane holds: one it has shown (`shown`, each render's chat). The app's
+/// relay holds each in the pane's scope from then on (AcpmuxPaneSessions, which never drops one), so
+/// only these may be unsettled from here. Read only when a settle toast is made, so it is kept, not
+/// drawn: as state, each chat's first visit set it in an effect, a second sync render of the whole
+/// pane inside the switch's frame (bench/settled-page.bench.ts chat_switch,
+/// test/settled-toast-held-chats.test.tsx).
+export function useHeldChats(shown: string | undefined): (entry: AcpmuxSessionEntry) => boolean {
+  const held = useRef(new Set<string>());
+  useEffect(() => {
+    if (shown) held.current.add(shown);
+  }, [shown]);
+  return useCallback((entry) => !entry.peer && held.current.has(entry.sessionId), []);
 }
 
 const paneInFront = () => document.visibilityState !== "hidden" && document.hasFocus();

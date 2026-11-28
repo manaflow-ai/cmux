@@ -10,6 +10,12 @@ for variable in "${!GIT_CONFIG_VALUE_@}"; do
 done
 [[ " $* " == *" test "* && " $* " == *" --locked "* && " $* " == *" -p cmux-action-catalog "* && " $* " == *" --test swift_parity "* ]] || exit 90
 if [[ -n "${STUB_ACTION_PARITY_LOG:-}" ]]; then git rev-parse HEAD >> "$STUB_ACTION_PARITY_LOG"; fi
+# STUB_ACTION_PARITY_TARGETS gets "main|tip TARGET_DIR" per run: which checkout built into which target dir.
+if [[ -n "${STUB_ACTION_PARITY_TARGETS:-}" ]]; then
+  kind=main
+  [[ "$(git rev-parse --absolute-git-dir)" == "$(cd "$(git rev-parse --git-common-dir)" && pwd)" ]] || kind=tip
+  echo "$kind ${CARGO_TARGET_DIR:-$PWD/cmux-tui/target}" >> "$STUB_ACTION_PARITY_TARGETS"
+fi
 # STUB_ACTION_PARITY_FAILS names a file of "SHA TEST" lines: at HEAD SHA (* for any head, !SHA for
 # any other head) the stub reports TEST as FAILED, as cargo's test harness prints it, and exits 101.
 if [[ -n "${STUB_ACTION_PARITY_FAILS:-}" ]]; then

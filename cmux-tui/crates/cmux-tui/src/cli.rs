@@ -100,6 +100,8 @@ mod cloud_environment;
 mod cloud_hands;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_install_post;
+#[cfg(unix)]
 mod cloud_journey;
 #[cfg(unix)]
 mod cloud_machine_auth;
@@ -107,6 +109,8 @@ mod cloud_machine_auth;
 mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_pair_invite_watch;
 #[cfg(unix)]
 mod cloud_pause_all;
 #[cfg(unix)]
@@ -127,6 +131,7 @@ mod cloud_secret;
 mod cloud_start_chat;
 #[cfg(unix)]
 mod cloud_team_keys;
+mod cloud_wire_watch;
 #[cfg(unix)]
 mod cloud_workspaces;
 mod code_mode;
@@ -1208,7 +1213,10 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_apps_relay::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
+        .or_else(|| cloud_pair_invite_watch::run_if_requested(args))
+        .or_else(|| cloud_wire_watch::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
+        .or_else(|| cloud_install_post::run_if_requested(args))
         .or_else(|| machine_request::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| mobile_pair_requests::run_if_requested(args))

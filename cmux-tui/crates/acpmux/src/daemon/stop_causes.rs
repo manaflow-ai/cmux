@@ -15,6 +15,13 @@ pub const EXIT_REPAIR: i32 = 74;
 /// [`EXIT_REPAIR`]; its agents stay up in their hosts and the next start adopts them.
 pub const EXIT_TASK_PANIC: i32 = 70;
 
+/// The daemon's exit status when a restart's exec in place failed after its stop was fenced
+/// (`daemon/handoff.rs`): EX_OSERR. The stop ended as v1's does (socket, pid file and lock let
+/// go); a supervisor starts it again like [`EXIT_REPAIR`] (launchd `KeepAlive`, systemd
+/// `Restart=always`, which prevents only 75), and otherwise the next client does.
+#[cfg(unix)]
+pub const EXIT_HANDOFF_FAILED: i32 = 71;
+
 /// The store's stop won the daemon's stop select.
 static STOPPED_FOR_REPAIR: AtomicBool = AtomicBool::new(false);
 /// A supervised task's stop won it.
