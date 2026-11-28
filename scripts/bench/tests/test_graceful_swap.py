@@ -46,6 +46,26 @@ class GracefulSwapTest(unittest.TestCase):
         self.assertEqual(row["labels"]["drafts_kept"], "3/4")
         self.assertTrue(ctx.notes)
 
+    def test_missed_runs_bound_the_p95(self):
+        # 75ef6ec3 on a fleet Mac: 2 of 20 saves showed (73, 90 ms), 18 had not when the 2.5 s film ended.
+        ctx = Context(bench=BENCH, build={"channel": "nightly", "version": None, "sha": None}, host_role="anywhere",
+                      timestamp="2026-11-22T00:00:00Z")
+        BENCH.ingest(ctx, FIXTURES / "latency-missed.json")
+        row = find(ctx.rows, "hot_swap_mac_unfocused_pane_p95_ms", surface="unfocused")
+        self.assertEqual(row["value"], 2500.0)
+        self.assertEqual(row["p50"], 2500.0)
+        self.assertEqual(row["n"], 20)
+        self.assertEqual(row["labels"]["missed"], "18")
+        self.assertEqual(row["labels"]["censored"], "True")
+        self.assertTrue(any("over 2500 ms" in n for n in ctx.notes), ctx.notes)
+
+    def test_missed_runs_without_a_window_are_refused(self):
+        ctx = Context(bench=BENCH, build={"channel": "nightly", "version": None, "sha": None}, host_role="anywhere",
+                      timestamp="2026-11-22T00:00:00Z")
+        with self.assertRaises(Exception) as caught:
+            BENCH.ingest(ctx, FIXTURES / "latency-missed-unbounded.json")
+        self.assertIn("window_ms", str(caught.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

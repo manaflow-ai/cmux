@@ -59,6 +59,11 @@ and _PASSWORD: the hourly cloud-chat-replies-production control alone signs in a
 spare. The ~15 other probes share the production account above and claimed its one spare about once a minute, so the
 control's start often found the refill still booting and made a cold machine (cmuxterm-hq goal cloud-first-reply-p95).
 
+`--target production-provider` makes a fourth production account (cmux-cloud-capture-prod-provider@manaflow.dev)
+the same way, in no team, sealed to cmuxterm-hq's cloud-capture environment as
+CLOUD_PROBE_PRODUCTION_PROVIDER_STACK_EMAIL and _PASSWORD: the production vault probe's provider_route row (C10)
+switches its team to gateway mode, so no other probe may share it.
+
 `--target production-team --team-only` does only that membership step for the existing account: no password
 change, nothing sealed, and a missing account is never created.
 
@@ -197,6 +202,16 @@ TARGETS = {
                                  "CLOUD_PROBE_PRODUCTION_CONTROL_STACK_EMAIL",
                                  "CLOUD_PROBE_PRODUCTION_CONTROL_STACK_PASSWORD",
                                  project=PRODUCTION_PROJECT_ID),
+    # The production vault probe's C10 row (cmuxterm-hq vault_bypass_probe.py provider_route, goal
+    # cloud-vault-adversarial-all-paths): its own personal-scope account, since the row turns its team's inference to
+    # gateway mode, which would reroute any other probe's model calls. Sealed beside the probes in cloud-capture.
+    "production-provider": Target("cmux-cloud-capture-prod-provider@manaflow.dev",
+                                  "cmux cloud probe (production, provider route)",
+                                  "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
+                                  "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
+                                  "CLOUD_PROBE_PRODUCTION_PROVIDER_STACK_EMAIL",
+                                  "CLOUD_PROBE_PRODUCTION_PROVIDER_STACK_PASSWORD",
+                                  project=PRODUCTION_PROJECT_ID),
     # The production probe's shared-team row (cmuxterm-hq synthetic-probes.yml app-chat-production,
     # cloud-chat-replies-production-team): a second production account that joins a shared team, since the probe
     # account above must stay in none. Sealed beside it in cmuxterm-hq cloud-capture under its own names.

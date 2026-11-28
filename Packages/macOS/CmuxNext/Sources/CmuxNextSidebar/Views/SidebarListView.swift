@@ -57,6 +57,9 @@ final class SidebarListView: NSView {
         // A held drag hit-tests a geometry built at its begin: new blocks rebuild it at the next move.
         didSet { if blocks != oldValue { drag?.docGeometry = nil } }
     }
+    /// Each block's height in the shown layout, as the last reload made it (its options' `blockHeights`): an in-place
+    /// block patch keeps exactly these (`patchBlocks`). Nil after a reload under a drag, whose layout is the drag's own.
+    var drawnBlockHeights: [String: CGFloat]?
     /// The selected top item, drawn active in its block (`SidebarRegionView.activeItem`): a selection
     /// change repaints the old and new item only, with no list reload (perf-speed-of-light I6).
     var activeTopItem: LayoutItemID? {
