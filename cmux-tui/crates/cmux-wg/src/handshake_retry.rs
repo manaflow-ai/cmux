@@ -32,6 +32,12 @@ const REKEY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Resends per handshake attempt: 0.25, 0.5, 1 and 2 s waits.
 pub(crate) const MAX_RESENDS: u32 = 4;
 
+/// How long an initiation's answer may take before it is overdue:
+/// max([`MIN_WAIT`], 2 x smoothed RTT).
+pub(crate) fn first_wait(srtt: Option<Duration>) -> Duration {
+    srtt.map_or(MIN_WAIT, |srtt| (srtt * 2).max(MIN_WAIT))
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct HandshakeRetry {
     /// When the last initiation left, by anyone (this, boringtun's timers,
@@ -69,8 +75,7 @@ impl HandshakeRetry {
     }
 
     fn wait(&self, srtt: Option<Duration>) -> Duration {
-        let base = srtt.map_or(MIN_WAIT, |srtt| (srtt * 2).max(MIN_WAIT));
-        base * 2u32.pow(self.resends)
+        first_wait(srtt) * 2u32.pow(self.resends)
     }
 
     /// When the next resend is due, while data waits and resends are left.
