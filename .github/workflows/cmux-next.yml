@@ -356,6 +356,8 @@ on:
       - scripts/launch-tagged-automation.sh
       - scripts/lib/reload-shim.test.mjs
       - scripts/lib/stop-app-instances.sh
+      - scripts/lib/bun-options.sh
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/merge-pbxproj.py
       - scripts/merge-xcstrings.py
       - scripts/web-lint.sh
@@ -730,6 +732,8 @@ on:
       - scripts/launch-tagged-automation.sh
       - scripts/lib/reload-shim.test.mjs
       - scripts/lib/stop-app-instances.sh
+      - scripts/lib/bun-options.sh
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/merge-pbxproj.py
       - scripts/merge-xcstrings.py
       - scripts/web-lint.sh
@@ -1003,10 +1007,7 @@ jobs:
         run: |
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
-          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
-          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
-          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
-          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # Why: docs/ci/cmux-next-workflow-notes/2026-11-28-pool-ws-per-sparse-list.md
           # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
           ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
           key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)

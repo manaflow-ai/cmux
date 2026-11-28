@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.feed.help" : {
+      "comment" : "Settings > Experimental row help for the Feed page experiment.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اقرأ كل التحديثات في موجز واحد: الوكلاء الذين انتهوا أو ينتظرونك، والموافقات، وطلبات السحب، وCI، والإشعارات، الأحدث أولاً."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Čitajte sva ažuriranja u jednom feedu: agenti koji su završili ili čekaju na vas, odobrenja, pull requestovi, CI i obavještenja, najnovije prvo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Læs alle opdateringer i ét feed: agenter, der er færdige eller venter på dig, godkendelser, pull requests, CI og notifikationer, nyeste først."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle Updates in einem Feed lesen: Agenten, die fertig sind oder auf dich warten, Freigaben, Pull Requests, CI und Mitteilungen, neueste zuerst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lee todas las novedades en un solo feed: agentes que terminaron o te esperan, aprobaciones, pull requests, CI y notificaciones, lo más reciente primero."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lisez toutes les mises à jour dans un seul fil : agents terminés ou qui vous attendent, approbations, pull requests, CI et notifications, les plus récentes d'abord."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leggi ogni aggiornamento in un unico feed: agenti che hanno finito o ti aspettano, approvazioni, pull request, CI e notifiche, dal più recente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべての更新を1つのフィードで確認：完了した、またはあなたを待っているエージェント、承認、プルリクエスト、CI、通知を新しい順に表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អានព័ត៌មានថ្មីទាំងអស់នៅកន្លែងតែមួយ៖ ភ្នាក់ងារដែលបានបញ្ចប់ ឬកំពុងរង់ចាំអ្នក ការអនុម័ត pull request, CI និងការជូនដំណឹង ថ្មីបំផុតមុន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 업데이트를 하나의 피드에서 확인하세요: 완료되었거나 응답을 기다리는 에이전트, 승인, 풀 리퀘스트, CI, 알림을 최신순으로 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les alle oppdateringer i én feed: agenter som er ferdige eller venter på deg, godkjenninger, pull requests, CI og varsler, nyeste først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czytaj wszystkie aktualizacje w jednym kanale: agenci, którzy skończyli lub czekają na Ciebie, zatwierdzenia, pull requesty, CI i powiadomienia, od najnowszych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leia todas as atualizações em um só feed: agentes que terminaram ou aguardam você, aprovações, pull requests, CI e notificações, mais recentes primeiro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Все обновления в одной ленте: агенты, которые закончили или ждут вас, одобрения, pull request, CI и уведомления, сначала новые."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อ่านทุกอัปเดตในฟีดเดียว: เอเจนต์ที่ทำเสร็จหรือรอคุณ การอนุมัติ พูลรีเควสต์ CI และการแจ้งเตือน ใหม่สุดก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tüm güncellemeleri tek bir akışta okuyun: biten veya sizi bekleyen ajanlar, onaylar, pull request'ler, CI ve bildirimler, en yeniler önce."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усі оновлення в одній стрічці: агенти, які завершили або чекають на вас, схвалення, pull request, CI та сповіщення, спершу нові."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đọc mọi cập nhật trong một bảng tin: tác tử đã xong hoặc đang chờ bạn, phê duyệt, pull request, CI và thông báo, mới nhất trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在一个动态中查看所有更新：已完成或等待你的代理、审批、拉取请求、CI 和通知，最新的在前。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在一個動態中查看所有更新：已完成或等待你的代理、審核、拉取要求、CI 與通知，最新的在前。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
