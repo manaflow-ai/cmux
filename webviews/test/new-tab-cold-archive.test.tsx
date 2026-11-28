@@ -6,10 +6,13 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { translateNewTab } from "../src/agent-session/acpmux/newtab/strings";
-import { recentChatCards, type ChatCard } from "../src/agent-session/acpmux/newtab/screenModel";
-import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
+import type { ChatCard } from "../src/agent-session/acpmux/newtab/screenModel";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { translateNewTab } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/strings"));
+const { recentChatCards } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/screenModel"));
+const { sessionEntry } = await importWithDom(() => import("../src/agent-session/acpmux/sessionList"));
 
 const NOW = Date.UTC(2026, 10, 9, 12);
 const cold = {
