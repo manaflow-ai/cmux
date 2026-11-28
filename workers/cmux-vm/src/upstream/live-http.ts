@@ -39,6 +39,23 @@ const capacityOverloaded = async (response: Response): Promise<boolean> => {
   return /infrastructure\s+overloaded|capacity\s+queue\s+wait\s+expired/i.test(prefix);
 };
 
+/**
+ * What one provider call's answers were, for a log line (vm_create): statuses, counts and ms only, never ids, bodies,
+ * provider text or the key. `sendStatus` is the first answer's HTTP status ("none": no answer, then `sendError` says
+ * whether the call's own timeout cut it or the connection failed), `sendMs` when it came; with background requests,
+ * `polls` and `pollFails` count the polls of a 202 and `lastPollStatus` is the last one's status. Staging 2026-11-28
+ * 15:14-15:29Z: 45 of 69 creates failed at createMs ~44 s with none of this on their line, so a create the provider
+ * held, accepted then never finished, or answered 503 all read the same (cmuxterm-hq#37692).
+ */
+export interface CallTrail {
+  sendStatus?: number | "none";
+  sendError?: "timeout" | "network";
+  sendMs?: number;
+  polls?: number;
+  pollFails?: number;
+  lastPollStatus?: number | "none";
+}
+
 export interface UpstreamHttp {
   /** A JSON request. Resolves with the parsed body, or `null` for an empty (204) response. */
   readonly json: (
@@ -57,6 +74,8 @@ export interface UpstreamHttp {
       readonly backgroundUntil?: number;
       /** With `backgroundUntil`: seconds before the provider answers 202 (default BACKGROUND_AFTER_SECS). */
       readonly backgroundAfterSecs?: number;
+      /** Filled with what the provider answered (CallTrail), however the call ends. */
+      readonly trail?: CallTrail;
     },
   ) => Effect.Effect<unknown, UpstreamError>;
   /**
@@ -89,7 +108,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
     operation: string,
     method: string,
     path: string,
-    init: { readonly body?: unknown; readonly timeoutMs: number; readonly headers?: Record<string, string> },
+    init: { readonly body?: unknown; readonly timeoutMs: number; readonly headers?: Record<string, string>; readonly trail?: CallTrail },
   ): Effect.Effect<Response, UpstreamError> =>
     Effect.tryPromise({
       try: async () => {
@@ -118,7 +137,10 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
         }
         return { ok: true as const, response };
       },
-      catch: () => new UpstreamError({ operation, status: null }),
+      catch: (error) => {
+        if (init.trail !== undefined) init.trail.sendError = error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network";
+        return new UpstreamError({ operation, status: null });
+      },
     }).pipe(
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status, ...(result.kind === undefined ? {} : { kind: result.kind }) })),
@@ -143,13 +165,24 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
 
   const json: UpstreamHttp["json"] = (operation, method, path, body, options) => {
     const until = options?.backgroundUntil;
+    const trail = options?.trail;
+    const startedAt = Date.now();
+    const answered = (status: number | "none") => Effect.sync(() => {
+      if (trail === undefined) return;
+      trail.sendStatus = status;
+      trail.sendMs = Date.now() - startedAt;
+    });
     const sent = request(operation, method, path, {
       body,
       timeoutMs: options?.timeoutMs ?? timeoutMs,
       ...(until === undefined ? {} : { headers: { [BACKGROUND_AFTER_HEADER]: String(options?.backgroundAfterSecs ?? BACKGROUND_AFTER_SECS) } }),
-    });
+      ...(trail === undefined ? {} : { trail }),
+    }).pipe(
+      Effect.tap((response) => answered(response.status)),
+      Effect.tapError((error) => answered(error.status ?? "none")),
+    );
     const settled = until === undefined ? sent : sent.pipe(Effect.flatMap((response) => response.status === 202
-      ? awaitBackground((op, at, init) => request(op, init.method, at, { timeoutMs: init.timeoutMs }), operation, response, base.origin, until, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs)
+      ? awaitBackground((op, at, init) => request(op, init.method, at, { timeoutMs: init.timeoutMs }), operation, response, base.origin, until, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs, trail)
       : Effect.succeed(response)));
     return settled.pipe(Effect.flatMap((response) => parse(operation, response)), timedUpstream);
   };

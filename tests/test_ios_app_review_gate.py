@@ -1723,13 +1723,14 @@ class InternalSubmissionTests(unittest.TestCase):
         self.assertIn("inputs.submittable", gate_job["if"])
         # Run 45038240860: a called workflow gets no secret its caller does not pass, so asc validate had no key.
         asc_keys = {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"}
-        self.assertEqual(gate_job["secrets"], {k: f"${{{{ secrets.{k} }}}}" for k in asc_keys})
+        # Run 46151995589 (2026-11-28): without the routing App key the plan's picker read the queue with the
+        # spent job token, got HTTP 403 and kept Blacksmith; the key is read-only on runners, not a signing secret.
+        passed = asc_keys | {"GLAEDA_ROUTE_APP_KEY"}
+        self.assertEqual(gate_job["secrets"], {k: f"${{{{ secrets.{k} }}}}" for k in passed})
         declared = self.triggers(self.workflow("ios-review-gate.yml"))["workflow_call"]["secrets"]
-        # The caller passes only the ASC key; the rest are declared for the gate's own
-        # push/PR runs (routing token, R2 cache save) and stay empty when called.
-        unpassed = {"GLAEDA_ROUTE_APP_KEY", "CI_CACHE_R2_ACCESS_KEY_ID",
-                    "CI_CACHE_R2_SECRET_ACCESS_KEY", "CI_CACHE_R2_ACCOUNT_ID"}
-        self.assertEqual(set(declared), asc_keys | unpassed)
+        # The R2 cache keys are declared for the gate's own push/PR runs and stay empty when called.
+        unpassed = {"CI_CACHE_R2_ACCESS_KEY_ID", "CI_CACHE_R2_SECRET_ACCESS_KEY", "CI_CACHE_R2_ACCOUNT_ID"}
+        self.assertEqual(set(declared), passed | unpassed)
         self.assertFalse(set(gate_job["secrets"]) & unpassed)
         receipt_if = jobs["submission-receipt"]["if"]
         for need in ("needs.review-gate.result == 'success'", "needs.review-gate.outputs.blocking == '0'",
