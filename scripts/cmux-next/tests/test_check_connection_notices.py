@@ -297,6 +297,68 @@ class WebShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("DeviceForm shows a connection state", out)
 
+    def test_a_label_map_indexed_in_a_return_is_the_helper_returning_it(self):
+        """cloudServed.ts's `reasonLabels` (cmux#54956): an `as const` map a helper indexes in its return is that helper
+        answering the label, so the words reach the picker that draws the answer, as a switch over the keys would."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/served.ts", """\
+            const reasonLabels = {
+              none: "page.disconnected",
+              off: "page.disconnected",
+            } as const;
+            export function servedReason(reason: "none" | "off" | undefined) {
+              return reasonLabels[reason || "none"];
+            }
+        """)
+        picker = """\
+            import { t } from "./i18n";
+            import { servedReason } from "./served";
+            export function Picker({ reason, pick }: { reason?: "none" | "off"; pick: () => void }) {
+              return <div><button onClick={pick}>Pick</button>{t(servedReason(reason))}</div>;
+            }
+        """
+        tree.write(f"{WEB}/Picker.tsx", picker)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/Picker.tsx", picker.replace("<button onClick={pick}>Pick</button>", ""))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Picker shows a connection state", out)
+
+    def test_words_behind_a_components_prop_belong_to_the_caller_passing_it(self):
+        """ModelRow (cmux#54956) says "connecting" only while its `loading` prop is set: the row that passes it, beside
+        its own connect button, owns the words; a mount passing no gating prop never shows them."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/StatusRow.tsx", """\
+            import { t } from "./i18n";
+            export function StatusRow({ label, loading, checking }: { label: string; loading?: boolean; checking?: boolean }) {
+              const icon = loading ? t(checking ? "page.disconnected" : "page.disconnected") : undefined;
+              return <div title={icon}>{label}</div>;
+            }
+        """)
+        caller = """\
+            import { StatusRow } from "./StatusRow";
+            export function ConnectRow({ busy, connect }: { busy: boolean; connect: () => void }) {
+              return (
+                <div>
+                  <StatusRow label="Claude" loading={busy} checking={busy} />
+                  <button onClick={connect}>Connect</button>
+                </div>
+              );
+            }
+            export function PlainRow() {
+              return <StatusRow label="Shared key" />;
+            }
+        """
+        tree.write(f"{WEB}/ConnectRow.tsx", caller)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/ConnectRow.tsx", caller.replace("<button onClick={connect}>Connect</button>", ""))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ConnectRow shows a connection state", out)
+        self.assertNotIn("PlainRow", out)
+
     def test_retry_line_held_for_the_shared_bound_passes(self):
         tree = Tree(self)
         tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)

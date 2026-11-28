@@ -451,6 +451,7 @@ def scan(tree: Tree) -> list[Unit]:
     drawn_actions(units, imports)
     swift_drawn_actions(units)
     propagate(units, imports)
+    prop_gated(units, presenter_imports, opaque_modules, unresolved_exports)
     attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
@@ -606,13 +607,94 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                     unit.hits = []
                     moved = True
                 continue
+            # A `const X = {...} as const` label map indexed in a helper's returned expression (`return X[reason]`,
+            # cloudServed.ts's reasonLabels since cmux#54956) is the helper returning the label itself, as a switch
+            # over the same keys would: no extra hop, so the words reach the view that draws the helper's answer.
+            lookup = (not unit.path.endswith(".swift") and None not in members
+                      and re.search(r"\}\s*as\s+const\b", "\n".join(unit.lines)) is not None)
             for other, i, said in consumers:
-                hops = min(h.hops for h in unit.hits) + 1
+                returned = lookup and is_provider(other) and re.search(r"(?:\breturn\b|=>)", other.lines[i])
+                hops = min(h.hops for h in unit.hits) + (0 if returned else 1)
                 other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
             unit.hits = []
             moved = True
         if not moved:
             break
+
+
+def _mount_text(lines: list[str], index: int, start: int) -> str:
+    """The JSX opening element that starts at lines[index][start:], up to its `>` or `/>` outside braces."""
+    depth, out = 0, []
+    for line in lines[index:index + 40]:
+        for ch in line[start:]:
+            out.append(ch)
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            elif ch == ">" and depth == 0:
+                return "".join(out)
+        out.append("\n")
+        start = 0
+    return "".join(out)
+
+
+def prop_gated(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
+               opaque_modules: set[str], unresolved_exports: set[str]) -> None:
+    """A web component whose connection words sit behind its own props (`const label = loading ? t(checking ?
+    "…checking" : "…connecting") : warning`, ModelRow since cmux#54956) shows them only where a caller passes one of
+    those props: the caller that starts the wait (`loading={connecting || checking}`) owns the words, with its own
+    action or bound. A mount that passes none of them never shows the words. Mounts are read through the component's
+    own file and relative imports; an unresolved import, an opaque module or no mount at all keeps the finding."""
+    by_file: dict[str, list[Unit]] = {}
+    for unit in units.values():
+        by_file.setdefault(unit.path, []).append(unit)
+    for unit in list(units.values()):
+        if (not unit.hits or unit.ok or not unit.path.endswith(".tsx") or not re.match(r"[A-Z]", unit.name)
+                or unit.name in unresolved_exports):
+            continue
+        stem = unit.path[:-len(".tsx")]
+        targets = {stem, stem.removesuffix("/index")}
+        if any(t in opaque_modules or t.rsplit("/", 1)[-1] in opaque_modules for t in targets):
+            continue
+        body = "\n".join(unit.lines)
+        head = re.search(rf"\b{re.escape(unit.name)}\s*\(\s*\{{([^}}]*)\}}", body)
+        if not head:
+            continue
+        props = set(re.findall(r"(?:^|,)\s*(\w+)", head.group(1)))
+        gated: list[tuple[Hit, set[str]]] = []
+        for hit in unit.hits:
+            first = hit.index
+            while first > max(0, hit.index - 6) and not re.match(r"\s*(?:const|let|return)\b", unit.lines[first]):
+                first -= 1
+            statement = " ".join(unit.lines[first:hit.index + 1])
+            gates = {p for p in props if re.search(rf"\b{p}\s*\?", statement)}
+            gated.append((hit, gates))
+        if not any(gates for _, gates in gated):
+            continue
+        bindings = {(unit.path, unit.name)}
+        bindings.update((path, local) for t in targets for path, exported, local in imports.get(t, ())
+                        if exported == unit.name)
+        mounts: list[tuple[Unit, int, str]] = []
+        for path, local in sorted(bindings):
+            tag = re.compile(rf"<{re.escape(local)}(?=[\s/>]|$)")
+            for other in by_file.get(path, []):
+                if other is unit or other.name == "<file>":
+                    continue
+                for i, line in enumerate(other.lines):
+                    for m in tag.finditer(line):
+                        mounts.append((other, i, _mount_text(other.lines, i, m.start())))
+        if not mounts:
+            continue
+        kept = []
+        for hit, gates in gated:
+            if not gates:
+                kept.append(hit)
+                continue
+            for other, i, element in mounts:
+                if any(re.search(rf"\b{p}\s*=", element) for p in gates):
+                    other.hits.append(Hit(other.numbers[i], f"{unit.name}: {hit.text}", i, hit.hops + 1, hit.origin))
+        unit.hits = kept
 
 
 # Inline text can share its containing row's action. A notice, alert, live region or stateful view
