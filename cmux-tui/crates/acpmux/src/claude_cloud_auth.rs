@@ -158,8 +158,7 @@ fn flag_settings_env(flag: Option<&Map<String, Value>>) -> BTreeMap<String, Stri
     // A JSON `true` or number
     // (`"CLAUDE_CODE_USE_BEDROCK": true`) is the value Claude reads, as the launcher's check
     // (`agent-auth.sh` `cmux_claude_settings_has`) counts it.
-    flag
-        .and_then(|s| s.get("env"))
+    flag.and_then(|s| s.get("env"))
         .and_then(Value::as_object)
         .map(|e| {
             e.iter()
@@ -191,9 +190,8 @@ fn saved_sign_in(
     let mut env = env.clone();
     env.entry("HOME".to_owned()).or_insert_with(|| inputs.home.to_string_lossy().into_owned());
     env.extend(flag_env.clone());
-    let flag_helper = flag.is_some_and(|s| {
-        HELPERS.iter().any(|h| s.get(*h).is_some_and(|v| v.as_str() != Some("")))
-    });
+    let flag_helper = flag
+        .is_some_and(|s| HELPERS.iter().any(|h| s.get(*h).is_some_and(|v| v.as_str() != Some(""))));
     let found = crate::claude_auth::find_in(&env, cwd);
     flag_helper || found.signed_in() || found.endpoint.is_some()
 }
@@ -212,7 +210,8 @@ pub(crate) fn remote_joined_without_sign_in(
 ) -> bool {
     let flag_env = flag_settings_env(flag);
     let set = |k: &str| {
-        (inputs.var)(k).is_some_and(|v| !v.is_empty()) || flag_env.get(k).is_some_and(|v| !v.is_empty())
+        (inputs.var)(k).is_some_and(|v| !v.is_empty())
+            || flag_env.get(k).is_some_and(|v| !v.is_empty())
     };
     !set("ANTHROPIC_BASE_URL")
         && !set("ANTHROPIC_API_KEY")
