@@ -3128,7 +3128,7 @@ inputs = [
   "cmux-tui/crates/acpmux/sandbox/*",
   "cmux-tui/crates/acpmux/schema/acp/v1/*",
   "cmux-tui/crates/acpmux/scripts/*",
-  "cmux-tui/crates/acpmux/skills/acpmux/*",
+  "cmux-tui/crates/acpmux/skills/agents/*",
   "cmux-tui/crates/acpmux/skills/cmux-chat/*",
   "cmux-tui/crates/acpmux/skills/cmux-quota/*",
   "cmux-tui/crates/acpmux/skills/cmux-rich-output/*",
