@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxFoundation
 import CmuxTerminalCore
 import Foundation
+import GhosttyKit
 
 extension TerminalTheme {
     /// Builds the wire ``TerminalTheme`` from the Mac's resolved terminal config.
@@ -88,6 +89,9 @@ extension TerminalTheme {
         if let selectionForegroundSemantic {
             object["selectionForegroundSemantic"] = selectionForegroundSemantic.rawValue
         }
+        if let rendering, let renderingObject = rendering.mobileHostJSONObject {
+            object["rendering"] = renderingObject
+        }
         return object
     }
 
@@ -105,7 +109,7 @@ extension TerminalTheme {
             globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
         )
         let resolvedConfigTheme = TerminalTheme(ghosttyConfig: config)
-        return TerminalTheme(
+        let snapshot = TerminalTheme(
             background: app.defaultBackgroundColor.hexString(),
             foreground: app.defaultForegroundColor.hexString(),
             boldColor: resolvedConfigTheme.boldColor,
@@ -117,8 +121,36 @@ extension TerminalTheme {
             selectionBackgroundSemantic: resolvedConfigTheme.selectionBackgroundSemantic,
             selectionForeground: app.defaultSelectionForeground.hexString(),
             selectionForegroundSemantic: resolvedConfigTheme.selectionForegroundSemantic,
-            palette: resolvedConfigTheme.palette
+            palette: resolvedConfigTheme.palette,
+            rendering: TerminalTheme.Rendering(ghosttyConfig: app.config)
         ).validatedOrDefault()
+        MobileHostTerminalThemeSnapshot.store(snapshot)
+        return snapshot
+    }
+
+    /// The theme `mobile.host.status` reports: the last snapshot of the theme
+    /// the Mac is showing (including its light or dark variant and rendering
+    /// settings), or the config-resolved theme before any snapshot exists.
+    static func mobileHostStatusTheme() -> TerminalTheme {
+        if let snapshot = MobileHostTerminalThemeSnapshot.latest() {
+            return snapshot
+        }
+        // Take the first snapshot here when this runs on the main thread, so
+        // even the first status carries the live variant and rendering keys.
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { currentMacTerminalThemeSnapshot() }
+        }
+        return TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())
+    }
+
+    /// Returns this theme with `fallback`'s rendering settings when it has
+    /// none. The renderer exports colors only, so a frame's theme takes its
+    /// rendering keys from the Mac's live config snapshot.
+    func fillingRendering(from fallback: TerminalTheme) -> TerminalTheme {
+        guard rendering == nil else { return self }
+        var resolved = self
+        resolved.rendering = fallback.rendering
+        return resolved
     }
 
     /// Returns this config-resolved theme with surface-effective OSC colors
@@ -154,5 +186,77 @@ extension TerminalTheme {
             resolved.cursorColorSemantic = nil
         }
         return resolved
+    }
+}
+
+extension TerminalTheme.Rendering {
+    /// Reads the color-rendering keys from the Mac's live Ghostty config, or
+    /// returns `nil` before Ghostty has a config.
+    init?(ghosttyConfig config: ghostty_config_t?) {
+        guard let config else { return nil }
+        func double(_ key: String) -> Double? {
+            var value: Double = 0
+            guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+                return nil
+            }
+            return value
+        }
+        func bool(_ key: String) -> Bool? {
+            var value = false
+            guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+                return nil
+            }
+            return value
+        }
+        func enumValue(_ key: String) -> String? {
+            var value: UnsafePointer<Int8>?
+            guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+                  let value else {
+                return nil
+            }
+            return String(cString: value)
+        }
+        self.init(
+            minimumContrast: double("minimum-contrast"),
+            faintOpacity: double("faint-opacity"),
+            cursorOpacity: double("cursor-opacity"),
+            paletteGenerate: bool("palette-generate"),
+            paletteHarmonious: bool("palette-harmonious"),
+            alphaBlending: enumValue("alpha-blending"),
+            windowColorspace: enumValue("window-colorspace")
+        )
+    }
+
+    /// The `rendering` object inside the `mobile.host.status` theme. Keys
+    /// match the synthesized `Codable` keys, or `nil` when no field is set.
+    var mobileHostJSONObject: [String: Any]? {
+        var object: [String: Any] = [:]
+        if let minimumContrast { object["minimumContrast"] = minimumContrast }
+        if let faintOpacity { object["faintOpacity"] = faintOpacity }
+        if let cursorOpacity { object["cursorOpacity"] = cursorOpacity }
+        if let paletteGenerate { object["paletteGenerate"] = paletteGenerate }
+        if let paletteHarmonious { object["paletteHarmonious"] = paletteHarmonious }
+        if let alphaBlending { object["alphaBlending"] = alphaBlending }
+        if let windowColorspace { object["windowColorspace"] = windowColorspace }
+        return object.isEmpty ? nil : object
+    }
+}
+
+/// The last theme snapshot taken on the main actor, readable from the
+/// nonisolated `mobile.host.status` handlers.
+enum MobileHostTerminalThemeSnapshot {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var stored: TerminalTheme?
+
+    static func store(_ theme: TerminalTheme) {
+        lock.lock()
+        stored = theme
+        lock.unlock()
+    }
+
+    static func latest() -> TerminalTheme? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
     }
 }

@@ -439,7 +439,7 @@ private extension GhosttyRuntime {
     ) {
         guard let config else { return }
         #if os(iOS)
-        ensureDefaultGhosttyiOSConfig(theme: theme)
+        ensureDefaultGhosttyiOSConfig()
         // Default-file discovery is a macOS integration path in Ghostty's
         // Apple wrapper. iOS owns one sandboxed file, so load it directly.
         let configFile = ghosttyiOSConfigFileURL
@@ -483,11 +483,13 @@ private extension GhosttyRuntime {
     }
 
     func applyGhosttyiOSTheme(_ theme: TerminalTheme, to config: ghostty_config_t) {
-        // Each surface mirrors the Mac theme. Clear optional colors inherited
-        // from the phone config before applying the remote values.
+        // Each surface's theme comes entirely from the machine running the
+        // session. Reset every theme key first so nothing the host did not
+        // send survives from the phone's own config: a `theme =` line, palette
+        // entries past the ones the host sent, or a rendering key such as
+        // `minimum-contrast`.
         let directives = """
-        bold-color =
-        cursor-text =
+        \(TerminalTheme.ghosttyResetDirectives)
         \(theme.ghosttyColorDirectives)
         """
         loadInlineGhosttyiOSConfig(
@@ -514,7 +516,9 @@ private extension GhosttyRuntime {
         }
     }
 
-    func ensureDefaultGhosttyiOSConfig(theme: TerminalTheme) {
+    /// Writes the phone's base Ghostty config on first launch. It holds no
+    /// colors: every theme value comes from the host per surface.
+    func ensureDefaultGhosttyiOSConfig() {
         let configFile = ghosttyiOSConfigFileURL
         let configDirectory = configFile.deletingLastPathComponent()
         guard !fileManager.fileExists(atPath: configFile.path) else { return }
@@ -527,7 +531,6 @@ private extension GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        \(theme.ghosttyColorDirectives)
         """
 
         do {

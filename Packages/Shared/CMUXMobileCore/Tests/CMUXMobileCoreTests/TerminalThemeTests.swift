@@ -159,4 +159,87 @@ import Testing
         #expect(theme.ghosttyColorDirectives.contains("bold-color = bright"))
     }
 
+
+    @Test func renderingSettingsBecomeGhosttyDirectives() {
+        var theme = TerminalTheme.monokai
+        theme.rendering = TerminalTheme.Rendering(
+            minimumContrast: 3,
+            faintOpacity: 0.25,
+            cursorOpacity: 0.75,
+            paletteGenerate: true,
+            paletteHarmonious: false,
+            alphaBlending: "linear-corrected",
+            windowColorspace: "display-p3"
+        )
+        let lines = Set(theme.ghosttyColorDirectives.split(separator: "\n").map(String.init))
+
+        #expect(lines.contains("minimum-contrast = 3.0"))
+        #expect(lines.contains("faint-opacity = 0.25"))
+        #expect(lines.contains("cursor-opacity = 0.75"))
+        #expect(lines.contains("palette-generate = true"))
+        #expect(lines.contains("palette-harmonious = false"))
+        #expect(lines.contains("alpha-blending = linear-corrected"))
+        #expect(lines.contains("window-colorspace = display-p3"))
+    }
+
+    @Test func renderingDropsValuesGhosttyWouldReject() {
+        let rendering = TerminalTheme.Rendering(
+            minimumContrast: 40,
+            faintOpacity: -1,
+            cursorOpacity: .nan,
+            alphaBlending: "gamma",
+            windowColorspace: "rec2020"
+        )
+
+        #expect(rendering.ghosttyDirectives.isEmpty)
+    }
+
+    @Test func legacyThemeEmitsNoRenderingDirectives() {
+        let directives = TerminalTheme.monokai.ghosttyColorDirectives
+
+        for key in ["minimum-contrast", "faint-opacity", "cursor-opacity", "palette-generate",
+                    "palette-harmonious", "alpha-blending", "window-colorspace"] {
+            #expect(!directives.contains("\(key) ="))
+        }
+    }
+
+    @Test func resetDirectivesCoverEveryKeyAThemeCanSet() {
+        var theme = TerminalTheme.monokai
+        theme.boldColor = "bright"
+        theme.cursorText = "#000000"
+        theme.rendering = TerminalTheme.Rendering(
+            minimumContrast: 2,
+            faintOpacity: 0.5,
+            cursorOpacity: 1,
+            paletteGenerate: true,
+            paletteHarmonious: true,
+            alphaBlending: "native",
+            windowColorspace: "srgb"
+        )
+        let resetKeys = Set(TerminalTheme.ghosttyResetDirectives.split(separator: "\n").map {
+            String($0.split(separator: "=")[0]).trimmingCharacters(in: .whitespaces)
+        })
+        let themeKeys = Set(theme.ghosttyColorDirectives.split(separator: "\n").map {
+            String($0.split(separator: "=")[0]).trimmingCharacters(in: .whitespaces)
+        })
+
+        #expect(TerminalTheme.ghosttyResetDirectives.split(separator: "\n").allSatisfy { $0.hasSuffix(" =") })
+        #expect(themeKeys.subtracting(["background", "foreground"]).isSubset(of: resetKeys))
+        #expect(resetKeys.contains("theme"))
+    }
+
+    @Test func renderingRoundTripsThroughJSONAndOlderPayloadsDecode() throws {
+        var theme = TerminalTheme.monokai
+        theme.rendering = TerminalTheme.Rendering(minimumContrast: 4.5, windowColorspace: "display-p3")
+        let decoded = try JSONDecoder().decode(TerminalTheme.self, from: JSONEncoder().encode(theme))
+        #expect(decoded == theme)
+
+        let legacy = try JSONDecoder().decode(
+            TerminalTheme.self,
+            from: JSONEncoder().encode(TerminalTheme.monokai)
+        )
+        #expect(legacy.rendering == nil)
+        #expect(legacy.isValid)
+    }
+
 }
