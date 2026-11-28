@@ -194,6 +194,30 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         }
     }
 
+    // MARK: A sample buffer layer outside WebRTC
+
+    /// A picture the app's own decoder handed to an `AVSampleBufferDisplayLayer` with
+    /// `DisplayImmediately` (the `cmux.rd/1` viewer's `BrowserVideoDecoder`), called right after
+    /// the enqueue: decoded and presented are timed as for the WebRTC sample buffer renderer.
+    public func enqueued(_ pixels: CVPixelBuffer) {
+        let now = CACurrentMediaTime()
+        let start = lock.withLock { () -> Bool in
+            renderer = .sampleBuffer
+            defer { displayLinkStarted = true }
+            return !displayLinkStarted
+        }
+        if start { DisplayTick.start(for: self) }
+        let width = CVPixelBufferGetWidth(pixels), height = CVPixelBufferGetHeight(pixels)
+        guard let value = Self.marker(in: pixels, cellFraction: cellFraction, originY: originY) else { return }
+        lock.withLock {
+            size = CGSize(width: width, height: height)
+            current = value
+            if decodedAt[value] == nil { decodedAt[value] = now }
+            handed.append((value, now))
+            if handed.count > 128 { handed.removeFirst() }
+        }
+    }
+
     // MARK: Presents
 
     /// Metal: the renderer presented a drawable holding the frame stamped `timeStampNs`.
@@ -321,30 +345,43 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
     // MARK: The marker
 
     private static func marker(in frame: RTCVideoFrame, cellFraction: Double, originY: Double) -> UInt16? {
-        let width = Double(frame.width)
-        let cell = cellFraction * width
-        let top = originY * Double(frame.height)
-        let y = Int(top + cell / 2)
-        guard cell > 0, y >= 0, y < Int(frame.height), Int(19.5 * cell) < Int(frame.width) else { return nil }
-        func decode(_ luma: (Int, Int) -> UInt8) -> UInt16? {
-            var bits = [Bool](repeating: false, count: 20)
-            for i in 0 ..< 20 {
-                bits[i] = luma(Int((Double(i) + 0.5) * cell), y) > 125
-            }
-            guard Array(bits[16...]) == [true, false, true, false] else { return nil }
-            return bits[..<16].enumerated().reduce(0) { $0 | (($1.element ? 1 : 0) << UInt16($1.offset)) }
-        }
         if let buffer = frame.buffer as? RTCCVPixelBuffer {
-            let pixels = buffer.pixelBuffer
-            CVPixelBufferLockBaseAddress(pixels, .readOnly)
-            defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
-            guard let base = CVPixelBufferGetBaseAddressOfPlane(pixels, 0) else { return nil }
-            let stride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 0)
-            let bytes = base.assumingMemoryBound(to: UInt8.self)
-            return decode { x, y in bytes[y * stride + x] }
+            // The frame's own size (a cropped buffer's picture is smaller than its planes).
+            return marker(in: buffer.pixelBuffer, cellFraction: cellFraction, originY: originY,
+                          size: (Int(frame.width), Int(frame.height)))
         }
         let i420 = frame.buffer.toI420()
-        return decode { x, y in i420.dataY[y * Int(i420.strideY) + x] }
+        return marker(width: Int(frame.width), height: Int(frame.height), cellFraction: cellFraction, originY: originY) { x, y in
+            i420.dataY[y * Int(i420.strideY) + x]
+        }
+    }
+
+    /// The marker in a bi-planar (NV12) or other planar picture's first plane, the luma; `size`
+    /// is the picture's when it is not the plane's.
+    static func marker(in pixels: CVPixelBuffer, cellFraction: Double, originY: Double,
+                       size: (width: Int, height: Int)? = nil) -> UInt16? {
+        CVPixelBufferLockBaseAddress(pixels, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
+        guard CVPixelBufferIsPlanar(pixels), let base = CVPixelBufferGetBaseAddressOfPlane(pixels, 0) else { return nil }
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 0)
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        let size = size ?? (CVPixelBufferGetWidthOfPlane(pixels, 0), CVPixelBufferGetHeightOfPlane(pixels, 0))
+        return marker(width: size.width, height: size.height, cellFraction: cellFraction, originY: originY) { x, y in bytes[y * stride + x] }
+    }
+
+    /// The counter in a `width` x `height` luma plane (video range), nil when the guards don't read.
+    static func marker(width: Int, height: Int, cellFraction: Double, originY: Double,
+                       luma: (Int, Int) -> UInt8) -> UInt16? {
+        let cell = cellFraction * Double(width)
+        let top = originY * Double(height)
+        let y = Int(top + cell / 2)
+        guard cell > 0, y >= 0, y < height, Int(19.5 * cell) < width else { return nil }
+        var bits = [Bool](repeating: false, count: 20)
+        for i in 0 ..< 20 {
+            bits[i] = luma(Int((Double(i) + 0.5) * cell), y) > 125
+        }
+        guard Array(bits[16...]) == [true, false, true, false] else { return nil }
+        return bits[..<16].enumerated().reduce(0) { $0 | (($1.element ? 1 : 0) << UInt16($1.offset)) }
     }
 }
 
