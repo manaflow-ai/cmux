@@ -458,6 +458,7 @@ pub(crate) mod tasks;
 mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
 mod best_of_n;
+pub(crate) mod cache_rebuild;
 mod team_information;
 mod team_sent;
 mod team_settings;

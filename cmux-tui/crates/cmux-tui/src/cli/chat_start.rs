@@ -146,9 +146,10 @@ names another target:
   CMUX_ON=TARGET names the target when --on is absent.
   On a Pro, Max or Team plan a Cloud chat (--on cloud, vm, vm:new or vm:ID, with a
   prompt and none of --cwd, --from-folder, --no-folder, --environment, --wait,
-  --timeout, --timings, --attach or --name) starts here at once while its
-  machine starts, then moves there between turns (log: the hybrid-start folder
-  beside cmux's sessions). CMUX_HYBRID_START=1 turns that on whatever the plan,
+  --timeout or --timings) starts here at once while its machine starts, then
+  moves there between turns (log: the hybrid-start folder beside cmux's
+  sessions). --attach joins them only with CMUX_HYBRID_ATTACH=1: the files stay
+  here, so that chat's first turn runs here whole and it moves once it ends. CMUX_HYBRID_START=1 turns that on whatever the plan,
   CMUX_HYBRID_START=0 off; with neither, cloud.autoCloud set to true in
   cmux-next.json turns it on. `cmux cloud hybrid-status --json` says which.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
