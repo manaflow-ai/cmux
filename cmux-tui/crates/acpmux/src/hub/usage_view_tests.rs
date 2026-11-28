@@ -514,6 +514,12 @@ async fn a_codex_review_box_chat_is_read_from_its_own_codex_home() {
 #[test]
 fn saved_trackers_sit_beside_the_store_and_go_with_their_chats() {
     let home = tempfile::tempdir().unwrap();
+    // 0700 whatever the umask: the store refuses a group-writable ancestor.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let store = crate::store::LocalStore::new(home.path().join("sessions"), 1 << 20).unwrap();
     let dir = crate::store::Store::usage_tracker_dir(&store).unwrap();
     assert_eq!(dir, home.path().join("usage-trackers"));
