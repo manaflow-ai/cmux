@@ -227,7 +227,7 @@ import Testing
         let before = median {
             rows.reduce(0) { seen, chief in
                 let input = PicksInput(chief: chief, defaultChief: picks.defaultChief, picks: picks.picks, file: file)
-                let reply: Picked = welcomeRule("welcome.mascotPicked", input, fallback: Picked(picked: nil))
+                let reply: Picked = CmuxNextChiefPetWiring.welcomeRule("welcome.mascotPicked", input, fallback: Picked(picked: nil))
                 return seen + (reply.picked == nil ? 0 : 1)
             }
         }
