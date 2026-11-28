@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
+mod exe;
+
 const BIN: &str = env!("CARGO_BIN_EXE_optchat-chief");
 const CHIEF: &str = "agent_01TEST";
 const USER: &str = "user_T";
@@ -255,15 +257,14 @@ fn fake_cloud_with(
 /// A stand-in for the app's `cmux auth token --json`.
 fn fake_app_cli(dir: &Path, origin: &str) -> PathBuf {
     let bin = dir.join("bin/cmux");
-    write(
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    exe::write_executable(
         &bin,
         &format!(
             "#!/bin/sh\n[ \"$1 $2 $3\" = \"auth token --json\" ] || exit 9\necho '{}'\n",
             json!({"access_token": "app-token", "token_type": "Bearer", "api_origin": origin, "expires_in": 600})
         ),
     );
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
     bin
 }
 
@@ -468,16 +469,79 @@ fn the_app_token_for_another_cloud_is_refused() {
 /// A stand-in `ssh` that runs the remote command in `remote_home` (as chief_move.rs).
 fn fake_ssh(dir: &Path, remote_home: &Path) -> PathBuf {
     let path = dir.join("fake-ssh");
-    write(
+    exe::write_executable(
         &path,
         &format!(
             "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\ncd '{h}' && HOME='{h}' exec sh -c \"$1\"\n",
             h = remote_home.display()
         ),
     );
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
+}
+
+/// The fakes this file runs (`fake_ssh`, `fake_app_cli`) while sibling tests fork: on
+/// Linux, a fork made while this process holds a fake open for write keeps that
+/// descriptor until the child execs or exits, and running the fake then fails with
+/// ETXTBSY ("Text file busy"). In the round trip that made the watcher's first move
+/// fail after it had taken the request, so the test waited out its 120 s deadline.
+/// Here the forks are children that only sleep, so the window stays open.
+#[test]
+fn the_fakes_run_while_sibling_tests_fork() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let remote = dir.path().join("mini-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let forking = stop.clone();
+    let forker = std::thread::spawn(move || {
+        let mut children: Vec<libc::pid_t> = Vec::new();
+        while !forking.load(Ordering::Relaxed) || !children.is_empty() {
+            if !forking.load(Ordering::Relaxed) && children.len() < 32 {
+                // SAFETY: the child calls only async-signal-safe usleep and _exit.
+                let pid = unsafe { libc::fork() };
+                if pid == 0 {
+                    unsafe {
+                        libc::usleep(50_000);
+                        libc::_exit(0);
+                    }
+                }
+                assert!(pid > 0, "fork failed");
+                children.push(pid);
+            }
+            // Reap only our own children, never a sibling test's.
+            children.retain(|&pid| {
+                // SAFETY: waitpid on a pid this thread forked, without blocking.
+                unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) == 0 }
+            });
+            std::thread::yield_now();
+        }
+    });
+    let mut busy = Vec::new();
+    for i in 0..100 {
+        let at = dir.path().join(i.to_string());
+        std::fs::create_dir_all(&at).unwrap();
+        let ssh = fake_ssh(&at, &remote);
+        let cli = fake_app_cli(&at, "http://127.0.0.1:1");
+        for (fake, args) in [
+            (ssh, ["mini", "true", ""]),
+            (cli, ["auth", "token", "--json"]),
+        ] {
+            if let Err(e) = Command::new(&fake)
+                .args(args.iter().filter(|a| !a.is_empty()))
+                .output()
+            {
+                busy.push(format!("{}: {e}", fake.display()));
+            }
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    forker.join().unwrap();
+    assert!(
+        busy.is_empty(),
+        "{} fakes did not run: {:?}",
+        busy.len(),
+        &busy[..busy.len().min(3)]
+    );
 }
 
 /// The round trip the person asks for in chat: this Mac -> cloud -> Mac mini -> this
@@ -512,9 +576,17 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
         .env("OPTCHAT_MOVE_SSH", &ssh)
         .env_remove("CMUX_CLOUD_SESSION_TOKEN")
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::fs::File::create(dir.path().join("watch.log")).unwrap())
         .spawn()
         .unwrap();
+    // What the watcher said and the last move's report, for a failed assertion.
+    let said = || {
+        format!(
+            "watcher: {}\nmove.json: {}",
+            std::fs::read_to_string(dir.path().join("watch.log")).unwrap_or_default(),
+            std::fs::read_to_string(src.join("state/move.json")).unwrap_or_default()
+        )
+    };
     let on_mini = remote.join(".cmux/chief/src");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     // Bounded wait for the watcher's first move: its flip (moved.json naming the mini) comes
@@ -528,7 +600,7 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
     while !flipped() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
-    assert!(on_mini.join("state/moved-in.json").exists());
+    assert!(on_mini.join("state/moved-in.json").exists(), "{}", said());
     let moved: Value =
         serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
             .unwrap();
@@ -574,11 +646,12 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
     let _ = first.kill();
     assert!(
         !src.join("state/moved.json").exists(),
-        "the home answers again"
+        "the home answers again: {}",
+        said()
     );
     assert_eq!(local_memory(&src).len(), 4);
     let conv = conversation(&src);
-    assert_eq!(conv.len(), 5, "{conv:?}");
+    assert_eq!(conv.len(), 5, "{conv:?}\n{}", said());
     assert_eq!(conv[4]["parts"][0]["text"], "said on the mini");
     assert!(
         on_mini.join("state/moved.json").exists(),
