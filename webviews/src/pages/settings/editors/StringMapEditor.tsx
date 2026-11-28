@@ -11,6 +11,15 @@ import type { EditorProps } from "./types";
 /** The row whose choices a map's values take: `browser.siteEngines` maps a site to an engine. */
 const VALUE_CHOICES: Readonly<Record<string, string>> = { "browser.siteEngines": "browser.defaultEngine" };
 
+/** What a map's empty line suggests for its key and value: a site for site engines, a name and its prompt for saved
+ * prompts; none for any other map, so no list of names suggests a host (first-run findings N7). */
+function mapPlaceholders(key: string): { key?: string; value?: string } {
+  if (key === "browser.siteEngines") return { key: t("settingsPage.hostPlaceholder") };
+  if (key === "agentPane.savedPrompts")
+    return { key: t("settingsWindow.agentSkills.newCommand.name"), value: t("settingsWindow.agentSkills.newCommand.prompt") };
+  return {};
+}
+
 /** A map key such as `spotify.com` or `amazon.com/gp/video`: not empty, no spaces. */
 function isMapKey(key: string): boolean {
   return key !== "" && !/\s/.test(key);
@@ -40,7 +49,8 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
     setDraftKey("");
     write({ ...map, [key]: draftValue });
   };
-  const valueControl = (current: string, onChange: (next: string) => void) =>
+  const placeholder = mapPlaceholders(row.key);
+  const valueControl = (current: string, onChange: (next: string) => void, hint?: string) =>
     choices ? (
       <Select value={current} disabled={disabled} labelId={labelId} onChange={onChange}>
         {choices.map((choice) => (
@@ -55,6 +65,7 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
         type="text"
         spellCheck={false}
         value={current}
+        placeholder={hint}
         disabled={disabled}
         aria-labelledby={labelId}
         onChange={(event) => onChange(event.currentTarget.value)}
@@ -96,7 +107,7 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
           spellCheck={false}
           data-map-new-key=""
           value={draftKey}
-          placeholder={t("settingsPage.hostPlaceholder")}
+          placeholder={placeholder.key}
           disabled={disabled}
           aria-labelledby={labelId}
           aria-invalid={invalid}
@@ -105,14 +116,14 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
             if (invalid) setInvalid(false);
           }}
         />
-        <span data-map-new-value="">{valueControl(draftValue, setDraftValue)}</span>
+        <span data-map-new-value="">{valueControl(draftValue, setDraftValue, placeholder.value)}</span>
         <Button type="submit" className="button" data-map-add="" disabled={disabled}>
           {t("settingsPage.add")}
         </Button>
       </form>
       {invalid && (
         <span className="field-error" role="alert">
-          {t("settingsPage.invalidSite")}
+          {t(row.key === "browser.siteEngines" ? "settingsPage.invalidSite" : "settingsPage.invalidMapKey")}
         </span>
       )}
     </span>

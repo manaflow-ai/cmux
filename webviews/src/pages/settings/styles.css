@@ -2197,18 +2197,57 @@ mark {
   border-radius: 0;
 }
 
-/* Key and value lists (browser.siteEngines). */
-.string-map {
-  display: inline-flex;
+/* Key and value lists (browser.siteEngines, agentPane.savedPrompts): a body under the row's title, as wide as the
+   row, like a json row; beside the title its two fields and Add ran off a narrow pane's left edge (first-run N7). */
+.row[data-kind="string_map"] > .row-main {
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
+  gap: var(--ds-space-2);
+}
+
+.row[data-kind="string_map"] > .row-main > .row-label {
+  flex: none;
+}
+
+:root .settings .row[data-kind="string_map"] > .row-main .row-control {
+  margin-left: 0;
+  justify-content: flex-start;
+}
+
+.row[data-kind="string_map"] .row-control {
+  justify-content: flex-start;
+  max-width: 100%;
+}
+
+.string-map {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--ds-space-1);
+  width: 100%;
 }
 
 .string-map-item {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--ds-space-1);
+}
+
+/* The fields share the line and shrink with the pane; the key column keeps a third of it. */
+.string-map-item > .field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.string-map-item > [data-map-new-value] {
+  display: flex;
+  flex: 2 1 0;
+  min-width: 0;
+}
+
+.string-map-item > [data-map-new-value] > * {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .string-map-key {
