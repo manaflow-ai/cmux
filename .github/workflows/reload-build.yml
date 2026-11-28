@@ -109,6 +109,18 @@ on:
         required: false
         default: false
         type: boolean
+      acpmux_profile:
+        description: >-
+          acpmux Cargo profile. devbuild (the default for a tagged reload) is
+          tools/devbuild's: no LTO, 16 codegen units, incremental, cached apart
+          from release builds. release is the shipped profile. The release
+          input always builds acpmux with release.
+        required: false
+        default: devbuild
+        type: choice
+        options:
+          - devbuild
+          - release
       publish:
         description: "macOS release builds only: also publish the app to files.cmux.com/cmux-tui/<commit>/ (mac-app-release.zip and its signed mac-app.json) for `cmux app try`, with no GitHub token on the installing Mac"
         required: false
