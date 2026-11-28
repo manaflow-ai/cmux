@@ -17,7 +17,7 @@ extension NotificationSoundGate {
 
     /// An agent name as sound rules key it: lowercased, nil when empty.
     public nonisolated static func agentKind(_ raw: String?) -> String? {
-        raw.flatMap { $0.isEmpty ? nil : $0.lowercased() }
+        SettingsRust.answer("notifications.agent_kind", ["agent": raw.map(JSONValue.string) ?? .null])["agent"]?.stringValue
     }
 
     /// A notification of a pane the person sees: under `notifications.sounds.when = always` it still

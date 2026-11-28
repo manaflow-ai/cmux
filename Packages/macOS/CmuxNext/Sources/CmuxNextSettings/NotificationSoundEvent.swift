@@ -1,6 +1,6 @@
 /// What a notification is about, for its sound (`notifications.sounds.events.<event>` and each
 /// level's `events`): a person usually wants "an agent needs me" to sound unlike "an agent finished".
-public nonisolated enum NotificationSoundEvent: String, Hashable, Sendable, CaseIterable {
+public nonisolated enum NotificationSoundEvent: String, Hashable, Sendable, CaseIterable, Codable, CodingKeyRepresentable {
     /// An agent finished its turn.
     case finished
     /// An agent asks: a permission prompt, a question, a plan review (an agent's warning).
@@ -32,12 +32,7 @@ public nonisolated enum NotificationSoundEvent: String, Hashable, Sendable, Case
     /// `cmux notify`'s warning asks for input, an agent's info is a finished turn, a terminal
     /// program's notification is a bell, the rest are messages.
     public init(source: NotificationSource, level: Level) {
-        switch (source, level) {
-        case (_, .error): self = .error
-        case (.agent, .warning), (.cli, .warning): self = .needsInput
-        case (.agent, .info): self = .finished
-        case (.terminal, _): self = .bell
-        case (.cli, .info): self = .message
-        }
+        let reply = SettingsRust.answer("notifications.sound_event", ["source": .string(source.rawValue), "level": .string(level.rawValue)])
+        self = reply["event"]?.stringValue.flatMap(Self.init(rawValue:)) ?? .message
     }
 }
