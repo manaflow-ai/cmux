@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46102111852",
+  "recorded_at": "2026-11-28T03:55:05Z",
+  "reason": "image inputs changed in e6880ec5dabefae5fcf514e8f4e0d0f5dfaa400b..8a6759e9f43becd426a0a644dff2d736cb86f1df; cmux-tui d92f892154f3, the newest build published on HEAD (pinned 589544f1e56b; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "d92f892154f3c299e9356860665ba3b411c38ae9",
+  "fixes": [
+    {
+      "sha": "8a6759e9f43becd426a0a644dff2d736cb86f1df",
+      "mergedAt": "2026-11-28T03:17:02+00:00",
+      "subject": "image roll: pin a machine build with one source line, so promote's lock matches the bake's (#63834)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T03:55:05Z",
+    "snapshot_id": "sh-c008aa80f2a7406eb19cbe0946042f40",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46102111852): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "aa3ccc1e4db2c079dec60639016e9a5f5d6a77ab",
+    "image": "cloud-native-auto-d92f8921-46102111852-1",
+    "revision": "ci-46102111852-1",
+    "at": "2026-11-28T03:55:05Z"
+  },
+  "rolled_back": false
+}
