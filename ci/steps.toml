@@ -3719,6 +3719,71 @@ python3 -I tests/test_ci_daemon_pr_member_steps.py
 scripts/ci/cmux-next-member-tests.sh crates/cmux-tui it idle_wakeups::cmux_next_
 '''
 
+# cmux-tui-spec.yml's `clippy (changed cmux-tui packages)` (cmux-tui-clippy-changed.py), on the landing head. A pull
+# request's head runs it in the fleet (cmux-required-checks, against the base that head saw), and a feat-cmux-next pull
+# request skips the workflow's own job (Tier B); its next run was the post-merge batch. So a change that compiled on its
+# own base and not on the base it merged into turned feat-cmux-next red: 11-21..27, 16 of the 63 compile-or-lint-slip
+# base-red fixes were the cmux-tui workspace, and the compile ones were merge races: #38502's scroll_stress test still
+# passed the bare UnixStream #54423 had boxed (fix #58983), #55736's test called kept_open with the argument count
+# #55583 changed (#56292, #56403), #48844 added a TransferSource arm #51551/#51917's matches lacked (#52503), #56697
+# changed open_kept (#56980), and the CapacityFallback field 4b997674 added (#63023).
+# land_gate: it runs on the landing head (the head merged onto the live base) of a change to a workspace member's
+# Rust sources or manifests, every input kept. The same script and verdict as the required check: only a compile
+# error, a failed `cargo metadata` or a stale lockfile fails (lints are warnings, Leo, 2026-11-20: "WHY IS LINT EVEN
+# STOPPING SHIT INSTEAD OF JUST BEING OOPS"), on the packages the change touches and their dependents, from the
+# base's clippy seed (scripts/ci/clippy-base-seed.sh). No panic ratchet: the PR head's run judged it, and a merge
+# race moves no panic site. Cost: the fleet's clippy pass, 500 s median from 20 sampled steps
+# (scripts/measure/ci140-fleet-required), on landing heads that touch these inputs only. The post-merge batch keeps
+# cmux-tui-spec.yml's own job, so this step passes there without linting.
+[step.cmux-tui-clippy-landing]
+job = "linux"
+tier = "push"
+land_gate = true
+alone = true
+timeout = 1800
+title = "cmux-tui clippy on the landing head (changed packages)"
+about = "the cmux-tui workspace packages the change touches, and their dependents, compile with every target (cargo clippy --all-targets) on the head merged onto the live base"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "cmux-tui/clippy.toml",
+  ".cargo/config.toml",
+  "cmux-tui/src/**",
+  "cmux-tui/tests/**",
+  "cmux-tui/crates/**/*.rs",
+  "cmux-tui/crates/**/Cargo.toml",
+  "cmux-tui/bindings/**/*.rs",
+  "cmux-tui/bindings/**/Cargo.toml",
+  ".github/scripts/cmux-tui-clippy-changed.py",
+  ".github/scripts/cmux-tui-fmt-changed.py",
+  "scripts/ci/clippy-base-seed.sh",
+]
+ignore = [
+  # Not workspace members (cmux-tui/Cargo.toml `exclude`): rust-workspaces.yml lints them.
+  "cmux-tui/crates/cmux-rd-host/**",
+  "cmux-tui/crates/cmux-codecs/**",
+  "cmux-tui/crates/acpmux-hot/guest/**",
+]
+run = '''
+if [ "${GITHUB_EVENT_NAME:-}" != pull_request ]; then
+  echo "not a pull request: cmux-tui-spec.yml's own clippy job lints this commit"
+  exit 0
+fi
+# The merge commit's first parent is the live base the head was merged onto; a head with no merge lints the whole
+# workspace (the script's rule for no base).
+base="$(git rev-parse -q --verify 'HEAD^2' >/dev/null && git rev-parse 'HEAD^1' || true)"
+export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline CARGO_INCREMENTAL=0
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120
+unset CMUX_ZIG ZIG
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/.build/cmux-tui-clippy-target}"
+bash scripts/ci/clippy-base-seed.sh restore "$CARGO_TARGET_DIR"
+python3 .github/scripts/cmux-tui-clippy-changed.py --repo "$PWD" --base "$base"
+'''
+
 # cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
 # tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
