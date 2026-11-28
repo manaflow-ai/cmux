@@ -294,8 +294,23 @@ def tree(rows, roots):
     return seen
 
 
+def split_exe(argv: str) -> list:
+    """`argv` as words, the executable first. `ps` joins argv with spaces, so a path under a folder with one
+    (`~/Library/Application Support/...`) spans several words: from each word that starts with `/`, the
+    shortest run of words that names a file is one word (the executable, or a script `node` runs). A path
+    that names no file (a process gone) stays as it was split."""
+    toks, out, i = argv.split(), [], 0
+    while i < len(toks):
+        took = 1
+        if toks[i].startswith("/") and not os.path.isfile(toks[i]):
+            took = next((j - i for j in range(i + 2, len(toks) + 1) if os.path.isfile(" ".join(toks[i:j]))), 1)
+        out.append(" ".join(toks[i:i + took]))
+        i += took
+    return out
+
+
 def kind_of(argv: str) -> str:
-    toks = argv.split()
+    toks = split_exe(argv)
     base = os.path.basename(toks[0]) if toks else "?"
     rest = toks[1:]
     if "__agent-host" in rest:
@@ -468,7 +483,7 @@ def emit_raw(harness, n, snap, stop_at):
             if not r:
                 chain.append(f"{cur}(gone)")
                 break
-            toks = r[3].split()
+            toks = split_exe(r[3])
             label = os.path.basename(toks[0]) + (" " + toks[1] if len(toks) > 1 and not toks[1].startswith("-") else "")
             chain.append(f"{cur}({label})")
             if cur <= 1 or cur == stop_at:
