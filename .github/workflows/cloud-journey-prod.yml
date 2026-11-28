@@ -180,6 +180,13 @@ jobs:
           # journey-production reads it): the repository's CLAUDE_CODE_OAUTH_TOKEN is shared with claude.yml and
           # its weekly limit turned the real leg into skips (run 44649399953). Falls back while it is not set.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
+          # The login pool (scripts/cmux-next/claude-login-pool.ts): CMUX_JOURNEY_CLAUDE_OAUTH_POOL is one setup-token per
+          # line, asked first; then the login above, then the repository's. The run takes the first slot with quota
+          # (one max_tokens 1 request each, before any machine) and writes only the slot index to probe.json; with
+          # every slot spent the run falls back to team mode (no login copied, the team's model route, login_kind=team
+          # in probe.json); a team with no route there reads as an infra skip in NOW. Unset: the login above alone.
+          CMUX_JOURNEY_CLAUDE_OAUTH_POOL: ${{ matrix.agent == 'claude' && matrix.model == 'real' && secrets.CMUX_JOURNEY_CLAUDE_OAUTH_POOL || '' }}
+          CLAUDE_CODE_OAUTH_TOKEN_FALLBACK: ${{ matrix.agent == 'claude' && matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           AGENT: ${{ matrix.agent }}
           MODEL: ${{ matrix.model }}

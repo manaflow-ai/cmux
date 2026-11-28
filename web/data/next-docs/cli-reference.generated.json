@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 918,
-    "mcp": 833
+    "verbs": 919,
+    "mcp": 834
   },
   "nouns": [
     {
@@ -115,6 +115,13 @@
           "id": "agentPane.copyCwdPath",
           "mcp": true,
           "mcpTool": "app_agent_copy_cwd_path"
+        },
+        {
+          "command": "cmux agent deliver-secrets",
+          "title": "Give Secrets to This Chat…",
+          "id": "agentPane.deliverSecrets",
+          "mcp": true,
+          "mcpTool": "app_agent_deliver_secrets"
         },
         {
           "command": "cmux agent edit-instructions",

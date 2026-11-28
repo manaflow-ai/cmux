@@ -83,6 +83,21 @@ class RelevanceIndexTest(unittest.TestCase):
             bad = [p for p in paths if not same(self.index.match(p), self.scan.match(p))]
             self.assertFalse(bad[:10], f"seed {seed}: the prefix index and the scan disagree")
 
+    def test_matcher_and_suffix_agree_with_the_regex(self):
+        """The index's shortcuts (a bare path matched by prefix, a literal-suffix compare before the regex) against
+        pattern_of's regex, on globs and paths drawn from the characters that decide them: `**/` matching nothing,
+        `[` taken literally, a bare folder against its sibling `a/bc`."""
+        rng = random.Random(11)
+        globs = ["**/Cargo.toml", "a/b", "a/b/", "**/*.rs", "a/*/c", "x[1]", "a/**", "?b", "**"]
+        globs += ["".join(rng.choice(["a", "b", "/", "*", "**", "?", ".rs", "[", "**/", "Cargo.toml"])
+                          for _ in range(rng.randint(1, 5))) for _ in range(600)]
+        paths = ["Cargo.toml", "a/Cargo.toml", "x.rs", "a/b", "a/bc", "a/b/c", "x[1]", "ab"]
+        paths += ["".join(rng.choice(["a", "b", "/", "x", ".rs", "Cargo.toml", "[", "."])
+                          for _ in range(rng.randint(1, 6))) for _ in range(300)]
+        bad = [(g, p) for g in globs for p in paths
+               if bool(re.match(rel.pattern_of(g), p)) != (p.endswith(rel.literal_suffix(g)) and bool(rel.matcher(g).match(p)))]
+        self.assertFalse(bad[:10], "the index's matcher or suffix compare disagrees with the glob's regex")
+
     def test_specificity_and_bare_paths(self):
         rules = rel.parse('''
 [[area]]
@@ -254,6 +269,24 @@ class RelevanceMapFileTest(unittest.TestCase):
         if (ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar").is_dir():
             self.assertEqual(index.match("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/x.swift").unit.name,
                              "swift:CmuxNextSidebar")
+
+    def test_every_tracked_file_is_mapped(self):
+        # Advisory job 141105799487 (run 46185961880): "default:cmux-next-ios has no mapping"; repo-wide 4,441 of
+        # 78,494 tracked files fell back to a default (cmux-next-ios 2,935, Resources 690, ios 216, art 179, ...).
+        # Every top-level folder now has second-level units and a top-level unit, and repo-root files have one.
+        index = rel.load()
+        unmapped = [f for f in tracked() if not index.match(f).mapped]
+        self.assertEqual(unmapped[:20], [], f"{len(unmapped)} tracked files fall back to a default")
+        self.assertEqual(index.match("README.md").unit.name, "(repo root)")
+        if any(f.startswith("cmux-next-ios/verify/") for f in tracked()):
+            self.assertEqual(index.match("cmux-next-ios/verify/ACCEPTANCE.md").unit.name, "cmux-next-ios:verify")
+
+    def test_units_do_not_depend_on_a_sparse_checkout(self):
+        # A folder hidden by a sparse checkout (cmux-next-ios/verify/ on lane checkouts) still gets its unit: the
+        # folder list comes from git ls-files, not the disk.
+        units = rel.generate_units(ROOT, ["zz-not-on-disk/sub/a.txt", "zz-not-on-disk/b.txt", "root.txt"])
+        names = {u["name"] for u in units}
+        self.assertLessEqual({"zz-not-on-disk:sub", "zz-not-on-disk:(top level)", "(repo root)"}, names)
 
     def test_a_crate_routes_its_direct_dependents_tests(self):
         # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
@@ -428,6 +461,83 @@ class ForPathsCliTest(unittest.TestCase):
         self.assertIn("docs/benches/templates/bridge.md", got.stdout)
         self.assertIn("cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", got.stdout)
 
+
+
+class AreaOwnsReds(unittest.TestCase):
+    """shadow-leo push 3 (ask c-5ad71ec59c): nightly and probe reds resolve to an area, and an area can carry a
+    count budget (`checks`) that fails the PR job when a count is over."""
+
+    MAP = """
+[[area]]
+name = "pane"
+paths = ["p"]
+benches = ["local-start-matrix-nightly"]
+probes = ["local-chat-replies-nightly"]
+goals = ["local-chat-replies"]
+[[area]]
+name = "ci"
+paths = ["ci"]
+nightly = ["nightly-next-one"]
+checks = ["exit 0"]
+"""
+
+    def test_probe_goal_nightly_and_bench_each_name_their_area(self):
+        rules = rel.parse(self.MAP)
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "local-chat-replies-nightly")],
+                         [("pane", "probe")])
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "local-chat-replies")], ["pane"])
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "nightly-next-one / cmux-tui tree")],
+                         [("ci", "nightly")])
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "local-start-matrix-nightly")],
+                         [("pane", "bench")])
+        self.assertEqual(rel.area_for(rules, "no-such-probe"), [])
+
+    def test_a_non_list_owner_key_is_a_map_error(self):
+        for key in ("checks", "probes", "goals", "nightly"):
+            with self.assertRaises(rel.MapError, msg=key):
+                rel.parse(f'[[area]]\nname = "a"\npaths = ["p"]\n{key} = "x"\n')
+
+    def test_the_real_map_names_the_local_chat_probe_and_the_nightly_build(self):
+        rules = rel.load_rules(rel.MAP, None)
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "local-chat-replies-nightly")],
+                         ["Agent pane transport (daemon → pane)"])
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "nightly-reliability")],
+                         ["CI pipeline and workflows"])
+        page = [r for r in rules if r.name == "Sidebar chats page (web)"]
+        self.assertEqual(len(page), 1)
+        self.assertTrue(page[0].checks, "the sidebar chats page carries a count budget")
+
+    def test_checks_fail_red_on_exit_and_warn_on_a_missing_tool(self):
+        plan = {"areas": [{"name": "a", "checks": ["exit 0", "exit 3", "no-such-tool-xyz"]},
+                          {"name": "b", "checks": ["exit 0"]}]}
+        got = {r["cmd"]: (r["status"], r["areas"]) for r in rel.run_checks(plan, timeout=10)}
+        self.assertEqual(got, {"exit 0": (rel.OK, ["a", "b"]), "exit 3": (rel.FAILED, ["a"]),
+                               "no-such-tool-xyz": (rel.MISSING, ["a"])})
+
+    def run_cli(self, *args, map_text=None):
+        cmd = [sys.executable, "-I", str(CLI), *args]
+        if map_text is not None:
+            tmp = Path(tempfile.mkdtemp()) / "map.toml"
+            tmp.write_text(map_text)
+            cmd += ["--map", str(tmp)]
+        return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=60)
+
+    def test_area_for_cli_exits_1_on_an_unknown_name(self):
+        got = self.run_cli("area-for", "--json", "local-chat-replies-nightly", map_text=self.MAP)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn('"area": "pane"', got.stdout)
+        got = self.run_cli("area-for", "local-chat-replies-nightly", "nope", map_text=self.MAP)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("nope: no area", got.stdout)
+
+    def test_for_paths_checks_is_red_when_a_count_is_over(self):
+        over = self.MAP.replace('checks = ["exit 0"]', 'checks = ["echo drew 2 rows, budget 1; exit 1"]')
+        got = self.run_cli("for-paths", "--checks", "ci/x", map_text=over)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("count budget failed", got.stderr)
+        self.assertIn("drew 2 rows", got.stderr)
+        got = self.run_cli("for-paths", "--checks", "ci/x", map_text=self.MAP)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
 
 
 def old_literal_prefix(glob: str) -> str:

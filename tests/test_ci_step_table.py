@@ -42,6 +42,26 @@ import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
+class VmImagePinsLandGateTest(unittest.TestCase):
+    """A change a web test reads runs that test on its landing head (vm-image-pins, land_gate). 11-28: #64653,
+    #64833 and #63946 landed with every web check skipped, and vm-image-manifest / vm-image-cmux-vm-lock went red in
+    the post-merge batch (fixed forward by #65143, #65271)."""
+
+    CULPRITS = {
+        "#64653": ["web/scripts/build-devbox-freestyle.ts", "web/scripts/devbox-image-common.ts",
+                   "web/tests/vm-devbox-rebake.test.ts"],
+        "#64833": ["cmux-tui/crates/cmux-host/src/linux/mod.rs", "web/services/vms/images/devbox/cmux-devbox-boot",
+                   "web/tests/vm-devbox-identity.test.ts"],
+        "#63946": ["cmux-tui/crates/cmux-rd-host/Cargo.toml"],
+    }
+
+    def test_each_culprit_routes_it_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("vm-image-pins", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+
 class GuardStepsReachedTest(unittest.TestCase):
     """A workflow or guard-script change runs the ci-guards.yml steps it reaches on its landing head
     (guard-steps-reached, land_gate). 11-28: #63625, #63940, #64168 and #64245 merged green with every
@@ -78,6 +98,88 @@ class GuardStepsReachedTest(unittest.TestCase):
             if step.job == "linux" and step.blocks and step.pr_scope and not step.nightly and not step.land_gate:
                 with self.subTest(step=step.name):
                     self.assertNotIn(".github/workflows/**", step.inputs)
+
+
+class EgressScanGuardsTest(unittest.TestCase):
+    """A product change that adds an outbound host or egress site runs the privacy and egress registry tests on its
+    landing head (egress-scan-guards, land_gate). 11-21..11-28: 5 fix-forwards (#57217, #58104, #58409, #59244,
+    #57325) after Swift and Rust changes merged green with the ci-guards.yml `ci` group never run on their PR."""
+
+    CULPRITS = {
+        "#58409": ["cmux-tui/crates/cmux-no-checkout/src/github.rs"],
+        "#57325": ["cmux-tui/crates/cmux-autocloud/src/login.rs",
+                   "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct.rs"],
+        "#58104": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/EmailSignIn.swift"],
+        "#59244": ["Packages/Shared/CmuxEgress/Sources/CmuxEgress/EgressHosts.swift"],
+        "webviews": ["webviews/src/app.ts"],
+        "registry": ["docs/privacy.md"],
+    }
+
+    def test_each_culprit_routes_it_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+                self.assertIn("egress-scan-guards", ci_steps.route(t, paths, pr_scope=True, tier="pr")["linux"])
+
+    def test_the_runner_runs_every_registry_test_through_new_red_only(self) -> None:
+        text = (ROOT / "scripts" / "ci" / "egress_scan_guards.sh").read_text()
+        self.assertIn("new_red_only.sh", text)
+        for name in ("test_outbound_hosts", "test_network_allowlist", "test_egress_gate", "test_egress_seeded"):
+            with self.subTest(test=name):
+                self.assertIn(name, text)
+                self.assertTrue((ROOT / "tests" / f"{name}.py").is_file())
+
+    def test_an_unrelated_change_does_not_route_it(self) -> None:
+        t = ci_steps.load()
+        self.assertNotIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, ["docs/handbook/x.md", "ci/README.md"]))
+
+
+class RegistryRowGuardsTest(unittest.TestCase):
+    """A change that adds a registry row's source without its row runs the row's guard on its landing head
+    (registry-row-missing class, land_gate). 11-21 to 11-28: four selector-table reds (culprit e06d1661da88, a
+    Sources-only change; cmux-next-crash-class's `**` Sources input drops under --pr-scope) and four settings-export
+    reds (#51725, #54442; settings-published-keys was push tier and named no Swift settings source)."""
+
+    CULPRITS = {
+        "objc-selector-table": {
+            "e06d1661da88": [
+                "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonLook.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonView.swift",
+            ],
+        },
+        "settings-published-keys": {
+            "#51725": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+                       "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations/SettingsAgentTools.swift",
+                       "schemas/settings/source/agent-defaults.json"],
+            "#54442": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"],
+            "#52837": ["schemas/settings/published-keys.txt"],
+        },
+    }
+
+    def test_each_culprit_routes_its_row_guard_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for step, culprits in self.CULPRITS.items():
+            self.assertTrue(t.steps[step].land_gate, step)
+            self.assertTrue(t.steps[step].blocks, step)
+            for culprit, paths in culprits.items():
+                with self.subTest(step=step, culprit=culprit):
+                    self.assertIn(step, ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+    def test_a_product_change_does_not_route_them(self) -> None:
+        t = ci_steps.load()
+        routed = ci_steps.nightly_gate_steps(t, ["webviews/src/app.ts", "cmux-tui/crates/x/src/lib.rs"], ["linux"])
+        for step in self.CULPRITS:
+            self.assertNotIn(step, routed)
+
+    def test_each_wraps_its_check_in_new_red_only(self) -> None:
+        t = ci_steps.load()
+        for step in self.CULPRITS:
+            with self.subTest(step=step):
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].run)
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].inputs)
 
 
 class SwiftTestCompileGateTest(unittest.TestCase):
@@ -279,7 +381,7 @@ class NightlyGateTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
                 # The land_gate steps a path also routes run beside the nightly's (next-state-roots scans
-                # scripts/cmux-next/*.sh for Classic ids; cmux-next-idle-wakeups reads Cargo.lock, cmux#63822): only
+                # scripts/cmux-next/*.sh for Classic ids): only
                 # the steps with a nightly twin are the nightly's causes.
                 self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
                                   if steps[n].nightly], [name])
@@ -307,8 +409,8 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        # Cargo.lock also reaches the idle daemon tests (cmux-next-idle-wakeups, a land_gate step).
-        self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
+        # The idle daemon tests (cmux-next-idle-wakeups) read Cargo.lock but are tier B since 2026-11-28: post-merge.
+        self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
@@ -390,12 +492,14 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                # A crate's Rust source also reaches the persisted-formats registry, next-state-roots and the
-                # spawn-owner ratchet (#64665) (land_gate steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches
-                # the idle daemon tests.
+                # A crate's Rust source also reaches the persisted-formats registry and next-state-roots (land_gate
+                # steps on every cmux-tui/crates/*/src .rs). The idle daemon tests read Cargo.lock but are tier B: post-merge.
+                # The .rs also reaches the privacy and egress registries (egress-scan-guards) and the spawn-owner
+                # ratchet (next-spawn-owner-ratchet), both land_gate.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
-                                ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "phone-speed-icount"],
-                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
+                                ["egress-scan-guards", "persisted-formats", "next-state-roots",
+                                 "next-spawn-owner-ratchet", "phone-speed-icount"],
+                            "cmux-tui/Cargo.lock": ["rust-notices", "phone-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
 
@@ -450,6 +554,11 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
 PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser", "ios", "mac")
 PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 PIPELINE_LABEL_GUARD = '!(github.event_name == \'pull_request\' && github.event.pull_request.base.ref == \'feat-cmux-next\' && (github.event.action == \'labeled\' || github.event.action == \'unlabeled\') && !contains(fromJSON(\'["full-ci","ready-to-land"]\'), github.event.label.name))'
+# The linux job's heavy-at-land switch (CI_PR_LINUX_AT_LAND=1): a ready-to-land head runs it only on the event that
+# adds the label. Unset, the expression reads as PIPELINE_LAND_TIER.
+PIPELINE_LINUX_LAND_TIER = PIPELINE_LAND_TIER.replace(
+    "contains(github.event.pull_request.labels.*.name, 'ready-to-land') ||",
+    "(contains(github.event.pull_request.labels.*.name, 'ready-to-land') && (format('{0}', vars.CI_PR_LINUX_AT_LAND) != '1' || (github.event.action == 'labeled' && github.event.label.name == 'ready-to-land'))) ||", 1)
 
 class TableRulesTest(unittest.TestCase):
     def test_the_repository_table_loads(self) -> None:
@@ -1298,7 +1407,7 @@ class SetupTest(unittest.TestCase):
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
         # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item"}  # #62594: the per-PR memory A/B
+        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item", "vm-image-pins"}  # #62594: the per-PR memory A/B; vm-image-pins: a land_gate (cmux#65143)
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
@@ -1640,7 +1749,8 @@ class PipelineTest(unittest.TestCase):
                 if name in PIPELINE_LAND_TIER_JOBS:
                     # The land tier (#54886's condition and label guard): runs only at the head handed to land.
                     deferred = "!inputs.defer_web_browser && " if name == "web-browser" else ""
-                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
+                    tier = PIPELINE_LINUX_LAND_TIER if name == "linux" else PIPELINE_LAND_TIER
+                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {tier} && {PIPELINE_LABEL_GUARD} }}}}")
                 else:
                     self.assertEqual(job["if"], f"${{{{ {routed} }}}}")
                 runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
@@ -2021,7 +2131,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "web-lint-hook-tests", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
-                     "web-tests-4", "web-tests-affected", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
+                     "web-tests-4", "web-tests-affected", "vm-image-pins", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
                       "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
@@ -2049,7 +2159,7 @@ class PipelineTest(unittest.TestCase):
             wf["jobs"]["linux"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
-            "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+            "'cmux-linux' }}")
 
     def test_the_shim_step_runs_every_cpp_script(self) -> None:
         run = ci_steps.load().steps["shim-cpp"].run
@@ -3007,6 +3117,58 @@ class CrateResults(unittest.TestCase):
         self.assertLess(run.index("crate_results.py plan"), run.index("rustup toolchain install"),
                         "a step whose crates all hit installs and compiles nothing")
         self.assertIn("scripts/ci/crate_results.py", ci_steps.load().steps[crate_results.STEP].inputs)
+
+
+class FailFastTest(unittest.TestCase):
+    """--fail-fast (CI_RUN_FAIL_FAST=1, pr-pipeline.yml's linux job): a blocking red stops further steps from
+    starting (Leo: "de facto, im asking for 99% fewer minutes of ci time, period."; 253 of 493 linux runs red,
+    3835 of 6006 runner-min, 11-28 17-20Z)."""
+
+    def run_it(self, fail_fast: bool, red_blocks: bool = True, alone_on_red: bool = False):
+        steps = {
+            "cheap-red": ci_steps.Step(name="cheap-red", job="linux", run="exit 3", timeout=10, reuse=False,
+                                       blocks=red_blocks),
+            "heavy": ci_steps.Step(name="heavy", job="linux", run="touch ran-heavy", timeout=900, reuse=False),
+        }
+        tbl = ci_steps.Table(jobs={"linux": "x"}, steps=steps, setup={})
+        with tempfile.TemporaryDirectory() as d:
+            out = io.StringIO()
+            old = os.getcwd()
+            os.chdir(d)
+            try:
+                with mock.patch.object(ci_steps, "route", return_value={"linux": ["heavy", "cheap-red"]}):
+                    code = ci_steps.run_job(tbl, "linux", None, out=out, workers=1, fail_fast=fail_fast,
+                                            alone_on_red=alone_on_red)
+                ran = os.path.exists("ran-heavy")
+            finally:
+                os.chdir(old)
+        return code, out.getvalue(), ran
+
+    def test_a_red_stops_the_steps_not_yet_started_and_cheap_ones_go_first(self) -> None:
+        code, out, ran = self.run_it(True)
+        self.assertEqual(code, 1, out)
+        self.assertFalse(ran, out)
+        self.assertIn("step heavy skipped: blocking step cheap-red failed (fail-fast)", out)
+
+    def test_off_runs_every_step(self) -> None:
+        code, out, ran = self.run_it(False)
+        self.assertEqual(code, 1, out)
+        self.assertTrue(ran, out)
+
+    def test_an_advisory_red_does_not_stop_the_rest(self) -> None:
+        code, out, ran = self.run_it(True, red_blocks=False)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(ran, out)
+
+    def test_the_post_merge_batch_runs_everything(self) -> None:
+        code, out, ran = self.run_it(True, alone_on_red=True)
+        self.assertTrue(ran, out)
+
+    def test_the_linux_job_turns_it_on_with_an_off_switch(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-pipeline.yml").read_text(encoding="utf-8")
+        self.assertIn("CI_RUN_FAIL_FAST:", text)
+        self.assertIn("vars.CI_PR_PIPELINE_LINUX_FAIL_FAST", text)
+        self.assertIn("steps.tooling-tests-base-red.outputs.base_red != 'true'", text)
 
 
 if __name__ == "__main__":

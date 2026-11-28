@@ -2,7 +2,7 @@
 // Claim checks (design/claim-checks.md): one reply per fixture turn, drawn in each of the three looks.
 import { componentEntry } from "../../../gallery/format";
 import type { ClaimCheck } from "../model";
-import { ClaimLookContext, type ClaimLook } from "./ClaimMark";
+import { ClaimLookContext, type ClaimLook } from "./claimLookContext";
 import { Markdown } from "./Markdown";
 import { TurnActionsContext } from "./turnActions";
 

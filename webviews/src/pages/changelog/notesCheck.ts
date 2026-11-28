@@ -163,7 +163,18 @@ export function checkNightlyNotes(notes: ReleaseNotes, previous: ReleaseNotes[],
       true,
     ),
   ];
-  return defects.filter((d, i) => defects.findIndex((o) => o.where === d.where && same(o, d)) === i);
+  return dedupeDefects(defects);
+}
+
+/** Each defect once, the first of its (where, kind, text) kept, in order. One Map index of first
+    positions replaces a findIndex scan per defect (quadratic in the defect count). */
+export function dedupeDefects(defects: readonly NotesDefect[]): NotesDefect[] {
+  const first = new Map<string, number>();
+  defects.forEach((d, i) => {
+    const key = `${d.where}\0${d.kind}\0${d.text}`;
+    if (!first.has(key)) first.set(key, i);
+  });
+  return defects.filter((d, i) => first.get(`${d.where}\0${d.kind}\0${d.text}`) === i);
 }
 
 const LABELS: Record<DefectKind, string> = {

@@ -182,6 +182,41 @@ class FetchRunsRetryTest(unittest.TestCase):
                            reset_wait_max=mop.RESET_WAIT_MAX_S)
         self.assertEqual(slept, [5, 20, 60, 65])
 
+    def test_spent_quota_switches_to_the_other_token_at_once(self):
+        # Run 46185856595: the workflow token's quota spent, no cached list, the reset over 20 min away.
+        import io
+        sent, slept = [], []
+        def opener(req, timeout):
+            sent.append(req.get_header("Authorization"))
+            if len(sent) == 1:
+                raise self._err(403, reset=1000 + 3000)
+            return io.BytesIO(b'{"workflow_runs":[{"id":3}]}')
+        got = mop.fetch_runs("o/r", "app", opener=opener, sleep=slept.append, now=lambda: 1000,
+                             reset_wait_max=mop.RESET_WAIT_MAX_S, fallback_token="wf")
+        self.assertEqual(got, [{"id": 3}])
+        self.assertEqual(sent, ["Bearer app", "Bearer wf"])
+        self.assertEqual(slept, [])
+
+    def test_both_tokens_spent_still_retries_then_fails(self):
+        slept, sent = [], []
+        def opener(req, timeout):
+            sent.append(req.get_header("Authorization"))
+            raise self._err(403, reset=1000 + 3000)
+        with self.assertRaises(SystemExit):
+            mop.fetch_runs("o/r", "app", opener=opener, sleep=slept.append, now=lambda: 1000,
+                           reset_wait_max=mop.RESET_WAIT_MAX_S, fallback_token="wf")
+        self.assertEqual(sent[:2], ["Bearer app", "Bearer wf"])
+        self.assertEqual(slept, [5, 20, 60])
+
+    def test_resolve_hands_the_fallback_token_on(self):
+        seen = []
+        def fetch(repo, token, *, reset_wait_max=0, fallback_token=""):
+            seen.append((token, fallback_token))
+            return ResolveCacheTest.RUNS
+        with tempfile.TemporaryDirectory() as d:
+            mop.resolve("o/r", "app", 3, Path(d) / "p.txt", fetch=fetch, fallback_token="wf")
+        self.assertEqual(seen, [("app", "wf")])
+
 class ResolveCacheTest(unittest.TestCase):
     # Runs 46116606886 and 46125947911 died at resolve: "API rate limit exceeded for installation".
     RUNS = [{"id": 9, "conclusion": "success", "created_at": "2026-11-28T05:17:48Z",

@@ -394,6 +394,26 @@ def classify_paths(files):
     return result
 
 
+def blobs(repo, specs):
+    """`REV:PATH` -> its text (None when missing), read with one `git cat-file --batch`."""
+    if not specs:
+        return {}
+    out = subprocess.run(["git", "-C", repo, "cat-file", "--batch"], input="\n".join(specs).encode() + b"\n",
+                         check=True, capture_output=True).stdout
+    texts, at = {}, 0
+    for spec in specs:
+        end = out.index(b"\n", at)
+        header = out[at:end].split()
+        at = end + 1
+        if len(header) != 3 or header[1] == b"missing":
+            texts[spec] = None
+            continue
+        size = int(header[2])
+        texts[spec] = out[at:at + size].decode("utf-8", "replace")
+        at += size + 1
+    return texts
+
+
 def classify_range(repo, base, head):
     def git(*args):
         return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True,
@@ -402,33 +422,42 @@ def classify_range(repo, base, head):
     swift = [p for s, p in files if p.endswith(".swift") and s != "D"]
     diffs = parse_diff(git("diff", "-U0", "--no-renames", base, head, "--", *swift), numbered=True) if swift else {}
     changed = {p for s, p in files if s == "M" and p in diffs}
+    olds = [p for s, p in files if p.endswith(".swift") and s in ("M", "D")]
+    # Every file side in one `git cat-file --batch`, not a `git show` each: a range far behind its base has
+    # hundreds of Swift files.
+    texts = blobs(repo, [f"{base}:{p}" for p in olds] + [f"{head}:{p}" for p in sorted(changed)])
     before, old_types = {}, set()
-    for path in [p for s, p in files if p.endswith(".swift") and s in ("M", "D")]:
-        try:
-            before[path] = git("show", f"{base}:{path}")
-        except subprocess.CalledProcessError:
+    for path in olds:
+        if texts.get(f"{base}:{path}") is None:
             continue
+        before[path] = texts[f"{base}:{path}"]
         old_types |= type_paths(before[path])
     for path, lines in diffs.items():
         kinds = None
-        if path in changed and path in before:
-            try:
-                kinds = line_kinds(before[path], git("show", f"{head}:{path}"), old_types)
-            except subprocess.CalledProcessError:
-                pass
+        after = texts.get(f"{head}:{path}")
+        if path in changed and path in before and after is not None:
+            kinds = line_kinds(before[path], after, old_types)
         diffs[path] = with_kinds(lines, kinds)
 
-    seen = {}
+    # One word-match grep for every name `confined` is asked about, not one per name: a range far behind its base
+    # asks hundreds, about 1 s each, and hot-verify's plan step has 120 s. A dry classify collects them (it asks
+    # every candidate whatever the answers are), then the real one reads the answers.
+    names = []
+    classify(files, diffs, lambda name: names.append(name) and False)
+    users = {name: set() for name in names}
+    if users:
+        out = subprocess.run(["git", "-C", repo, "grep", "-z", "-o", "-w", "-F", "-f", "-", head, "--", "*.swift"],
+                             input="\n".join(users), capture_output=True, text=True, errors="replace").stdout
+        for hit in out.splitlines():
+            where, _, word = hit.partition("\0")
+            if word in users:
+                users[word].add(where.split(":", 1)[1])
 
     def confined(name):
         """Whether every Swift file that names `name` at `head` (a word match, app code and packages, tests aside)
         is one this change patches (modified): then every caller of its old signature is replaced too."""
-        if name not in seen:
-            hits = subprocess.run(["git", "-C", repo, "grep", "-lw", name, head, "--", "*.swift"],
-                                  capture_output=True, text=True).stdout.split()
-            paths = {hit.split(":", 1)[1] for hit in hits}
-            seen[name] = all(p in changed or "/Tests/" in p or p.startswith("Tests/") for p in paths)
-        return seen[name]
+        paths = users.get(name, set())
+        return all(p in changed or "/Tests/" in p or p.startswith("Tests/") for p in paths)
     return classify(files, diffs, confined)
 
 
