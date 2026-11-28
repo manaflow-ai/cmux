@@ -74,7 +74,7 @@ final class HostPressurePopoverView: NSView {
 
     /// `canStop`: whether its sessions are real (a forced level's samples get no Stop). `gauges`: the
     /// pressure gauges' look (`hostPressure.gauges`, RFD 0182 B10; off draws none).
-    func update(level: HostPressureLevel, verdict: HostBudgetVerdict?, canStop: Bool = true, gauges gaugeStyle: HostPressureGaugeStyle = .off) {
+    func update(level: HostPressureLevel, verdict: HostBudgetVerdict?, canStop: Bool = true, gauges gaugeStyle: HostPressureGaugeStyle = .off) { // fleet-only-ok: canStop is not a setting, gauges default off
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let title = level == .critical ? HostPressureStrings.criticalTitle : HostPressureStrings.warningTitle
         stack.addArrangedSubview(label(title, font: Typography.bodyEmphasized, ink: .primary))

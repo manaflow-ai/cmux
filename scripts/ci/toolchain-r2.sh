@@ -3,11 +3,13 @@
 #
 # The pinned Node, Bun and Rust toolchains, kept in the CI cache bucket (r2-cache.sh) so a Freestyle runner
 # installs them from the bucket instead of nodejs.org, github.com and static.rust-lang.org. Same shape as
-# zig-tarball-r2.sh.
+# zig-tarball-r2.sh. Node and Bun also restore on macOS (the nightly Macs), Rust on Linux only.
 #
 # Why: Freestyle runners read those hosts at about 0.3-1 MB/s. Over 24 h on 2026-11-23 the measured install
 # steps took (p50 / p90 s): Setup Node 190 / 697, Setup Bun 96 / 580, Set up pinned Rust 522 / 1357,
-# Set up pinned cmux-tui Rust 377 / 1445, about 14,000 runner minutes a day.
+# Set up pinned cmux-tui Rust 377 / 1445, about 14,000 runner minutes a day. On the self-hosted nightly Macs
+# github.com refuses setup-bun's anonymous release download outright (403, runs 45765712386 and 45756842046 on
+# 2026-11-26); their restore steps set TOOLCHAIN_R2_ALL=1 so setup-bun finds Bun in place and reads nothing.
 #
 # restore: runs only on a Freestyle runner (RUNNER_NAME fsr-*; TOOLCHAIN_R2_ALL=1 runs anywhere) that lacks
 #   the exact version, and puts it where the real installer looks first, so the installer then downloads
@@ -17,7 +19,9 @@
 #   report the pinned version. Every error is a miss and exits 0: the upstream installer still runs and
 #   still works.
 # seed: when the bucket has no copy, download from upstream (node and bun: checked against the pins file),
-#   and save with the bucket's write credentials. `seed all` seeds every pin of this runner's arch and Rust.
+#   and save with the bucket's write credentials. `seed all` seeds every Node and Bun pin, each into its own
+#   platform's namespace (macOS-ARM64 for a darwin-arm64 archive: verified bytes, nothing runs them, so the
+#   Linux seeder fills the Macs' keys too), and this runner's Rust.
 #
 # TOOLCHAIN_R2_URL is the bucket's public URL (default https://ci-cache-next.cmux.com under GitHub Actions;
 # empty turns it off).
@@ -95,26 +99,32 @@ if [[ "$mode" == restore ]]; then
   esac
 fi
 
-case "$(uname -s)" in Linux) ;; *) say "Linux only"; exit 0 ;; esac
+case "$(uname -s)" in
+  Linux) plat=linux ;;
+  Darwin) plat=darwin ;;
+  *) say "Linux and macOS only"; exit 0 ;;
+esac
 case "$(uname -m)" in
   x86_64) node_arch=x64 bun_arch=x64 triple=x86_64-unknown-linux-gnu ;;
   aarch64 | arm64) node_arch=arm64 bun_arch=aarch64 triple=aarch64-unknown-linux-gnu ;;
   *) say "unsupported arch $(uname -m)"; exit 0 ;;
 esac
+if [[ "$plat" == darwin && "$kind" == rust ]]; then say "Rust is Linux only"; exit 0; fi
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{ print $1 }'
   else shasum -a 256 "$1" | awk '{ print $1 }'; fi
 }
 pin_of() { awk -v f="$1" '$1 !~ /^#/ && $2 == f { print $1 }' "$pins"; }
-r2() { # restore|save DIR KEY
-  CI_CACHE_R2_PUBLIC_URL="$url" CI_CACHE_R2_NAMESPACE="$namespace" GITHUB_OUTPUT='' bash "$r2_cache" "$@"
+r2() { # NAMESPACE restore|save DIR KEY
+  local ns="$1"; shift
+  CI_CACHE_R2_PUBLIC_URL="$url" CI_CACHE_R2_NAMESPACE="$ns" GITHUB_OUTPUT='' bash "$r2_cache" "$@"
 }
-key_held() { # KEY
+key_held() { # NAMESPACE KEY
   local extension
   for extension in tar.zst tar.gz; do
     curl --fail --silent --head --location --connect-timeout 15 --max-time 60 \
-      "${url%/}/v1/$namespace/objects/$1.$extension" >/dev/null && return 0
+      "${url%/}/v1/$1/objects/$2.$extension" >/dev/null && return 0
   done
   return 1
 }
@@ -125,15 +135,27 @@ need_write() {
   done
 }
 
-archive_name() { # KIND VERSION
-  if [[ "$1" == node ]]; then echo "node-v$2-linux-$node_arch.tar.gz"; else echo "bun-v$2-linux-$bun_arch.zip"; fi
+archive_name() { # KIND VERSION: this runner's archive
+  if [[ "$1" == node ]]; then echo "node-v$2-$plat-$node_arch.tar.gz"; else echo "bun-v$2-$plat-$bun_arch.zip"; fi
 }
 archive_key() { # ARCHIVE-NAME -> key; the pin's prefix moves the key when the pin moves
   echo "toolchain-$1-$(pin_of "$1" | cut -c1-16)"
 }
-upstream_url() { # KIND VERSION
-  if [[ "$1" == node ]]; then echo "https://nodejs.org/dist/v$2/$(archive_name node "$2")"
-  else echo "https://github.com/oven-sh/bun/releases/download/bun-v$2/$(archive_name bun "$2" | sed 's/^bun-v[0-9.]*-/bun-/')"; fi
+archive_namespace() { # ARCHIVE-NAME -> the r2-cache.sh namespace (RUNNER_OS-RUNNER_ARCH) of the platform it is for
+  case "$1" in
+    *-linux-x64.*) echo Linux-X64 ;;
+    *-linux-arm64.* | *-linux-aarch64.*) echo Linux-ARM64 ;;
+    *-darwin-x64.*) echo macOS-X64 ;;
+    *-darwin-arm64.* | *-darwin-aarch64.*) echo macOS-ARM64 ;;
+    *) return 1 ;;
+  esac
+}
+upstream_url() { # ARCHIVE-NAME
+  local v="${1#*-v}"; v="${v%%-*}"
+  case "$1" in
+    node-v*) echo "https://nodejs.org/dist/v$v/$1" ;;
+    bun-v*) echo "https://github.com/oven-sh/bun/releases/download/bun-v$v/bun-${1#bun-v"$v"-}" ;;
+  esac
 }
 
 # Rust: the pinned channel, profile and components of the toolchain file.
@@ -172,7 +194,7 @@ restore_archive() { # NAME WORKDIR: fills WORKDIR/NAME with the bucket's copy wh
   local name="$1" work="$2" t0 got
   t0="$(date +%s)"
   mkdir -p "$work/get"
-  r2 restore "$work/get" "$(archive_key "$name")" >/dev/null 2>&1 || true
+  r2 "$(archive_namespace "$name")" restore "$work/get" "$(archive_key "$name")" >/dev/null 2>&1 || true
   if [[ ! -f "$work/get/$name" ]]; then say "no cached $name; the installer downloads it"; return 1; fi
   got="$(sha256_of "$work/get/$name")"
   if [[ "$got" != "$(pin_of "$name")" ]]; then say "the cached $name does not match its pin; discarded"; return 1; fi
@@ -211,7 +233,7 @@ restore_rust() {
   fi
   t0="$(date +%s)"
   work="$(mktemp -d)"; scratch+=("$work")
-  r2 restore "$work/get" "$rust_key" >/dev/null 2>&1 || true
+  r2 "$namespace" restore "$work/get" "$rust_key" >/dev/null 2>&1 || true
   if [[ ! -x "$work/get/toolchains/$rust_name/bin/rustc" ]]; then say "no cached $rust_key; rustup downloads it"; return 0; fi
   if [[ "$("$work/get/toolchains/$rust_name/bin/rustc" --version 2>/dev/null)" != "rustc $channel "* ]]; then
     say "the cached $rust_key does not run as Rust $channel; discarded"; return 0
@@ -234,24 +256,24 @@ restore_one() {
   case "$kind" in node) restore_node ;; bun) restore_bun ;; rust) restore_rust ;; esac
 }
 
-seed_archive() { # KIND VERSION
-  local name key work
-  name="$(archive_name "$1" "$2")"
+seed_archive() { # ARCHIVE-NAME
+  local name="$1" key work ns
   [[ -n "$(pin_of "$name")" ]] || { echo "toolchain-r2: no pin for $name" >&2; return 1; }
+  ns="$(archive_namespace "$name")" || { echo "toolchain-r2: no platform in $name" >&2; return 1; }
   key="$(archive_key "$name")"
-  if key_held "$key"; then say "the cache already holds $key"; return 0; fi
+  if key_held "$ns" "$key"; then say "the cache already holds $key"; return 0; fi
   work="$(mktemp -d)"; scratch+=("$work")
   mkdir -p "$work/dir"
-  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 900 -o "$work/dir/$name" "$(upstream_url "$1" "$2")"
+  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 900 -o "$work/dir/$name" "$(upstream_url "$name")"
   [[ "$(sha256_of "$work/dir/$name")" == "$(pin_of "$name")" ]] \
     || { echo "::error::toolchain-r2: $name does not match scripts/ci/toolchain-archives.sha256" >&2; return 1; }
-  r2 save "$work/dir" "$key"
+  r2 "$ns" save "$work/dir" "$key"
 }
 
 seed_rust() {
   local work
   rust_pin "${version:-}" || return 1
-  if key_held "$rust_key"; then say "the cache already holds $rust_key"; return 0; fi
+  if key_held "$namespace" "$rust_key"; then say "the cache already holds $rust_key"; return 0; fi
   work="$(mktemp -d)"; scratch+=("$work")
   mkdir -p "$work/cargo" "$work/rustup" "$work/dir/toolchains" "$work/dir/update-hashes" "$work/dir/cargo-bin"
   curl --proto '=https' --tlsv1.2 -sSf --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 -o "$work/rustup-init.sh" https://sh.rustup.rs
@@ -268,7 +290,7 @@ seed_rust() {
   for c in "$work"/cargo/bin/*; do
     [[ "$(basename "$c")" == rustup ]] || ln -s rustup "$work/dir/cargo-bin/$(basename "$c")"
   done
-  r2 save "$work/dir" "$rust_key"
+  r2 "$namespace" save "$work/dir" "$rust_key"
 }
 
 if [[ "$mode" == restore ]]; then
@@ -279,14 +301,13 @@ fi
 [[ -n "$url" ]] || { echo "toolchain-r2: seed needs TOOLCHAIN_R2_URL (the bucket's public URL)" >&2; exit 2; }
 need_write
 case "$kind" in
-  node | bun) seed_archive "$kind" "$version" ;;
+  node | bun) seed_archive "$(archive_name "$kind" "$version")" ;;
   rust) seed_rust ;;
   all)
     status=0
     while read -r _ name; do
       case "$name" in
-        node-v*-linux-"$node_arch".tar.gz) v="${name#node-v}"; seed_archive node "${v%%-linux-*}" || status=1 ;;
-        bun-v*-linux-"$bun_arch".zip) v="${name#bun-v}"; seed_archive bun "${v%%-linux-*}" || status=1 ;;
+        node-v*.tar.gz | bun-v*.zip) seed_archive "$name" || status=1 ;;
       esac
     done < <(grep -v '^#' "$pins")
     seed_rust || status=1
