@@ -51,4 +51,7 @@ public nonisolated struct SidebarSubagents: Hashable, Sendable {
 
     /// Nothing to draw: no listed subagent and none running.
     public var isEmpty: Bool { items.isEmpty && running == 0 }
+
+    /// Its failed listed subagents: the row's title line counts them on its failed mark.
+    public var failedCount: Int { items.filter { $0.state == .failed }.count }
 }

@@ -39,6 +39,10 @@ struct LinkSlot {
 pub(crate) struct HolderService {
     socket: PathBuf,
     token: [u8; 32],
+    /// The session's `<host root>/holder.token`, which the holder it starts
+    /// watches (`cmux_holder::TOKEN_FILE_ENV`): once it is gone, no daemon
+    /// can link that holder again, and it ends its terminals within minutes.
+    token_file: Option<PathBuf>,
     link: Mutex<LinkSlot>,
     /// Serializes connecting, launching and re-adopting. Its holder may
     /// take a surface's terminal lock (a re-adoption's prologue), so no
@@ -129,8 +133,10 @@ impl HolderService {
         if let Some(service) = services.get(host_root) {
             return Ok(service.clone());
         }
-        let service =
-            Arc::new(Self::new(socket_path(host_root)?, load_or_create_token(host_root)?));
+        let service = Arc::new(Self {
+            token_file: Some(host_root.join(TOKEN_FILE)),
+            ..Self::new(socket_path(host_root)?, load_or_create_token(host_root)?)
+        });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
     }
@@ -140,6 +146,7 @@ impl HolderService {
         Self {
             socket,
             token,
+            token_file: None,
             link: Mutex::default(),
             connecting: Mutex::new(()),
             pending: Mutex::default(),
@@ -752,12 +759,15 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
+/// The owner token's file under the host root.
+const TOKEN_FILE: &str = "holder.token";
+
 /// The owner token in `<host root>/holder.token` (0600), made on first use.
 /// A restarted daemon of the session reads it to reach the same holder.
 fn load_or_create_token(host_root: &Path) -> io::Result<[u8; 32]> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::create_dir_all(host_root)?;
-    let path = host_root.join("holder.token");
+    let path = host_root.join(TOKEN_FILE);
     if let Ok(text) = std::fs::read_to_string(&path)
         && let Some(token) = parse_hex(text.trim())
     {

@@ -35,6 +35,8 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
     /// Web UI updates between app updates (plans/cmux-next/web-ota.md); NIGHTLY builds only.
     public var web = UpdatesSettings.webDefault
+    /// A web update's tree by `cas/1`, the whole archive on any miss (RFD 0166; off until a NIGHTLY proves it).
+    public var webCas = UpdatesSettings.webCasDefault
     /// The web UI updates that apply: none under Automatic Updates Off (Off means cmux fetches nothing by
     /// itself), else `updates.web` (a hot swap needs no relaunch, so no idle gate).
     public var webInEffect: UpdatesWebSetting { automatic == .off ? .off : web }
@@ -76,6 +78,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         }
         if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
         if let value = reader.choice("web", UpdatesWebSetting.self) { settings.web = value }
+        if let value = reader.bool("webCas") { settings.webCas = value }
         if let value = reader.bool("liveWebReload") { settings.liveWebReload = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
         if let value = reader.bool("showWhatsNew") { settings.showWhatsNew = value }

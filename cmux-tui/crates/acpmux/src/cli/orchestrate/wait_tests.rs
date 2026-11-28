@@ -190,3 +190,23 @@ async fn wait_timeout_reports_the_stalled_phase() {
         assert!(error.to_string().contains(expected), "expected {expected}: {error}");
     }
 }
+
+/// The exit code reads a failed turn as `failed_turn` does: a failed `lastTurn` while a newer
+/// turn runs is the turn a pause or a daemon restart cut short, so `acpmux wait` exits 0, not 1
+/// (cmux pause-ab run 45869919450: `acp wait` exit 1 after a resume, the right reply written).
+#[test]
+fn the_exit_code_never_says_failed_while_a_newer_turn_runs() {
+    let failed = json!({"status": "ready", "turn": null, "pendingPermissions": 0,
+        "lastTurn": {"status": "failed", "errorText": "stalled"}});
+    assert_eq!(session_exit_code(&failed), 1);
+    let running = json!({"status": "running", "turn": {"turnId": "t2"}, "pendingPermissions": 0,
+        "lastTurn": {"status": "failed"}});
+    assert_eq!(failed_turn(&running), None);
+    assert_eq!(session_exit_code(&running), 0);
+    let asking = json!({"status": "waiting", "turn": {"turnId": "t2"}, "pendingPermissions": 1,
+        "lastTurn": {"status": "failed"}});
+    assert_eq!(session_exit_code(&asking), 2);
+    let done =
+        json!({"status": "ready", "pendingPermissions": 0, "lastTurn": {"status": "completed"}});
+    assert_eq!(session_exit_code(&done), 0);
+}

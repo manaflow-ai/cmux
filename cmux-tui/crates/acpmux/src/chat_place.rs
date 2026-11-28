@@ -23,9 +23,15 @@
 //! - The person (the app's pane, a proven connection, their own terminal): any move.
 //! - A chat's own agent, for its own chat only: off the Mac (to `auto` or `cloud`, or between the
 //!   two) only while the person's `cloud.autoCloud` setting is on, since that setting is their
-//!   standing yes to the Cloud running their chats. Back to `local` always asks the person: it
-//!   writes into their Mac's folder. A move the agent may not make answers `needs_person` with
-//!   the command the person runs, and changes nothing.
+//!   standing yes to the Cloud running their chats. Back to `local` too ("to and from"): only a
+//!   chat with Auto on is anywhere else, and Auto's own return already brings the Cloud's work
+//!   into the Mac's folder. A move the agent may not make answers `needs_person` with the
+//!   command the person runs, and changes nothing.
+//! - On a Cloud machine, the person's `cloud.autoCloud` setting is theirs to read on the Mac:
+//!   a chat there was sent by the person, which is that yes (`Asker::Agent`'s `auto_cloud`). The
+//!   machine moves a chat it runs home to the laptop that stands by, where it runs as `auto`
+//!   (`cmux chat move --on local` there again makes it this Mac only), or between `cloud` and
+//!   `auto` (the store takes `move` and `keep` from the chat's holder).
 //! - Anyone else's agent, for another chat: refused.
 //!
 //! The agent's half has a kill switch: `CMUX_AGENT_CHAT_MOVE=off` (or `0`, `false`) makes every
@@ -137,9 +143,9 @@ pub fn consent(from: Place, to: Place, asker: Asker) -> Consent {
             } else if !enabled {
                 Consent::NeedsPerson("agent moves are switched off (CMUX_AGENT_CHAT_MOVE=off)")
             } else if to == Place::Local {
-                Consent::NeedsPerson(
-                    "bringing a chat back to the Mac writes into the person's folder",
-                )
+                // Home: the chat has Auto on (it is not local), whose return writes the Cloud's
+                // work into the folder anyway.
+                Consent::Go
             } else if !auto_cloud {
                 Consent::NeedsPerson("AutoCloud is off in the person's settings (cloud.autoCloud)")
             } else {

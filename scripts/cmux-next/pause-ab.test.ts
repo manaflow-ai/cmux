@@ -7,11 +7,14 @@ import { Api, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
 import {
   GUEST_CMUX,
   accountCensus,
+  statusCounts,
   failedCreateIsTransient,
   failureFacts,
   stubRestart,
   stubStop,
   aggregate,
+  startingSpans,
+  startingTable,
   gapLine,
   gapSchedule,
   guestLine,
@@ -133,6 +136,18 @@ describe("pool", () => {
 });
 
 describe("stalePauseAbMachines", () => {
+  test("a failed machine is taken once its run is 15 min old, inside the 110 min window", () => {
+    const now = Date.UTC(2026, 10, 27, 12);
+    const t20 = (now - 20 * 60_000).toString(36);
+    const t5 = (now - 5 * 60_000).toString(36);
+    const rows = [
+      { id: "dead", name: `pause-ab-${t20}-aggressive-1`, status: "failed" },
+      { id: "young", name: `pause-ab-${t5}-aggressive-1`, status: "failed" },
+      { id: "live", name: `pause-ab-${t20}-aggressive-2`, status: "running" },
+      { id: "theirs", name: `fp-${t20}`, status: "failed" },
+    ];
+    expect(stalePauseAbMachines(rows, now).map((r) => r.id)).toEqual(["dead"]);
+  });
   test("only our name shape and an old tag, active or not", () => {
     const now = Date.UTC(2026, 10, 24, 20);
     const old = (now - 4 * 3_600_000).toString(36);
@@ -175,6 +190,13 @@ describe("stalePauseAbMachines", () => {
 // Run 45808104119: create took 247 s on a 199-machine account, the machine went `failed` and the record that said why
 // was cut at 300 chars. The sweep now says what the account's machines are; a failed machine's own fields come whole.
 describe("drill account and failed machines", () => {
+  test("statusCounts gives the total then each status, biggest first", () => {
+    expect(statusCounts([{ status: "running" }, { status: "create_overdue" }, { status: "create_overdue" }, {}])).toBe(
+      "4 machines: create_overdue=2 ?=1 running=1",
+    );
+    expect(statusCounts([])).toBe("0 machines");
+  });
+
   test("census counts by status, age and name shape", () => {
     const now = Date.UTC(2026, 10, 26, 11, 30);
     const rows = [
@@ -419,5 +441,21 @@ describe("sign-in refresh", () => {
     expect(api.bearer).toBe("tok-2");
     await api.fresh();
     expect(api.bearer).toBe("tok-2");
+  });
+});
+
+describe("startingSpans (aggressive's 25.1 s starting p50 vs hq#21300's 8.4 s p95)", () => {
+  const at = (sec: number, status: string) => ({ at: sec * 1000, status });
+  test("each start's upper bound runs from the sample before it to the first one after it, with its origin", () => {
+    const samples = [at(0, "running"), at(5, "pausing"), at(10, "starting"), at(15, "running"), at(20, "paused"), at(60, "paused"),
+      at(65, "starting"), at(70, "starting"), at(100, "starting"), at(105, "running")];
+    expect(startingSpans(samples)).toEqual([{ from: "pausing", s: 10 }, { from: "paused", s: 45 }]);
+  });
+  test("the table splits a fast mode from a slow one per origin", () => {
+    const m = (arm: string, samples: { at: number; status: string }[]) => ({ arm, skipped: undefined, samples }) as never;
+    const fast = [at(0, "paused"), at(5, "starting"), at(10, "running")];
+    const slow = [at(0, "paused"), at(5, "starting"), at(45, "running")];
+    const t = startingTable([m("aggressive", fast), m("aggressive", slow), m("aggressive", fast)], ["aggressive"]);
+    expect(t.split("\n")[2]).toBe("| aggressive | paused | 3 | 10 | 10 | 1 | 45 |");
   });
 });

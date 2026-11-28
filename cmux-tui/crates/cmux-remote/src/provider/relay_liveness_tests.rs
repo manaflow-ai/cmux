@@ -114,6 +114,45 @@ fn a_young_registration_probes_every_check_and_finds_a_silent_death_in_seconds()
     assert_eq!(live.check(m, w), Check::Dead, "found 3 s after the death, not 13 s");
 }
 
+/// A just-restored machine stalls the daemon for seconds (its memory faults
+/// back in) with a young probe out. The answer arrived during the stall,
+/// unread: the next check is a stall, not a death, and the answer read
+/// after it keeps the registration (11-26 09:47:45 died 4 s after it
+/// registered and cost the first dial 4 to 17 s).
+#[test]
+fn a_stall_with_a_ping_out_is_no_dead_registration() {
+    let (mono, wall) = start();
+    let mut live = Liveness::new(Duration::from_secs(10), mono, wall);
+    let at = |s: u64| (mono + Duration::from_secs(s), wall + Duration::from_secs(s));
+    let (m, w) = at(1);
+    assert_eq!(live.check(m, w), Check::Ping);
+    // The loop does not run from 1 s to 5 s.
+    let (m, w) = at(5);
+    assert_eq!(live.check(m, w), Check::Stalled(Duration::from_secs(4)));
+    live.on_inbound();
+    let (m, w) = at(6);
+    assert_eq!(live.check(m, w), Check::Ping);
+}
+
+/// A stall does not hide a real death: the ping waits one more
+/// PONG_TIMEOUT of awake time, then the registration is dead.
+#[test]
+fn a_stalled_ping_still_unanswered_is_a_dead_registration() {
+    let (mono, wall) = start();
+    let mut live = Liveness::new(Duration::from_secs(10), mono, wall);
+    let at = |s: u64| (mono + Duration::from_secs(s), wall + Duration::from_secs(s));
+    let (m, w) = at(1);
+    assert_eq!(live.check(m, w), Check::Ping);
+    let (m, w) = at(5);
+    assert_eq!(live.check(m, w), Check::Stalled(Duration::from_secs(4)));
+    for s in 6..8 {
+        let (m, w) = at(s);
+        assert_eq!(live.check(m, w), Check::Idle, "{s}");
+    }
+    let (m, w) = at(8);
+    assert_eq!(live.check(m, w), Check::Dead);
+}
+
 #[test]
 fn a_registration_past_young_falls_back_to_its_heartbeat() {
     let (mono, wall) = start();
