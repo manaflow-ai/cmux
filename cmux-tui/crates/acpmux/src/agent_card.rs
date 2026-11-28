@@ -331,8 +331,8 @@ const CAPABILITIES: &[Capability] = &[
         id: "move",
         server: None,
         places: &[],
-        line: "This chat can move between Local, Cloud and AutoCloud (`cmux vm move NAME`); its work comes along.",
-        detail: "`cmux vm move NAME` moves this chat tab to that machine; the conversation and the folder follow.",
+        line: "This chat can move itself between Local, Cloud and AutoCloud (`cmux chat move --on local|cloud|auto`, or move_chat); its work comes along.",
+        detail: "`cmux chat move --on PLACE` moves this chat (its own, with no SESSION): local is this Mac, cloud stays in cmux Cloud, auto is here while the Mac is up and in the Cloud while it sleeps; the conversation and the folder follow. `cmux vm move NAME` moves it to one named Cloud machine instead.",
     },
     Capability {
         id: "grow",
