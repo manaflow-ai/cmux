@@ -1,7 +1,9 @@
 use cmux_remote_protocol::{LaneToken, RelaySocketAttachment};
 
 use super::*;
-use crate::abuse::{CapacityRefusal, CircuitLedger, MAX_CIRCUITS_PER_SLOT};
+use crate::abuse::{
+    CapacityRefusal, CircuitLedger, MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW, MAX_CIRCUITS_PER_SLOT,
+};
 use crate::attachment::InlineState;
 
 const OPEN: u16 = 1;
@@ -144,7 +146,6 @@ fn inline_circuits_share_the_ledgers_total_limit() {
 
 #[test]
 fn inline_and_classic_allocations_share_one_rate_limit() {
-    use crate::abuse::MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW;
     let mut window = InlineWindow::default();
     let mut ledger = CircuitLedger::default();
     let classic = MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW / 2;
@@ -225,11 +226,15 @@ fn capacity_refusals_name_the_limit_and_counts() {
         ledger.try_reserve_beside("b".into(), 1_000, 100, None, full),
         Err(CapacityRefusal::Live { ledger: 1, pending: 1, inline: MAX_CIRCUITS_PER_SLOT - 1 })
     );
-    let burst = InlineLoad { live: 0, allocations_in_window: 63 };
+    // The ledger's one allocation plus the rest of the window (follows the limit #64017 raised).
+    let rest = MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW - 1;
+    let burst = InlineLoad { live: 0, allocations_in_window: rest };
     assert_eq!(
         ledger.inline_refusal(100, burst),
-        Some(CapacityRefusal::Rate { ledger: 1, inline: 63 })
+        Some(CapacityRefusal::Rate { ledger: 1, inline: rest })
     );
+    let under = InlineLoad { live: 0, allocations_in_window: rest - 1 };
+    assert!(ledger.inline_refusal(100, under).is_none(), "one under the window limit admits");
     assert!(ledger.inline_refusal(100, InlineLoad::default()).is_none());
     assert_eq!(
         ledger.try_reserve_beside("c".into(), 100, 100, None, InlineLoad::default()),
