@@ -924,6 +924,26 @@ try {
     };
     const mapper = sourceMapper(out);
     const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+    if (process.env.PROFILE_DUMP)
+      fs.writeFileSync(
+        process.env.PROFILE_DUMP,
+        JSON.stringify({
+          profileStart,
+          profileAttach,
+          latestAt,
+          startTime: (profile as unknown as { startTime: number }).startTime,
+          nodes: profile.nodes.map((n) => {
+            const file = n.callFrame.url.split("/").slice(-1)[0] ?? "";
+            return {
+              id: n.id,
+              children: n.children ?? [],
+              key: `${n.callFrame.functionName || "(anon)"} ${file ? mapper(file, n.callFrame.lineNumber, n.callFrame.columnNumber) : "(native)"}`,
+            };
+          }),
+          samples: profile.samples,
+          timeDeltas: profile.timeDeltas,
+        }),
+      );
     const self = new Map<string, number>();
     profile.samples.forEach((id, index) => {
       const frame = byId.get(id)!.callFrame;
