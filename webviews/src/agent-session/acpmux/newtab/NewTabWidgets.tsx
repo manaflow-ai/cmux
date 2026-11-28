@@ -27,6 +27,7 @@ import {
 } from "../../../apps/scene/widgetsClient";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
+import { Button } from "../../../ui/Button";
 import { Icon } from "../icons/Icon";
 import { pageHostClient } from "../pageHostClient";
 import { AddWidgetGallery, type AddWidgetLook } from "./AddWidgetGallery";
@@ -166,7 +167,8 @@ function WidgetGrid({
       <div className="nt-widget-bar">
         {editing.editing ? (
           <>
-            <button
+            <Button
+              bare
               type="button"
               className="nt-widget-bar-button ui-btn"
               data-edit="add"
@@ -174,8 +176,9 @@ function WidgetGrid({
             >
               <Icon name="action.add" size={12} />
               <span>{nt("widgets.add")}</span>
-            </button>
-            <button
+            </Button>
+            <Button
+              bare
               type="button"
               className="nt-widget-bar-button ui-btn"
               data-edit="done"
@@ -183,17 +186,18 @@ function WidgetGrid({
               onClick={() => editing.setEditing(false)}
             >
               {nt("widgets.done")}
-            </button>
+            </Button>
           </>
         ) : (
-          <button
+          <Button
+            bare
             type="button"
             className="nt-widget-bar-button ui-btn"
             data-edit="start"
             onClick={() => editing.setEditing(true)}
           >
             {nt("widgets.edit")}
-          </button>
+          </Button>
         )}
       </div>
       {gallery && (
