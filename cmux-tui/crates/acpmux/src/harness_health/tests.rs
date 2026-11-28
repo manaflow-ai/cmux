@@ -311,3 +311,43 @@ fn keychain_sign_in_names_keychain_references_and_a_codex_keychain_login() {
     let _ = std::fs::remove_dir_all(keyring);
     let _ = std::fs::remove_dir_all(file);
 }
+
+/// A check starts every subject's CLI: with 8 subjects and 2 slots, never more than 2 run at
+/// once, and the answers keep their order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_check_runs_its_subjects_a_few_at_a_time() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (running, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    // Each job holds its thread 50 ms, so an unbounded run overlaps them all.
+    let jobs = (0..8).map(|i| {
+        let (running, most) = (running.clone(), most.clone());
+        move || {
+            let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+            most.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            running.fetch_sub(1, Ordering::SeqCst);
+            i
+        }
+    });
+    let out: Vec<usize> =
+        super::run_bounded(jobs, 2).await.into_iter().map(Result::unwrap).collect();
+    assert_eq!(out, (0..8).collect::<Vec<_>>());
+    assert_eq!(most.load(Ordering::SeqCst), 2, "at most 2 at once, and the slots are used");
+}
+
+/// Three profiles on one CLI ask its `--version` once per check.
+#[test]
+fn profiles_on_one_program_share_its_version_answer() {
+    let versions = super::Versions::default();
+    let asked = std::sync::atomic::AtomicUsize::new(0);
+    let ask = |_: &str| {
+        asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok::<_, String>("1.2.3".to_owned())
+    };
+    for _ in 0..3 {
+        assert_eq!(versions.of("/usr/bin/opencode", ask), Ok("1.2.3".to_owned()));
+    }
+    assert_eq!(versions.of("/usr/bin/claude", ask), Ok("1.2.3".to_owned()));
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
