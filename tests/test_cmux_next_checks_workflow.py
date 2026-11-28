@@ -1262,12 +1262,26 @@ class PathRoutingStructure(unittest.TestCase):
             needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
-                self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+                self.assertIn("(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')", job["if"])
         # Superseded pushes skip before queueing; a started compile has its own
         # run group so a newer push cannot evict it.
         self.assertNotIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
                          jobs["release-compile"]["if"])
-        self.assertIn("needs.push-head-preflight.outputs.current == 'true'", jobs["release-compile"]["if"])
+        self.assertIn("(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')", jobs["release-compile"]["if"])
+
+    def test_push_head_preflight_takes_no_runner_on_a_pull_request(self):
+        """Its step only asks about a feat-cmux-next push; a pull request skips it and dependents take a pull request as current."""
+        jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
+        condition = jobs["push-head-preflight"]["if"]
+        self.assertIn("github.event_name != 'pull_request'", condition)
+        current = "(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')"
+        for job_id, job in jobs.items():
+            needs = job.get("needs", [])
+            needs = needs if isinstance(needs, list) else [needs]
+            text = str(job.get("if", "")).replace(current, "")
+            with self.subTest(job=job_id):
+                if "push-head-preflight" in needs:
+                    self.assertNotIn("push-head-preflight.outputs.current", text)
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """The rescue's attempts (2 on) must use the Blacksmith fallback instead of a stale mini label."""
@@ -3337,6 +3351,26 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.mac_release == 'true' && !(needs.app-compile-placement.outputs.gateway_attempt",
                       place["env"]["CASCADE_RUNS"])
 
+    def test_a_full_ci_pr_head_the_fleet_compiled_takes_no_mac(self):
+        """docs/ci/cmux-next-workflow-notes/2026-11-27-release-compile-pr-fleet-pass.md: with full-ci the build
+        fleet's app compile is skipped, so a compile-status pass at the exact head stands in for the Mac."""
+        self.assertIn("compile-status", self.job()["needs"])
+        context = self.context(["Packages/macOS/CmuxNext/Package.swift"], labels=("full-ci",))
+        context["github.event.pull_request.base.ref"] = "feat-cmux-next"
+        context["needs.app-compile-fleet.outputs.verdict"] = ""
+        for state in ("", "none", "fail", "awaiting_land", "running", "unavailable"):
+            with self.subTest(state=state):
+                context["needs.compile-status.outputs.state"] = state
+                self.assertTrue(self.runs(context))
+        context["needs.compile-status.outputs.state"] = "pass"
+        self.assertFalse(self.runs(context))
+        context["vars.CMUX_NEXT_PR_FLEET_PASS_SKIPS_MAC"] = "0"
+        self.assertTrue(self.runs(context))
+        # A fork never reads compile-status, and keeps its Mac compile.
+        fork = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"], head_repo="someone/cmux")
+        fork["needs.compile-status.outputs.state"] = "pass"
+        self.assertTrue(self.runs(fork))
+
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
         fast = jobs["release-compile-fast"]
@@ -3625,6 +3659,10 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
                             # path_route hands the jobs its labels as ",a,b," (note-97).
                             "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": "CONTRIBUTOR"})
+            if "full-ci" in labels:
+                # The full-ci run is the labeled event's (CI_FULL_CI_ONE_SHOT: a later push into feat-cmux-next
+                # runs the cheap tier).
+                context.update({"github.event.action": "labeled", "github.event.label.name": "full-ci"})
         context.update({f"inputs.{key}": value for key, value in inputs.items()})
         return context
 

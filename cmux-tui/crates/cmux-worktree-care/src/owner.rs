@@ -12,8 +12,8 @@ pub const OWNER_FILE: &str = "wt-owner.json";
 
 /// A worktree's owner, from [`OWNER_FILE`]: `{"owner": {"session_id",
 /// "ids", "pid", "host", ...}, ...}`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Owner {
     /// Its agent identity's session id.
     pub session_id: Option<String>,

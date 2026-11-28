@@ -29,6 +29,21 @@ def load(path: str):
     return module
 
 
+def promisor_remote(git_dir: str) -> str:
+    """The remote the head commit came from (private-names.yml names it pr-head, so the pool's git shim leaves it
+    shallow and blobless); origin when none is marked."""
+    try:
+        rows = subprocess.run(["git", "-C", git_dir, "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                              capture_output=True, text=True, timeout=30, check=False).stdout.split("\n")
+    except (subprocess.SubprocessError, OSError):
+        return "origin"
+    for row in rows:
+        key, _, value = row.partition(" ")
+        if value.strip().lower() in ("true", "yes", "on", "1") and key.startswith("remote.") and key.endswith(".promisor"):
+            return key[len("remote."):-len(".promisor")]
+    return "origin"
+
+
 def prefetch(git_dir: str, sha: str, paths: list[str]) -> None:
     """One batched blob fetch for every changed path (a promisor clone would fetch them one by one)."""
     if not paths:
@@ -42,7 +57,8 @@ def prefetch(git_dir: str, sha: str, paths: list[str]) -> None:
     if not oids:
         return
     subprocess.run(["git", "-C", git_dir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "--quiet", "--no-tags",
-                    "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", "origin"],
+                    "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin",
+                    promisor_remote(git_dir)],
                    input="\n".join(oids) + "\n", text=True, capture_output=True, timeout=300, check=False)
 
 

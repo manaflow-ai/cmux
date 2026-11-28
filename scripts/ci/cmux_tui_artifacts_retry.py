@@ -23,6 +23,12 @@ failed on a rerun died the same way (rustc killed by SIGKILL during the fat
 LTO build), and attempts 2 and 3 together cost 3,096 runner-min and published
 2 trees. A leg that ended cancelled or timed out is still retried (#42380).
 
+A build leg that failed on a Rust compile error is not retried at all
+(cmux_tui_tree_handoff.compile_error_failure): a rerun builds the same source
+and fails on the same rustc error. The channel heal (#64931) and tree requests
+hold the same way. An unreadable log is no evidence, and the run is retried as
+before.
+
 usage: cmux_tui_artifacts_retry.py --repo OWNER/NAME --run-id ID [--dry-run]
 Needs GH_TOKEN with actions: write and checks: read.
 """
@@ -33,9 +39,17 @@ from dataclasses import dataclass
 import json
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_tui_tree_handoff import compile_error_failure  # noqa: E402
 
 MAX_ATTEMPTS = 3
+API_ATTEMPTS = 3
+MAX_RATE_WAIT = 45
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui",)
@@ -50,7 +64,7 @@ class Decision:
     reason: str
 
 
-def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> Decision:
+def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], compile_red: bool = False) -> Decision:
     """Pure policy: what to do with one workflow run."""
     if run.get("status") != "completed" or run.get("conclusion") != "failure":
         return Decision("skip", f"run is {run.get('status')}/{run.get('conclusion')}, not a completed failure")
@@ -100,6 +114,11 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
             "immutable R2 conflict in " + ", ".join(conflicts)
             + ": a rebuild is not byte-identical, so a retry cannot fix it",
         )
+    if compile_red:
+        return Decision(
+            "skip",
+            "a build leg failed on a Rust compile error: a rerun builds the same source and fails the same way",
+        )
     return Decision("rerun-failed-jobs", "failed: " + ", ".join(job["name"] for job in failed))
 
 
@@ -113,9 +132,53 @@ def _api(method: str, url: str, token: str) -> object:
             "X-GitHub-Api-Version": "2022-11-28",
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        body = response.read()
-    return json.loads(body) if body else None
+    # A 403/429 with a rate-limit signal is the token's REST budget, not a missing permission
+    # (the job holds actions: write, which includes read). Run 46120896444 (a49c3280) died on a
+    # bare "HTTP Error 403" with no body printed, so the cause could not be told. Print the body,
+    # and wait out a short limit instead of leaving the failed publish unretried.
+    for attempt in range(1, API_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read()
+            return json.loads(body) if body else None
+        except urllib.error.HTTPError as err:
+            detail = err.read().decode("utf-8", "replace")[:500]
+            wait = _rate_limit_wait(err.code, err.headers, detail)
+            print(f"{method} {url}: HTTP {err.code}: {detail}", file=sys.stderr)
+            if wait is None or attempt == API_ATTEMPTS:
+                raise
+            print(f"rate limited; waiting {wait}s (try {attempt}/{API_ATTEMPTS})", file=sys.stderr)
+            time.sleep(wait)
+    raise AssertionError("unreachable")
+
+
+def _log_text(url: str, token: str) -> str | None:
+    """A job log as text (urllib follows the redirect to the log blob), or None when it cannot be read."""
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
+                                                   "X-GitHub-Api-Version": "2022-11-28"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError) as err:
+        print(f"GET {url}: {err}", file=sys.stderr)
+        return None
+
+
+def _rate_limit_wait(code: int, headers, detail: str) -> int | None:
+    """Seconds to wait when the response is a rate limit that clears within MAX_RATE_WAIT, else None."""
+    if code not in (403, 429):
+        return None
+    retry_after = headers.get("Retry-After")
+    reset = headers.get("X-RateLimit-Reset")
+    if retry_after and retry_after.isdigit():
+        wait = int(retry_after)
+    elif headers.get("X-RateLimit-Remaining") == "0" and reset and reset.isdigit():
+        wait = max(1, int(reset) - int(time.time()) + 1)
+    elif "rate limit" in detail.lower():
+        wait = 30
+    else:
+        return None
+    return wait if wait <= MAX_RATE_WAIT else None
 
 
 def main(argv: list[str]) -> int:
@@ -137,6 +200,10 @@ def main(argv: list[str]) -> int:
         if job.get("conclusion") == "failure"
     }
     decision = decide(run, jobs, annotations)
+    if decision.action == "rerun-failed-jobs":
+        # Logs are read only when a rerun is about to happen: one GET per failed build leg.
+        compile_red = compile_error_failure(jobs, lambda job: _log_text(f"{base}/actions/jobs/{job['id']}/logs", token))
+        decision = decide(run, jobs, annotations, compile_red=compile_red)
     print(f"run {args.run_id} attempt {run.get('run_attempt')}: {decision.action} ({decision.reason})")
     if decision.action == "refuse":
         print(f"::error title=cmux-tui publish not retried::run {args.run_id}: {decision.reason}")

@@ -74,7 +74,7 @@ mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
 #[path = "peer_runtime_requests.rs"]
-mod runtime_requests;
+pub(crate) mod runtime_requests;
 pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, attach_failure_class, lends_over, page_max_seq, refuses_attach, replayable,
 };
@@ -174,6 +174,10 @@ pub fn hidden_attach_after(id: &str, after: u64) -> Value {
 /// generation so notices from a replaced or removed peer can be dropped.
 #[derive(Debug)]
 pub enum PeerNotice {
+    /// Before this link reads any presence snapshots or attach replies.
+    PresenceReset {
+        link: u64,
+    },
     Connected,
     /// The link's whole list (and the changes held while it came) went just before this: a
     /// link sends it before `Connected`, one after a far restart or a path switch after it

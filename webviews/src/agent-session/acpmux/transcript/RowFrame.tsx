@@ -8,6 +8,7 @@ import React, {
   type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { rowFrameStyle } from "../conversation/settledRowSkip";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
@@ -134,6 +135,7 @@ export const RowFrame = React.memo(function RowFrame({
   opensTurn,
   beforeFooter,
   beforeIndicator,
+  beforeOwnMessage,
   replyActions,
   status,
   lastFooter,
@@ -142,6 +144,7 @@ export const RowFrame = React.memo(function RowFrame({
   lastTurn,
   index,
   setSizeRef,
+  intrinsicHeight,
   top,
   rowWidth,
   expanded,
@@ -194,6 +197,9 @@ export const RowFrame = React.memo(function RowFrame({
   /// A prompt right over the live line (transcriptGrid.ts waiting rule): the gap under it is the block
   /// gap, not the turn gap, so its action row is laid centred in that (conversation.css).
   beforeIndicator: boolean;
+  /// A person's own message right over another of theirs (transcriptGrid.ts: the two stick together, the
+  /// footer gap apart): its action row sits beside its bubble, not in the gap (conversation.css).
+  beforeOwnMessage: boolean;
   /// Whether the row (a reply) keeps its action row's room (model.ts `keepsReplyRoom`): its height
   /// depends on it, so the frame redraws and measures again when it changes.
   replyActions: boolean;
@@ -214,6 +220,7 @@ export const RowFrame = React.memo(function RowFrame({
   /// The list's length for `aria-setsize`, held in a ref so a row that arrives changes no prop here
   /// (TranscriptView, `setSize`). The row writes the attribute on the mount that puts it in the list.
   setSizeRef: React.MutableRefObject<string>;
+  intrinsicHeight: number | undefined;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -444,7 +451,7 @@ export const RowFrame = React.memo(function RowFrame({
       data-row-card={row.ended ? "true" : undefined}
       data-opens-turn={opensTurn ? "true" : undefined}
       data-send-thinking={sendThinking ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${isRunPart(row) ? " acpmux-row--run-part" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${isRunPart(row) ? " acpmux-row--run-part" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${beforeOwnMessage ? " acpmux-row--before-own-message" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -459,7 +466,9 @@ export const RowFrame = React.memo(function RowFrame({
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
-      // (conversation/unread.css), so it reads the gap's length.
+      // (conversation/unread.css), so it reads the gap's length. A shelved row (shelvedRows.ts) holds
+      // its height hidden; any other settled row may hold its indexed height while the browser skips
+      // it (settledRowSkip.ts); with both off its style is exactly `{top, marginTop}`.
       data-shelved={shelved > 0 ? "true" : undefined}
       style={
         row.kind === SINCE_DIVIDER
@@ -470,7 +479,7 @@ export const RowFrame = React.memo(function RowFrame({
             } as React.CSSProperties)
           : shelved > 0
             ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
-            : { top: integralTop, marginTop: placedTop - integralTop }
+            : rowFrameStyle(integralTop, placedTop, intrinsicHeight)
       }
       onFocus={() => onFocus(row.id)}
     >

@@ -224,10 +224,78 @@ def marker_click_at(line):
     return None
 
 
+def child_exit(code):
+    """A Popen returncode in words: `exit N`, or the signal for a negative one (an -O Swift trap
+    such as a nil force-unwrap dies by SIGTRAP and prints nothing)."""
+    if code is None:
+        return "still running"
+    if code < 0:
+        try:
+            return f"killed by {signal.Signals(-code).name}"
+        except ValueError:
+            return f"killed by signal {-code}"
+    return f"exit {code}"
+
+
+def marker_refresh(line):
+    """mac-marker's `refresh-hz N [mode-hz M]` line -> {"refresh_hz": N, "mode_hz": M}: the screen's
+    top rate and its current mode's. The composite waits one refresh, so a 30 Hz mode doubles the
+    Screen stage; a row without them cannot tell a slow host display from a slow pipeline."""
+    words, out = line.split(), {}
+    for name, key in (("refresh-hz", "refresh_hz"), ("mode-hz", "mode_hz")):
+        if name in words and words.index(name) + 1 < len(words):
+            try:
+                out[key] = float(words[words.index(name) + 1])
+            except ValueError:
+                pass
+    return out
+
+
+def wait_marker(proc, log, seconds=10.0, step=0.05):
+    """The rig's `marker` reply from the marker app PROC writing LOG: its origin, click point and
+    geometry once it prints `marker-origin` and `stream width`, or why not. It stops as soon as the
+    marker exits (no waiting out SECONDS on a dead child) and says how it ended, so an empty log
+    reads as a crash, a refusal or a hang, never as nothing."""
+    deadline = time.time() + seconds
+    text = ""
+    while True:
+        with open(log, errors="replace") as lf:
+            text = lf.read()
+        if "marker-origin" in text and "stream width" in text:
+            break
+        if proc.poll() is not None:
+            with open(log, errors="replace") as lf:
+                text = lf.read()  # the last lines it wrote before it ended
+            break
+        if time.time() >= deadline:
+            break
+        time.sleep(step)  # bounded by SECONDS
+    reply = {"ok": True}
+    for line in text.splitlines():
+        if line.startswith("marker-origin "):
+            x, y = line.split()[1].split(",")
+            reply["origin"] = [int(x), int(y)]
+            at = marker_click_at(line)
+            if at:
+                reply["at"] = at
+        if "stream width" in line:
+            reply["geometry"] = line
+        if line.startswith("refresh-hz "):
+            reply.update(marker_refresh(line))
+    if "origin" not in reply:
+        how = child_exit(proc.poll())
+        if how == "still running":
+            how = f"still running after {seconds:g} s"
+        reply = {"ok": False, "error": f"marker printed no origin ({how}; log {len(text)} bytes)",
+                 "exit": proc.poll(), "log": text[-400:]}
+    return reply
+
+
 def bench_input(kind, samples, at):
     """`cmux-rd bench`'s input flags. A click or scroll aims at AT (the marker's pad): the bench's
     own --at default, 960,600, misses the marker, which then counts nothing (every trial lost)."""
     flags = f"--input {kind} --samples {samples}"
+    # clipboard: copy-paste round trips (the bench offers cap clipboard.text itself); no aim.
     if kind in ("click", "scroll") and at:
         flags += f" --at {at[0]},{at[1]}"
     return flags
@@ -397,6 +465,58 @@ def sample_sums(rows, keys):
         if all(v is not None for v in vals):
             out.append(sum(vals))
     return out
+
+
+# A drift between two trials' clock anchors above this is no clock (macOS slews at most 500 ppm):
+# the trial then keeps its own offset, flat.
+MAX_DRIFT_PPM = 1000
+
+
+def clock_anchor(rec):
+    """A key trial's clock anchor, (viewer ns, host-minus-viewer offset ns), or None: the bench's
+    in-session estimate (`stage_ledger.offset_us`, host = viewer + offset) at its session's start
+    (`first_frame_times.start_ns`). The estimate is the least-RTT ping of the bench's window, which
+    over one ~4 s trial is the burst at the session's start."""
+    sl = rec.get("stage_ledger")
+    off_us = sl.get("offset_us") if isinstance(sl, dict) and sl.get("schema") == LEDGER_SCHEMA else None
+    start = (rec.get("first_frame_times") or {}).get("start_ns")
+    if not isinstance(off_us, (int, float)) or isinstance(off_us, bool) or not isinstance(start, int):
+        return None
+    return (start, int(round(off_us * 1000)))
+
+
+def trial_clock(rec, run_clock, prev=None, nxt=None):
+    """The host-minus-viewer clock a key trial's cross-host spans read (breakdown up,
+    first_packet, down; the first frame's signal and down): the line from this trial's anchor
+    (clock_anchor) to the next trial's (NXT), else from the previous one's (PREV, extrapolated),
+    else this trial's offset flat, else the run's (RUN_CLOCK, probed once before the legs). The two
+    Macs' clocks drift apart up to ~0.3 ms a second, so the run's offset alone biased every
+    cross-host span by the drift: per-press down read -4.3 ms by trial 10 of r12c2 and +6.3 ms on
+    r12e (the ledger's Network row: 0.76), and a trial's own offset flat still left a ~1 ms slope
+    inside the trial (2026-11-28). Returns {"offset_ns" at "anchor_ns", "drift_ppm", "source",
+    "minus_run_ms"}; offset_at reads it at a viewer time."""
+    run_ns = run_clock["offset_ns"]
+    own = clock_anchor(rec)
+    if own is None:
+        return {"offset_ns": run_ns, "anchor_ns": None, "drift_ppm": 0.0, "source": "run",
+                "minus_run_ms": 0.0}
+    source, ppm = "stage_ledger", 0.0
+    for other, how in ((nxt, "interpolated"), (prev, "extrapolated")):
+        if other is None or other[0] == own[0]:
+            continue
+        slope = (other[1] - own[1]) / (other[0] - own[0]) * 1e6
+        if abs(slope) <= MAX_DRIFT_PPM:
+            source, ppm = how, round(slope, 3)
+            break
+    return {"offset_ns": own[1], "anchor_ns": own[0], "drift_ppm": ppm, "source": source,
+            "minus_run_ms": round((own[1] - run_ns) / 1e6, 3)}
+
+
+def offset_at(clock, viewer_ns):
+    """CLOCK's (trial_clock) host-minus-viewer offset (ns) at VIEWER_NS."""
+    if clock.get("anchor_ns") is None or viewer_ns is None:
+        return clock["offset_ns"]
+    return clock["offset_ns"] + clock["drift_ppm"] * 1e-6 * (viewer_ns - clock["anchor_ns"])
 
 
 def ledger_stages(ledger):
@@ -1028,6 +1148,39 @@ def read_marker_rgb(rgb, width, origin, cell):
 CLOCK_PROBE_SECONDS = 20.0
 
 
+CLIP_PREFIX = "cmux-vs-clip-"
+
+
+def clip_echo_step(read, write, last):
+    """One poll of `clip-echo`: when the clipboard holds a new text starting with CLIP_PREFIX (the
+    viewer's `cmux-rd bench --input clipboard` probe, put there by the host), copy "ack:" + text.
+    The echo does not start with the prefix, so it is never answered again. Returns the text seen."""
+    text = read()
+    if text is not None and text != last and text.startswith(CLIP_PREFIX):
+        write("ack:" + text)
+    return text
+
+
+def cmd_clip_echo(args):
+    """The shared Mac's other app for the clipboard leg: polls the pasteboard (pbpaste) and answers
+    each probe, so one sample proves both directions: the viewer's text reached this clipboard,
+    and a text set here reached the viewer. Runs inside the rig, in the GUI session's pasteboard."""
+    def read():
+        try:
+            return subprocess.run(["pbpaste"], capture_output=True, timeout=2).stdout.decode("utf-8", "replace")
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    def write(text):
+        subprocess.run(["pbcopy"], input=text.encode(), timeout=2, check=False)
+
+    end, last = time.time() + args.seconds, None
+    print("clip-echo ready", flush=True)
+    while time.time() < end:
+        last = clip_echo_step(read, write, last)
+        time.sleep(args.every_ms / 1000)
+
+
 def cmd_clock_serve(args):
     if getattr(args, "tcp", False):
         return clock_serve_tcp(args)
@@ -1225,6 +1378,31 @@ NUMBER = r"[0-9]{1,9}"
 HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER,
              "--stats-every-ms": NUMBER}
 VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
+# `run --host-env NAME=VALUE`: the only environment a run sets on `cmux-rd serve` beyond its own
+# timing and loss variables, checked here and again by the rig. Both are cmux-rd-host's
+# measurement switches (mac/capture.rs): the ScreenCaptureKit surface-pool depth, and the raise of
+# the captured display to its fastest refresh for the serve process.
+# The third is cmux-encode's (videotoolbox.rs power_efficiency): VideoToolbox's
+# MaximizePowerEfficiency hint, 1 on, 0 off (unset: the shipping default).
+HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]",
+            "CMUX_RD_VT_POWER_EFFICIENT": r"[01]"}
+
+
+def checked_env(items):
+    """{NAME: VALUE} for ITEMS (`NAME=VALUE`), each NAME in HOST_ENV with a VALUE matching its
+    pattern, none twice; anything else raises ValueError."""
+    env = {}
+    for item in items or []:
+        name, sep, value = str(item).partition("=")
+        if name not in HOST_ENV:
+            raise ValueError(f"--host-env {item!r}: {name} is not allowed "
+                             f"(allowed: {', '.join(sorted(HOST_ENV))})")
+        if not sep or not re.fullmatch(HOST_ENV[name], value):
+            raise ValueError(f"--host-env {item!r}: {name} needs a value matching {HOST_ENV[name]}")
+        if name in env:
+            raise ValueError(f"--host-env {item!r}: {name} given twice")
+        env[name] = value
+    return env
 
 
 def test_loss_pct(value):
@@ -1330,24 +1508,8 @@ def cmd_rig(args):
                 out = open(log, "w")
                 procs["marker"] = subprocess.Popen([os.path.join(bindir, "cmux-rd-marker"), *flags],
                                                    stdout=out, stderr=out)
-                deadline = time.time() + 10
-                while time.time() < deadline:
-                    with open(log) as lf:
-                        text = lf.read()
-                    if "marker-origin" in text and "stream width" in text:
-                        break
-                    time.sleep(0.05)
-                for line in text.splitlines():
-                    if line.startswith("marker-origin "):
-                        x, y = line.split()[1].split(",")
-                        reply["origin"] = [int(x), int(y)]
-                        at = marker_click_at(line)
-                        if at:
-                            reply["at"] = at
-                    if "stream width" in line:
-                        reply["geometry"] = line
-                if "origin" not in reply:
-                    reply = {"ok": False, "error": "marker printed no origin", "log": text[-400:]}
+                out.close()  # the child holds its own copy
+                reply = wait_marker(procs["marker"], log)
             elif cmd == "serve":
                 stop("serve")
                 argv = [os.path.join(bindir, "cmux-rd"), "serve"]
@@ -1360,6 +1522,7 @@ def cmd_rig(args):
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
                     argv += ["--link-bind", f"{bind}:0"]
                 env = dict(os.environ)
+                env.update(checked_env(req.get("env")))  # refused, not dropped
                 if req.get("test_loss_pct") is not None:
                     env["CMUX_RD_TEST_LOSS_PCT"] = test_loss_pct(req["test_loss_pct"])
                 if req.get("timing"):
@@ -1374,6 +1537,15 @@ def cmd_rig(args):
                 f.close()
                 conn.close()
                 continue
+            elif cmd == "clip_echo":
+                stop("clip_echo")
+                log = open(os.path.join(state, "clip-echo.log"), "w")
+                procs["clip_echo"] = subprocess.Popen(
+                    [sys.executable, os.path.abspath(__file__), "clip-echo",
+                     "--seconds", str(min(max(int(req.get("seconds") or 600), 1), 3600))],
+                    stdout=log, stderr=log)
+                log.close()
+                reply["pid"] = procs["clip_echo"].pid
             elif cmd == "timing":
                 lines = []
                 if os.path.exists(timing):
@@ -1593,7 +1765,7 @@ def redact_vnc(text):
     return re.sub(r"(vnc://[^:/@\s]*:)[^@\s]*@", r"\1***@", text or "")
 
 
-def screen_sharing_window(windows, host, exclude=()):
+def screen_sharing_window(windows, host, exclude=(), launched=()):
     """The Screen Sharing.app window showing HOST in WINDOWS (SS_WINDOWS_SWIFT's list, front to
     back): its {pid, window, title}, the frontmost normal-layer window owned by Screen Sharing
     whose title names HOST, skipping ids in EXCLUDE (there before). None when none names HOST:
@@ -1602,8 +1774,12 @@ def screen_sharing_window(windows, host, exclude=()):
             and w.get("layer") == 0 and w.get("window") and w["window"] not in exclude
             and (w.get("w") or 0) >= 200 and (w.get("h") or 0) >= 200]
     named = [w for w in ours if host and host in (w.get("title") or "")]
-    pick = (named or [None])[0]
-    return {k: pick[k] for k in ("pid", "window", "title")} if pick else None
+    if named:
+        return {**{k: named[0][k] for k in ("pid", "window", "title")}, "matched": "title"}
+    fresh = [w for w in ours if w.get("pid") in set(launched or ())]
+    if len(fresh) == 1 and not any(w.get("title") for w in ours):
+        return {**{k: fresh[0][k] for k in ("pid", "window", "title")}, "matched": "launched pid"}
+    return None
 
 
 def screen_sharing_pids():
@@ -1682,7 +1858,8 @@ def cmd_apple(args):
             deadline, win, windows = time.time() + args.wait, None, []
             while True:
                 windows = list_windows(state)
-                win = screen_sharing_window(windows, args.host, exclude=old)
+                win = screen_sharing_window(windows, args.host, exclude=old,
+                                            launched=screen_sharing_pids() - ran)
                 if win or time.time() >= deadline:
                     break
                 time.sleep(1)  # bounded wait (--wait) for the window to connect
@@ -2324,11 +2501,14 @@ def read_peer_token(path):
 
 def cmd_peer_serve(args):
     """The other Mac's half of a pair job: run what the orchestrating Mac posts, as this step's
-    user, in this process's tree (so a launcher app's grants reach the rig), until /done or --hold-s."""
+    user, in this process's tree (so a launcher app's grants reach the rig), until /done or --hold-s.
+    With no accepted request in --first-contact-s it exits 3: the other half never dialed in (2026-11-27,
+    six pair jobs on cmux22 and cmux20-bench served "listening ... for 3600 s" with no host contact
+    until the controller's 45 min silent limit killed them, each holding an exclusive Mac)."""
     import hmac
     import http.server
     token = read_peer_token(args.token_file)
-    state = {"pinned": None, "last": time.time()}
+    state = {"pinned": None, "last": time.time(), "contacted": False}
     stop = threading.Event()
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -2349,7 +2529,7 @@ def cmd_peer_serve(args):
                     not hmac.compare_digest(self.headers.get("X-Eval-Token", ""), token):
                 self.reply(403)
                 return
-            state["pinned"], state["last"] = client, time.time()
+            state["pinned"], state["last"], state["contacted"] = client, time.time(), True
             n = int(self.headers.get("Content-Length") or 0)
             req = json.loads(self.rfile.read(n) or b"{}")
             if self.path == "/done":
@@ -2376,11 +2556,20 @@ def cmd_peer_serve(args):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"peer-serve: listening on {args.bind}:{args.port} for {args.hold_s} s", flush=True)
     print("peer-serve: localnet " + json.dumps(localnet_probe()), flush=True)
-    deadline = time.time() + args.hold_s
+    started = time.time()
+    deadline = started + args.hold_s
+    first_contact = args.first_contact_s
     while not stop.wait(1):
         if time.time() > deadline:
             print("peer-serve: hold ended", flush=True)
             break
+        if first_contact > 0 and not state["contacted"] and time.time() - started > first_contact:
+            print(f"peer-serve: no peer connected in {first_contact} s (the other half never dialed "
+                  f"{args.bind}:{args.port}; CMUX_PEER_FIRST_CONTACT_S or --first-contact-s sets the bound, "
+                  "0 turns it off); giving up so this Mac frees", flush=True)
+            server.shutdown()
+            server.server_close()
+            sys.exit(3)
     else:
         print(f"peer-serve: done from {state['pinned']}", flush=True)
     server.shutdown()
@@ -2440,6 +2629,7 @@ class Orchestrator:
         self.app_ledger = None  # the app viewer's own stage ledger (--app-viewer), or {"null"}
         self.app_timings = None  # the pane's own frame timings (mac_screen.state), or {"null"}
         self.geometry = None  # the marker's motion-geometry, read from the shared Mac
+        self.host_display = {}  # the marker's refresh_hz and mode_hz on the shared Mac
         self.quality_null = None
         self.apple_g2g = None
         self.apple_presented = None  # cmux-rd observe through a visible Screen Sharing.app window
@@ -2455,6 +2645,7 @@ class Orchestrator:
             loss = getattr(args, "host_test_loss", None)
             self.host_test_loss = test_loss_pct(loss) if loss is not None else None
             self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
+            self.host_env = checked_env(getattr(args, "host_env", None))
             self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
         except ValueError as e:
             raise SystemExit(str(e))
@@ -2491,7 +2682,11 @@ class Orchestrator:
     def log(self, rec):
         pct = getattr(self, "host_test_loss", None)
         loss = {"host_test_loss_pct": float(pct)} if pct else {}
-        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss})
+        env = {"host_env": self.host_env} if getattr(self, "host_env", None) else {}
+        hz = getattr(self, "host_display", None) or {}
+        display = {f"host_{k}": v for k, v in hz.items()}
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args, **loss, **env,
+                           **display})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -2677,6 +2872,12 @@ class Orchestrator:
         try:
             line = readline(viewer, time.time() + 20)
             viewer_key = json.loads(line)["key"]
+            clipboard = mode == "key" and getattr(self.a, "cmux_input", "key") == "clipboard"
+            if clipboard and self.synthetic:
+                raise RuntimeError("--cmux-input clipboard needs the rig (a real pasteboard), not --source synthetic-*")
+            if clipboard:
+                # The shared Mac's other app: it answers each probe on the pasteboard (clip-echo).
+                rec["clip_echo_pid"] = self.rig({"cmd": "clip_echo", "seconds": int(self.a.timeout) + 60}).get("pid")
             if self.synthetic:
                 host = self.host.popen(self.synthetic_serve(mode))
             else:
@@ -2685,12 +2886,15 @@ class Orchestrator:
                                                                  "flags": {"--profile": "high"},
                                                                  "args": self.host_args,
                                                                  "test_loss_pct": getattr(self, "host_test_loss", None),
+                                                                 "env": [f"{k}={v}" for k, v in self.host_env.items()],
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
             if self.a.encode_profile:
                 setup["encode_profile"] = self.a.encode_profile
+            if clipboard:
+                setup["clipboard"] = True  # the person's opt-in (serve.rs Setup.clipboard)
             host.stdin.write(json.dumps(setup) + "\n")
             host.stdin.flush()
             host_key, cands = None, []
@@ -2707,6 +2911,10 @@ class Orchestrator:
                 elif msg.get("candidates_done"):
                     break
             rec["host_candidates"] = cands
+            if not host_key:
+                # Without the host's key the viewer reads a null peer_key and says only "answer
+                # line: invalid type: null"; the reason is in the host's stderr (11-27 try 9).
+                raise RuntimeError(f"host printed no key in 20 s: {self.host_failure(host)}")
             cands = [c for c in cands if self.a.host_ip in c] or cands
             t0 = time.time()
             viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": [],
@@ -2784,14 +2992,30 @@ class Orchestrator:
                         p.wait()
         return rec
 
+    def host_failure(self, host):
+        """Why the host side said nothing: its exit status and stderr tail (serve.err for a
+        synthetic serve, which sends stderr there; the pipe otherwise)."""
+        code = host.poll()
+        state = "running" if code is None else f"exit {code}"
+        try:
+            if self.synthetic:
+                tail = self.host.run(f"tail -c 600 {shlex.quote(self.root + '/state/serve.err')}", timeout=30)
+            else:
+                tail = host.stderr.read()[-600:] if code is not None else ""
+        except Exception as e:  # noqa: BLE001 - the reason is best effort
+            tail = f"(stderr unread: {e!r})"
+        return f"{state}; stderr: {tail.strip() or '(empty)'}"
+
     def first_frame_breakdown(self, rec, timing, offset_ns):
-        """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
+        """connect -> first decoded frame, split with the host's log (ms, viewer clock).
+        OFFSET_NS: host minus viewer, a number or a trial_clock (read at the session's start)."""
         t = rec.get("first_frame_times")
         opened = next((x for x in timing if "open_us" in x), None)
         f = next((x for x in timing if t and x.get("capture_us", x.get("release_us")) == t.get("capture_us")), None)
         if not (t and opened and f):
             return None
-        off_us = offset_ns / 1000.0
+        clock = offset_ns if isinstance(offset_ns, dict) else {"offset_ns": offset_ns}
+        off_us = offset_at(clock, t.get("start_ns")) / 1000.0
         start = t["start_ns"] / 1000.0
         arrived = f.get("arrived_us")
 
@@ -2816,7 +3040,9 @@ class Orchestrator:
         }
 
     def breakdown(self, rec, timing, offset_ns):
-        """Per key press: where the time went, on the viewer's clock (ms)."""
+        """Per key press: where the time went, on the viewer's clock (ms). OFFSET_NS: host minus
+        viewer, a number or a trial_clock (read at each press's send, so a drifting pair's
+        cross-host spans stay right)."""
         frames = {}
         injects = []
         for line in timing:
@@ -2826,9 +3052,10 @@ class Orchestrator:
                 frames[line.get("capture_us", line["release_us"])] = line
         injects.sort(key=lambda x: x["inject_us"])
         rows = []
-        off_us = offset_ns / 1000.0
+        clock = offset_ns if isinstance(offset_ns, dict) else {"offset_ns": offset_ns}
+        off_us = clock["offset_ns"] / 1000.0
 
-        def v(host_us):  # a host time (µs) on the viewer's clock
+        def v(host_us):  # a host time (µs) on the viewer's clock, at this press's offset
             return host_us - off_us
 
         def ms(us):
@@ -2837,6 +3064,7 @@ class Orchestrator:
         for s in rec.get("sample_times") or []:
             f = frames.get(s["capture_us"])
             sent = s["sent_ns"] / 1000.0
+            off_us = offset_at(clock, s["sent_ns"]) / 1000.0
             # The first injection the host read after this press was sent (1 ms of slack for
             # the clock estimate).
             inj = next((i for i in injects if i.get("recv_us") and v(i["recv_us"]) >= sent - 1000), None)
@@ -2896,6 +3124,8 @@ class Orchestrator:
         pct = getattr(self, "host_test_loss", None)
         if pct:
             env += f"CMUX_RD_TEST_LOSS_PCT={shlex.quote(pct)} "
+        for name, value in self.host_env.items():
+            env += f"{name}={shlex.quote(value)} "
         err = shlex.quote(f"{self.root}/state/serve.err")
         return env + " ".join(shlex.quote(a) for a in argv) + f" 2> {err}"
 
@@ -2908,6 +3138,8 @@ class Orchestrator:
         # click and scroll must land on the marker or it never counts them (the bench's own --at
         # default, 960,600, misses it): the marker's click-at, else its pad from the origin.
         self.marker_at = reply.get("at") or [origin[0] + 32 * (CELLS + 2), origin[1] + 16]
+        # The shared Mac's display rate, recorded on every row (log()).
+        self.host_display = {k: reply[k] for k in ("refresh_hz", "mode_hz") if k in reply} or self.host_display
         time.sleep(0.5)
         return origin
 
@@ -2919,20 +3151,56 @@ class Orchestrator:
         out = self.host.run(f"cat {timing} 2>/dev/null; : > {timing}", timeout=60)
         return [json.loads(x) for x in out.splitlines() if x.strip()]
 
+    def finish_trial(self, rec, timing, clock):
+        """A key trial's breakdown on its clock (trial_clock's dict); returns its rows."""
+        rec["breakdown_clock"] = clock
+        rec["breakdown"] = self.breakdown(rec, timing, clock)
+        ff = self.first_frame_breakdown(rec, timing, clock)
+        if ff:
+            rec["first_frame_breakdown"] = ff
+            self.ff_rows.append(ff)
+        rec.pop("sample_times", None)
+        return rec["breakdown"]
+
     def run_cmux(self, clock):
         firsts, g2g, fps, rows = [], [], [], []
+        clipboard = getattr(self.a, "cmux_input", "key") == "clipboard"
+        # A trial's cross-host spans read the clock line from its anchor to the next trial's
+        # (trial_clock), so a trial with an anchor waits, unlogged, for the next anchor (or the
+        # last trial); the records after it wait too, to keep run.jsonl in trial order.
+        held, held_anchor, last_anchor = [], None, None
+
+        def release(nxt):
+            nonlocal held, held_anchor, last_anchor
+            out = []
+            for r, t in held:
+                if t is not None:
+                    out += self.finish_trial(r, t, trial_clock(r, clock, last_anchor, nxt))
+                self.log(r)
+            held, last_anchor, held_anchor = [], held_anchor or last_anchor, None
+            return out
         # The first session after the rig starts can miss every key (the marker window is
         # not key yet), so warm-up attempts are logged but not counted.
         for n in range(1 - self.a.warmup, self.a.trials + 1):
             origin = self.marker([])
             rec = self.cmux_attempt(origin, "key")
             timing = self.host_timing()
+            keep = getattr(self.a, "keep_timing", None)
+            if keep:
+                # Every frame line of the attempt as the host logged it (idr_reason,
+                # target_kbps, its times), for per-frame analysis beyond the breakdown's join.
+                with open(keep, "a") as f:
+                    f.write(json.dumps({"trial": n, "warmup": n < 1, "lines": timing}) + "\n")
             if n < 1:
                 rec.pop("sample_times", None)
                 self.log(dict(rec, warmup=True))
                 continue
             rec["trial"] = n
-            if rec["ok"]:
+            if rec["ok"] and clipboard:
+                # A copy-paste sample is a round trip to the echo (`echo_ns`): no frame, no
+                # first frame, no stage breakdown; the row keeps the bench's `g2g_ms` and `lost`.
+                g2g += [(s["echo_ns"] - s["sent_ns"]) / 1e6 for s in rec.get("sample_times") or []]
+            elif rec["ok"]:
                 firsts.append(rec["first_frame_ms"])
                 g2g += [(s["decoded_ns"] - s["sent_ns"]) / 1e6 for s in rec.get("sample_times") or []]
                 # A build with the stage ledger hands one per sample; every row then reads it.
@@ -2940,14 +3208,23 @@ class Orchestrator:
                                  if s.get("ledger")]
                 if rec.get("stage_ledger"):
                     self.summaries.append(rec["stage_ledger"])
-                rec["breakdown"] = self.breakdown(rec, timing, clock["offset_ns"])
-                rows += rec["breakdown"]
-                ff = self.first_frame_breakdown(rec, timing, clock["offset_ns"])
-                if ff:
-                    rec["first_frame_breakdown"] = ff
-                    self.ff_rows.append(ff)
+                anchor = clock_anchor(rec)
+                if anchor is not None:
+                    rows += release(anchor)
+                    held_anchor = anchor
+                    held.append((rec, timing))
+                elif held:
+                    held.append((rec, timing))
+                else:  # no anchor (an older bench): the run's offset, at once
+                    rows += self.finish_trial(rec, timing, trial_clock(rec, clock))
+                    self.log(rec)
+                continue
             rec.pop("sample_times", None)
-            self.log(rec)
+            if held:
+                held.append((rec, None))
+            else:
+                self.log(rec)
+        rows += release(None)
         for n in range(1, self.a.fps_trials + 1):
             origin = self.marker(["--tick", "--motion"])
             geo = self.motion_geometry()
@@ -3667,6 +3944,12 @@ def build_parser():
                    help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
                         "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
                         "row records host_test_loss_pct")
+    r.add_argument("--keep-timing", metavar="PATH",
+                   help="append each key attempt's host CMUX_RD_TIMING_LOG lines to PATH, one JSON "
+                        "line per attempt ({trial, warmup, lines})")
+    r.add_argument("--host-env", action="append", metavar="NAME=VALUE",
+                   help="an environment variable on the host's `cmux-rd serve`, repeatable; only "
+                        + ", ".join(sorted(HOST_ENV)) + ". Each row records host_env")
     r.add_argument("--viewer-arg", action="append", metavar="ARG",
                    help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
                         "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))
@@ -3692,9 +3975,10 @@ def build_parser():
                    "tools-only=1: cmux-rd, cmux-rd-marker, screen-eval-ocr")
     r.add_argument("--apple-input", choices=["key", "click"], default="key",
                    help="the Apple leg's timed input (key: after one focus click on the pad)")
-    r.add_argument("--cmux-input", choices=["key", "click", "scroll"], default="key",
+    r.add_argument("--cmux-input", choices=["key", "click", "scroll", "clipboard"], default="key",
                    help="the cmux leg's timed input: each kind goes through the host's injector and "
-                   "bumps the marker (keyDown, mouseDown, scrollWheel)")
+                   "bumps the marker (keyDown, mouseDown, scrollWheel); clipboard: copy-paste round "
+                   "trips through the shared Mac's pasteboard (cap clipboard.text, clip-echo there)")
     r.add_argument("--presented-pid", type=int, help="a visible viewer pane's process on the "
                    "viewing Mac: Total then ends at the presented frame (cmux-rd observe)")
     r.add_argument("--presented-window", type=int, help="that pane's CGWindow id")
@@ -3777,6 +4061,9 @@ def build_parser():
     ps.add_argument("--port", type=int, default=4181)
     ps.add_argument("--token-file", required=True)
     ps.add_argument("--hold-s", type=int, default=7200)
+    ps.add_argument("--first-contact-s", type=int,
+                    default=int(os.environ.get("CMUX_PEER_FIRST_CONTACT_S") or 600),
+                    help="exit 3 when no accepted request arrives in this many seconds (0: off)")
     ps.set_defaults(fn=cmd_peer_serve)
     ln = sub.add_parser("localnet-probe", help="whether this process may send UDP to a LAN address (JSON)")
     ln.add_argument("--to", help="the LAN address (default: the gateway)")
@@ -3801,6 +4088,10 @@ def build_parser():
     c.add_argument("--root", default="~/cmux-rd-test")
     c.add_argument("request")
     c.set_defaults(fn=cmd_rig_call)
+    ce = sub.add_parser("clip-echo", help="on the shared Mac (the rig starts it): answer clipboard probes")
+    ce.add_argument("--seconds", type=float, default=600)
+    ce.add_argument("--every-ms", type=float, default=10)
+    ce.set_defaults(fn=cmd_clip_echo)
     s = sub.add_parser("clock-serve")
     s.add_argument("--bind", default="0.0.0.0")
     s.add_argument("--port", type=int, default=47123)

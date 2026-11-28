@@ -877,6 +877,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "startedAt", true, "1")
 	})
+	t.Run("ClientInfo.Capabilities", func(t *testing.T) {
+		var missing ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Capabilities != nil {
+			t.Fatal("Capabilities did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "capabilities", false, "")
+		var nullValue ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\",\"capabilities\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field capabilities accepted null")
+		}
+		var presentValue ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\",\"capabilities\":[]}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Capabilities == nil {
+			t.Fatal("Capabilities lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "capabilities", true, "[]")
+	})
 	t.Run("ClientInfo.Kind", func(t *testing.T) {
 		var missing ClientInfo
 		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &missing); err == nil {
@@ -1008,6 +1030,94 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("TerminalIncarnation did not preserve a required value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "terminal_incarnation", true, "\"value\"")
+	})
+	t.Run("ColumnDock.AllowTabs", func(t *testing.T) {
+		var missing ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.AllowTabs != nil {
+			t.Fatal("AllowTabs did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "allow_tabs", false, "")
+		var nullValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"allow_tabs\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field allow_tabs accepted null")
+		}
+		var presentValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"allow_tabs\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.AllowTabs == nil {
+			t.Fatal("AllowTabs lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "allow_tabs", true, "true")
+	})
+	t.Run("ColumnDock.Permanent", func(t *testing.T) {
+		var missing ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Permanent != nil {
+			t.Fatal("Permanent did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "permanent", false, "")
+		var nullValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"permanent\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field permanent accepted null")
+		}
+		var presentValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"permanent\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Permanent == nil {
+			t.Fatal("Permanent lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "permanent", true, "true")
+	})
+	t.Run("ColumnDock.Pinned", func(t *testing.T) {
+		var missing ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Pinned != nil {
+			t.Fatal("Pinned did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "pinned", false, "")
+		var nullValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"pinned\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field pinned accepted null")
+		}
+		var presentValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"pinned\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Pinned == nil {
+			t.Fatal("Pinned lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "pinned", true, "true")
+	})
+	t.Run("ColumnDock.Role", func(t *testing.T) {
+		var missing ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Role != nil {
+			t.Fatal("Role did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "role", false, "")
+		var nullValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"role\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field role accepted null")
+		}
+		var presentValue ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"role\":\"agent_chat\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Role == nil {
+			t.Fatal("Role lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "role", true, "\"agent_chat\"")
 	})
 	t.Run("ColumnPin.Role", func(t *testing.T) {
 		var missing ColumnPin
@@ -3203,13 +3313,13 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("non-nullable field dock accepted null")
 		}
 		var presentValue LayoutColumnNode
-		if err := json.Unmarshal([]byte("{\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"width\":1.5,\"dock\":{\"value\":true}}"), &presentValue); err != nil {
+		if err := json.Unmarshal([]byte("{\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"width\":1.5,\"dock\":{\"edge\":\"left\",\"mode\":\"docked\"}}"), &presentValue); err != nil {
 			t.Fatal(err)
 		}
 		if presentValue.Dock == nil {
 			t.Fatal("Dock lost its value")
 		}
-		assertGeneratedFieldJSON(t, presentValue, "dock", true, "{\"value\":true}")
+		assertGeneratedFieldJSON(t, presentValue, "dock", true, "{\"edge\":\"left\",\"mode\":\"docked\"}")
 	})
 	t.Run("LayoutColumnNode.Rows", func(t *testing.T) {
 		var missing LayoutColumnNode
@@ -5813,13 +5923,13 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("non-nullable field floating accepted null")
 		}
 		var presentValue Screen
-		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null,\"floating\":{\"value\":true}}"), &presentValue); err != nil {
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null,\"floating\":[]}"), &presentValue); err != nil {
 			t.Fatal(err)
 		}
 		if presentValue.Floating == nil {
 			t.Fatal("Floating lost its value")
 		}
-		assertGeneratedFieldJSON(t, presentValue, "floating", true, "{\"value\":true}")
+		assertGeneratedFieldJSON(t, presentValue, "floating", true, "[]")
 	})
 	t.Run("Screen.Group", func(t *testing.T) {
 		var missing Screen
@@ -46369,6 +46479,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "name", true, "\"value\"")
 	})
+	t.Run("ClientDisconnectedByEvent.By", func(t *testing.T) {
+		var missing ClientDisconnectedByEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"client-disconnected-by\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.By != nil {
+			t.Fatal("By did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "by", false, "")
+		var nullValue ClientDisconnectedByEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"client-disconnected-by\",\"by\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field by accepted null")
+		}
+		var presentValue ClientDisconnectedByEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"client-disconnected-by\",\"by\":{}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.By == nil {
+			t.Fatal("By lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "by", true, "{}")
+	})
 	t.Run("CloudConversationChangedEvent.Account", func(t *testing.T) {
 		var missing CloudConversationChangedEvent
 		if err := json.Unmarshal([]byte("{\"change\":null,\"conversation\":\"value\",\"rev\":1,\"seq\":1,\"transaction\":\"value\"}"), &missing); err != nil {
@@ -49388,6 +49520,18 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field viewing decoded successfully")
 		}
 	})
+	t.Run("ColumnDock.Edge", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"mode\":\"docked\"}"), &decoded); err == nil {
+			t.Fatal("missing required field edge decoded successfully")
+		}
+	})
+	t.Run("ColumnDock.Mode", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\"}"), &decoded); err == nil {
+			t.Fatal("missing required field mode decoded successfully")
+		}
+	})
 	t.Run("ColumnPin.Edge", func(t *testing.T) {
 		var decoded ColumnPin
 		if err := json.Unmarshal([]byte("{\"mode\":\"value\"}"), &decoded); err == nil {
@@ -49800,6 +49944,36 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 		var decoded ExportedPane
 		if err := json.Unmarshal([]byte("{\"pane\":1}"), &decoded); err == nil {
 			t.Fatal("missing required field surfaces decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.H", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field h decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.Pane", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.W", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field w decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.X", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field x decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.Y", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field y decoded successfully")
 		}
 	})
 	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
@@ -59267,6 +59441,18 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field viewing accepted null")
 		}
 	})
+	t.Run("ColumnDock.Edge", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":null,\"mode\":\"docked\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field edge accepted null")
+		}
+	})
+	t.Run("ColumnDock.Mode", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field mode accepted null")
+		}
+	})
 	t.Run("ColumnPin.Edge", func(t *testing.T) {
 		var decoded ColumnPin
 		if err := json.Unmarshal([]byte("{\"edge\":null,\"mode\":\"value\"}"), &decoded); err == nil {
@@ -59667,6 +59853,36 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded ExportedPane
 		if err := json.Unmarshal([]byte("{\"pane\":1,\"surfaces\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field surfaces accepted null")
+		}
+	})
+	t.Run("FloatingPane.H", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":null,\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field h accepted null")
+		}
+	})
+	t.Run("FloatingPane.Pane", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":null,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("FloatingPane.W", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":null,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field w accepted null")
+		}
+	})
+	t.Run("FloatingPane.X", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":null,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field x accepted null")
+		}
+	})
+	t.Run("FloatingPane.Y", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field y accepted null")
 		}
 	})
 	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
@@ -67796,6 +68012,24 @@ func TestGeneratedConstrainedFieldsRejectUnknownValues(t *testing.T) {
 			t.Fatal("invalid constrained field closed decoded successfully")
 		}
 	})
+	t.Run("ColumnDock.Edge", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"__cmux_invalid__\",\"mode\":\"docked\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field edge decoded successfully")
+		}
+	})
+	t.Run("ColumnDock.Mode", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field mode decoded successfully")
+		}
+	})
+	t.Run("ColumnDock.Role", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\",\"role\":\"__cmux_invalid__\"}"), &decoded); err == nil {
+			t.Fatal("invalid constrained field role decoded successfully")
+		}
+	})
 	t.Run("ConversationThreadSummary.Status", func(t *testing.T) {
 		var decoded ConversationThreadSummary
 		if err := json.Unmarshal([]byte("{\"authors\":[],\"last_reply_at\":null,\"last_reply_seq\":null,\"reply_count\":1,\"root\":\"value\",\"status\":\"__cmux_invalid__\"}"), &decoded); err == nil {
@@ -68680,6 +68914,37 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 		decoded.Closed = bool(false)
 		if _, err := json.Marshal(decoded); err == nil {
 			t.Fatal("invalid constrained field closed encoded successfully")
+		}
+	})
+	t.Run("ColumnDock.Edge", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Edge = ColumnDockEdge("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field edge encoded successfully")
+		}
+	})
+	t.Run("ColumnDock.Mode", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		decoded.Mode = ColumnDockMode("__cmux_invalid__")
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field mode encoded successfully")
+		}
+	})
+	t.Run("ColumnDock.Role", func(t *testing.T) {
+		var decoded ColumnDock
+		if err := json.Unmarshal([]byte("{\"edge\":\"left\",\"mode\":\"docked\"}"), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		invalidValue := ColumnDockRole("__cmux_invalid__")
+		decoded.Role = &invalidValue
+		if _, err := json.Marshal(decoded); err == nil {
+			t.Fatal("invalid constrained field role encoded successfully")
 		}
 	})
 	t.Run("ConversationThreadSummary.Status", func(t *testing.T) {
@@ -69978,12 +70243,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1970
+	generatedFieldShapeCount               = 1976
 	generatedOptionalNullableFieldCount    = 1365
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 427
-	generatedRequiredFieldCount            = 1662
-	generatedRequiredNonnullableFieldCount = 1484
-	generatedConstrainedFieldCount         = 139
-	generatedEncodedConstrainedFieldCount  = 139
+	generatedOptionalNonnullableFieldCount = 433
+	generatedRequiredFieldCount            = 1669
+	generatedRequiredNonnullableFieldCount = 1491
+	generatedConstrainedFieldCount         = 142
+	generatedEncodedConstrainedFieldCount  = 142
 )

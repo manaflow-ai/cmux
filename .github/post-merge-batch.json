@@ -105,11 +105,25 @@
       ],
       "jobs": {"sweep": "acpmux simulation sweep"}
     },
+    "chat-size-ladder": {
+      "workflow": "chat-size-ladder.yml",
+      "paths": [
+        "cmux-tui/crates/acpmux/**",
+        "cmux-tui/crates/coord-sim/**",
+        "cmux-tui/Cargo.lock",
+        "scripts/measure/chat-size-sweep.sh",
+        "scripts/measure/chat-size-compare.py",
+        ".github/workflows/chat-size-ladder.yml"
+      ],
+      "jobs": {"ladder": "chat-size ladder, base vs head (advisory)"}
+    },
     "swift-acpmux-protocol": {
       "workflow": "swift-acpmux-protocol.yml",
       "paths": [
         "Packages/macOS/CmuxNext/Sources/**",
         "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+        "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+        "scripts/cmux-next/gen-agent-pane-policy-swift.py",
         "scripts/ci/check-swift-acpmux-protocol.py",
         "scripts/ci/swift-acpmux-protocol-allowlist.txt",
         "tests/test_check_swift_acpmux_protocol.py",
@@ -258,6 +272,7 @@
         "scripts/ci/ios_link_ffi.sh",
         "scripts/ci/ios_sim_udid.py",
         "scripts/ci/ios-sim-pool.sh",
+        "scripts/ci/ios-sim-linux-test.sh",
         ".github/actions/setup-cmux-tui-rust/**",
         ".github/actions/runner-cargo-home/**",
         "cmux-tui/rust-toolchain.toml",
@@ -297,9 +312,11 @@
         "cmux-tui/crates/cmux-egress/**",
         "cmux-tui/crates/cmux-felt/**",
         "cmux-tui/crates/cmux-follow-cam/**",
+        "cmux-tui/crates/cmux-local-url/**",
         "cmux-tui/crates/cmux-mobile-core/**",
         "cmux-tui/crates/cmux-mobile-last-place/**",
         "cmux-tui/crates/cmux-process/**",
+        "cmux-tui/crates/cmux-proxy/**",
         "cmux-tui/crates/cmux-rd-core/**",
         "cmux-tui/crates/cmux-rd-ffi/**",
         "cmux-tui/crates/cmux-rd-link/**",
@@ -311,13 +328,19 @@
         "cmux-tui/crates/cmux-scope/**",
         "cmux-tui/crates/cmux-share-approval/**",
         "cmux-tui/crates/cmux-tab-snapshots/**",
+        "cmux-tui/crates/cmux-tailnet-join/**",
+        "cmux-tui/crates/cmux-tailnet/**",
         "cmux-tui/crates/cmux-terminal-prediction/**",
         "cmux-tui/crates/cmux-terminal-sizing/**",
         "cmux-tui/crates/cmux-unix-socket/**",
+        "cmux-tui/crates/cmux-vault-e2e/**",
         "cmux-tui/crates/cmux-vnc/**",
         "cmux-tui/crates/cmux-window-rules/**",
         "cmux-tui/vendor/crossterm/**",
-        "cmux-tui/vendor/terminput-crossterm/**"
+        "cmux-tui/vendor/terminput-crossterm/**",
+        "cmux-tui/crates/cmux-local-url/**",
+        "cmux-tui/crates/cmux-proxy/**",
+        "scripts/ci/ios-sim-linux-test.sh"
       ],
       "jobs": {"ios": "ios"}
     },
@@ -643,6 +666,7 @@
         "schemas/sidebar-drag-geometry/vectors.json",
         "schemas/sidebar-region-layout/vectors.json",
         "backend/catalog/cloud-relay-operations.json",
+        "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h",
         "schemas/settings/source/notifications.json",
         "schemas/settings/source/page-layout.json",
         "docs/mdm/cmux-example.mobileconfig",
@@ -671,6 +695,18 @@
         "acpmux-protocol-ir": "acpmux protocol IR is current",
         "remote-web-wasm": "cmux remote web wasm"
       }
+    },
+    "ghosttykit-release-check": {
+      "workflow": "ghosttykit-release-check.yml",
+      "paths": [
+        "ghostty",
+        "scripts/download-prebuilt-ghosttykit.sh",
+        "scripts/validate-xcframework-archive.py",
+        "scripts/ghosttykit-checksums.txt",
+        "tests/test_ci_ghosttykit_release_check.sh",
+        ".github/workflows/ghosttykit-release-check.yml"
+      ],
+      "jobs": {"verify": "GhosttyKit release check"}
     }
   }
 }
