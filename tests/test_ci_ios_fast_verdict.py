@@ -125,6 +125,20 @@ class PlanTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.plan(path)["build"])
 
+    def test_only_its_own_files_need_no_flow_proof(self) -> None:
+        # cmux#62950 changed only ios_fast_verdict.sh: the kit built, then cmux/ios-fast waited on an ios-flows record
+        # that `cmux ios verify` never posts for a diff no flow reads, so the status stayed pending for good.
+        self.assertFalse(self.plan(*fv.SELF)["proof"])
+        self.assertTrue(self.plan(fv.SELF[0], KIT + "Sources/CmuxMobileKit/A.swift")["proof"])
+        self.assertFalse(self.plan("docs/a.md")["proof"])
+        for wf in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            with self.subTest(workflow=wf):
+                text = (ROOT / ".github/workflows" / wf).read_text()
+                self.assertIn("PROOF: ${{ needs.pipeline.outputs.ios_fast_proof }}", text)
+                self.assertIn('[ "$PROOF" != false ] && [ "$NEED_PROOF" = true ]', text)
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(pipeline["jobs"]["ios-fast-runner"]["outputs"]["proof"], "${{ steps.plan.outputs.proof }}")
+
     def test_many_targets_fall_back_to_a_build(self) -> None:
         have = sorted(fv.test_targets(fv.ROOT) - fv.SKIPPED_TESTS)
         self.assertGreater(len(have), fv.MAX_TEST_TARGETS)
@@ -298,6 +312,13 @@ class WorkflowTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.jobs = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]
 
+    def test_the_default_on_switch_normalizes_an_unset_variable(self) -> None:
+        # GitHub coerces null and '0' to numeric zero. String normalization keeps an
+        # unset switch enabled and still lets an explicit '0' disable the verdict.
+        # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
+        self.assertEqual(self.jobs["ios-fast-runner"]["if"],
+                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
         self.assertEqual(runner["steps"][0]["with"]["fetch-depth"], 2)
@@ -315,6 +336,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--lane pipeline", pick["run"])
         self.assertIn("--device-family iphone", pick["run"])
         self.assertEqual(runner["runs-on"], self.jobs["ios-runner"]["runs-on"])
+
+    def test_a_skipped_caller_need_never_skips_the_picker(self) -> None:
+        # pr-router.yml's pipeline needs fast-gates, which skips on a landing head; the implicit success() reads the
+        # caller's needs too, so without !cancelled() the picker skipped and cmux/ios-fast stayed pending (cmux#57755).
+        self.assertTrue(self.jobs["ios-fast-runner"]["if"].startswith("${{ !cancelled() && "))
 
     def test_the_mac_job_runs_the_plan_warm(self) -> None:
         job = self.jobs["ios-fast"]
@@ -362,7 +388,7 @@ class WorkflowTest(unittest.TestCase):
         cond = gh_expr.condition(self.jobs["ios-fast-runner"]["if"])
         for value, runs in ((None, True), ("", True), ("1", True), ("0", False)):
             with self.subTest(value=value):
-                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}})), runs)
+                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}}, {"cancelled": False})), runs)
 
     def test_a_pending_the_route_started_is_always_answered(self) -> None:
         # The route posted pending because it started pr-pipeline.yml: a skipped pipeline (red fast gates, or a job

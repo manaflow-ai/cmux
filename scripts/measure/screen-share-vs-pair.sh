@@ -19,7 +19,7 @@
 # profile=    standard|ultra is --encode-profile (default: none sent, the host runs standard); with
 #             profile=ultra each leg's label gains `-ultra`, so a first p50 from any two reachable Macs
 #             reads as not-the-wired-pair unless the pair is cmux20 -> cmux17.
-# inputs=     the cmux leg's timed presses, one leg per kind (--cmux-input; default key): key,click,scroll
+# inputs=     the cmux leg's timed presses, one leg per kind (--cmux-input; default key): key,click,scroll,clipboard (clipboard: copy-paste round trips, cap clipboard.text)
 #             times each through the host's injector, samples= presses per trial (default 30). run.jsonl
 #             holds every leg's rows; the fps trials run with the first kind only.
 # host=nightly  the shared Mac serves from the NIGHTLY's Screen Sharing helper (its
@@ -37,15 +37,23 @@
 #     --artifact artifacts/screen-share-vs-pair/report.tgz
 #             The viewer half ends at the host half's /done, or after hold-s= (default 3600) seconds.
 # host-ip=lan|tailnet  the address the viewer dials for the clock probe and the stream (--host-ip). lan (default)
-#             is this Mac's en0/en1 address. tailnet is its 100.64.0.0/10 address: the viewer half's own sockets
-#             to an office-LAN address get EHOSTUNREACH (`No route to host`) from macOS Local Network privacy,
-#             which refuses launchd-started programs the LAN with no grant (cmuxterm-hq handbook
-#             host-stall-read-as-dead-network.md), while their sockets to a tailnet address pass. Two Macs on one
-#             LAN reach each other directly inside WireGuard; the leg's --link is `wired-tailnet` then.
+#             is this Mac's en0/en1 address. tailnet is its 100.64.0.0/10 address. A launchd step's own sockets to
+#             an office-LAN address get EHOSTUNREACH (`No route to host`) from macOS Local Network privacy, so both
+#             LAN halves run inside CmuxScreenEvalLauncher.app (the rig here, peer-serve on the viewer), which
+#             holds that grant once it is allowed at each Mac's console; the run checks it before any leg
+#             (`localnet` in run.jsonl) and stops naming the Mac that lacks it. Two Macs on one LAN reach each
+#             other directly inside WireGuard; the leg's --link is `wired-tailnet` then.
+# queue-depth=N  (3..8) CMUX_RD_SCK_QUEUE_DEPTH=N on the host's serve: the ScreenCaptureKit surface pool depth
+#             (cmux-rd-host mac/capture.rs; default none set: its own depth). The label gains `-qN`.
+# max-refresh=1  CMUX_RD_MAC_MAX_REFRESH=1 on the host's serve: the captured display switches to its fastest
+#             refresh at the current size for the serve process (a 60 Hz-only display stays at 60). The label
+#             gains `-maxhz`. Pair it with max-fps=120 so the viewer asks for the rate.
+# max-fps=N   the viewer's asked frame rate (--max-fps; default 60). The label gains `-fpsN` when not 60.
+#             Each row records host_env; host=nightly runs the NIGHTLY's helper, which may not read either.
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan queue_depth="" max_refresh=0 max_fps=60
 for arg in "$@"; do
   case "$arg" in
     mode=probe|mode=run) mode="${arg#mode=}" ;;
@@ -63,11 +71,16 @@ for arg in "$@"; do
     peer-token=*) peer_token="${arg#peer-token=}" ;;
     hold-s=*) hold_s="${arg#hold-s=}" ;;
     host-ip=lan|host-ip=tailnet) host_ip_kind="${arg#host-ip=}" ;;
+    queue-depth=*) queue_depth="${arg#queue-depth=}" ;;
+    max-refresh=0|max-refresh=1) max_refresh="${arg#max-refresh=}" ;;
+    max-fps=*) max_fps="${arg#max-fps=}" ;;
     *) echo "screen-share-vs-pair.sh: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 [[ -z "$peer_token" || "$peer_token" =~ ^[0-9a-f]{64}$ ]] || { echo "peer-token= is 64 hex" >&2; exit 2; }
 [[ "$hold_s" =~ ^[0-9]{1,5}$ ]] || { echo "hold-s= is seconds" >&2; exit 2; }
+[[ -z "$queue_depth" || "$queue_depth" =~ ^[3-8]$ ]] || { echo "queue-depth= is 3 to 8" >&2; exit 2; }
+[[ "$max_fps" =~ ^[0-9]{2,3}$ ]] || { echo "max-fps= is a frame rate" >&2; exit 2; }
 [[ "$role" == host || -n "$peer_token" ]] || { echo "role=viewer needs peer-token=" >&2; exit 2; }
 [[ "$role" == viewer ]] && mode=run partner=peer
 [[ -n "$mode" ]] || { echo "screen-share-vs-pair.sh: mode=probe or mode=run" >&2; exit 2; }
@@ -76,7 +89,7 @@ done
 [[ "$loss" =~ ^[0-9]{1,2}([.][0-9]{1,3})?$ ]] || { echo "loss= is a percentage below 100" >&2; exit 2; }
 [[ "$fps_trials" =~ ^[0-9]{1,2}$ && "$trials" =~ ^[0-9]{1,3}$ && "$samples" =~ ^[0-9]{1,3}$ ]] \
   || { echo "fps-trials=, trials= and samples= are counts" >&2; exit 2; }
-[[ "$inputs" =~ ^(key|click|scroll)(,(key|click|scroll))*$ ]] || { echo "inputs= lists key, click and scroll" >&2; exit 2; }
+[[ "$inputs" =~ ^(key|click|scroll|clipboard)(,(key|click|scroll|clipboard))*$ ]] || { echo "inputs= lists key, click, scroll and clipboard" >&2; exit 2; }
 # The synthetic sources exist only in bench builds (cmux-rd-host lib.rs: "macOS bench builds"); the NIGHTLY's
 # helper is a release build, so its `serve --source synthetic-still` prints no key, every trial sends the viewer
 # `peer_key: null` and fails "answer line: invalid type: null", and the run ends with no sample at all.
@@ -85,7 +98,17 @@ done
 
 out=artifacts/screen-share-vs-pair
 work=$(mktemp -d "${TMPDIR:-/tmp}/ssvp.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+# viewer_done: the host half's /done to the viewer half, once. On every exit after the viewer answered: an early
+# exit 3 (no LAN address, the tools build, the NIGHTLY helper, the rig) left the viewer Mac serving its whole hold-s=.
+viewer_url=""
+viewer_done() {
+  [[ -n "$viewer_url" ]] || return 0
+  python3 -I -c 'import sys, urllib.request
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
+    headers={"X-Eval-Token": open(sys.argv[2]).read().strip()}), timeout=10).close()' "$viewer_url" "$work/peer-token" || true
+  viewer_url=""
+}
+trap 'viewer_done; rm -rf "$work"' EXIT
 mkdir -p "$out"
 self=$(hostname -s)
 self_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
@@ -129,8 +152,11 @@ if [[ "$role" == viewer ]]; then
     | tee -a "$work/probe.txt"
   (sleep 3; echo "SSVP self-connect $self_ip:$peer_port $(tcp_check "$self_ip" "$peer_port")" \
     | tee -a "$work/probe.txt") &
-  python3 -I "$vs" peer-serve --bind "$self_ip" --port "$peer_port" --token-file "$work/peer-token" \
-    --hold-s "$hold_s" 2>&1 | tee "$work/run.log"
+  # Inside CmuxScreenEvalLauncher.app (screen-stream-eval.sh peer-serve=): the bench peer-serve starts sends
+  # the stream's UDP to the shared Mac's LAN address, which macOS Local Network privacy refuses this step's
+  # own processes (`sends refused: No route to host (os error 65)`); the app holds that grant.
+  bash scripts/measure/screen-stream-eval.sh "peer-serve=$self_ip" "peer-port=$peer_port" "peer-hold=$hold_s" \
+    "peer-token-file=$work/peer-token" 2>&1 | tee "$work/run.log"
   rc=${PIPESTATUS[0]}
   [[ -n "$rig_root" ]] && rm -rf "$rig_root"
   pack; exit "$rc"
@@ -164,7 +190,8 @@ PY
     sleep 5
   done
   echo "SSVP peer $url out=${got:0:300}" | tee -a "$work/probe.txt"
-  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
+  [[ "$got" == "$partner"* ]] && target="$partner" viewer_url="$url" \
+    via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
 fi
 [[ -n "$peer_token" ]] || for t in "$partner" "$partner.local" ${partner_ip:+"$partner_ip"}; do
   got=$(ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new "$t" 'hostname -s' 2>&1 | tail -1)
@@ -239,6 +266,10 @@ fi
 link=wired loss_args=() profile_args=() suffix=
 [[ "$host_ip_kind" == tailnet ]] && link=wired-tailnet
 [[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); suffix="-$profile"; }
+env_args=()
+[[ -n "$queue_depth" ]] && { env_args+=(--host-env "CMUX_RD_SCK_QUEUE_DEPTH=$queue_depth"); suffix+="-q$queue_depth"; }
+[[ "$max_refresh" == 1 ]] && { env_args+=(--host-env CMUX_RD_MAC_MAX_REFRESH=1); suffix+="-maxhz"; }
+[[ "$max_fps" != 60 ]] && suffix+="-fps$max_fps"
 if [[ "$loss" != 0 ]]; then
   link="loss${loss}" loss_args=(--host-test-loss "$loss")
 fi
@@ -250,7 +281,7 @@ for kind in ${inputs//,/ }; do
   python3 -I "$vs" run \
     --host "$self" --viewer "$target" --host-ip "$dial_ip" --local-mac "$self" "${via_args[@]}" \
     --tools "$work/tools" ${host_args[@]+"${host_args[@]}"} --stacks cmux --source "$source" --link "$link" \
-    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} --cmux-input "$kind" --samples "$samples" \
+    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} ${env_args[@]+"${env_args[@]}"} --max-fps "$max_fps" --cmux-input "$kind" --samples "$samples" \
     --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind$suffix" --rev "$(git rev-parse HEAD)" \
     ${root_args[@]+"${root_args[@]}"} \
     --out "$work/run-$kind.jsonl" 2>&1 | tee -a "$work/run.log"
@@ -264,11 +295,7 @@ if [[ -n "$rig_pid" ]]; then
   kill "$rig_pid" 2>/dev/null; wait "$rig_pid" 2>/dev/null
 fi
 [[ -n "$rig_root" ]] && rm -rf "$rig_root"
-if [[ -n "$peer_token" ]]; then  # the viewer half ends now, not at its hold
-  python3 -I -c 'import sys, urllib.request
-urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
-    headers={"X-Eval-Token": open(sys.argv[2]).read().strip()}), timeout=10).close()' "$url" "$work/peer-token" || true
-fi
+viewer_done  # the viewer half ends now, not at its hold
 echo "SSVP done rc=$rc host=$self ($host) viewer=$partner link=$link inputs=$inputs at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 pack
 [[ "$rc" == 0 ]] || exit 1

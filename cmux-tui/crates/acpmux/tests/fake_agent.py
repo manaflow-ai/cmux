@@ -92,6 +92,10 @@ FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering 
 FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
 answering everything else meanwhile.
 
+FAKE_FORK_BUSY=1: session/fork as OpenCode 1.19 answers it: only once no prompt of this process
+runs, and of any session id (its sessions are in a store every process of it reads), the new id
+unique across processes. FAKE_FORK_LOG=<path>: each session/new, session/load and session/fork
+appends {"pid", "method", "sessionId"} as one JSON line.
 FAKE_FORK_REPLAY=1: before it answers session/fork, the agent replays the forked conversation as
 session/updates under the NEW session's id (a prompt, a thought, a tool call, a reply, its
 commands), as OpenCode 1.19's forkSession does (its replayMessages).
@@ -168,6 +172,20 @@ if os.environ.get("FAKE_REEXEC_WITHOUT"):
               {k: v for k, v in os.environ.items() if k not in _drop})
 
 lock = threading.Lock()
+# FAKE_FORK_BUSY=1: the prompts of this process running now.
+running_prompts = [0]
+
+
+def counted(target):
+    def run(rid, params):
+        with lock:
+            running_prompts[0] += 1
+        try:
+            target(rid, params)
+        finally:
+            with lock:
+                running_prompts[0] -= 1
+    return run
 # FAKE_CAPACITY_FILE: how many prompts the storm refused, to rotate its errors.
 capacity_storm = [0]
 cancelled = set()
@@ -387,8 +405,11 @@ def is_attribution(block):
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo. The "where
 # you are" card (`agent_card.rs`) is hidden first-turn context the same way.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
-                 "<cmux-card-context>")
+# The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
+# test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+    GUIDANCE_SOURCES = frozenset(json.load(_f))
+GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
 def guidance_text(text):
@@ -405,7 +426,7 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
+    if source in GUIDANCE_SOURCES:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -857,6 +878,14 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    if text == "remote-repository-refused":
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "remote-git",
+                     "status": "failed", "content": [{"type": "content", "content": {
+                         "type": "text", "text": "cannot create .git/index.lock: Permission denied"}}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+            "type": "text", "text": "BLOCKED: cannot create .git/index.lock"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "stuck-loop":
         return run_stuck_loop(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
@@ -1680,6 +1709,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "picked-model" replies with the model this process's session runs (FAKE_PICKER's set_model or
+    # model option), "default" when none was set: what the agent itself runs, not acpmux's meta.
+    if text == "picked-model":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": PICKER_MODELS.get(sid, "default")}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
     if text == "dirs":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
@@ -2476,6 +2511,9 @@ def main():
             sys.stderr.flush()
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
+            if os.environ.get("FAKE_FORK_LOG"):
+                with open(os.environ["FAKE_FORK_LOG"], "a") as log:
+                    log.write(json.dumps({"pid": os.getpid(), "method": m, "sessionId": params.get("sessionId")}) + "\n")
             LAST_MCP_SERVERS = params.get("mcpServers")
             # FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
             if os.environ.get("FAKE_MCP_OUT"):
@@ -2516,7 +2554,7 @@ def main():
                 if os.environ.get("FAKE_PICKER_MODES") == "1":
                     result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
                 elif os.environ.get("FAKE_PICKER_MODES") == "claude":
-                    result["modes"] = {"currentModeId": "default", "availableModes": [
+                    result["modes"] = {"currentModeId": os.environ.get("FAKE_PICKER_INITIAL_MODE", "default"), "availableModes": [
                         {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
                         {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
                 # FAKE_MODELS=<id,id>: the models this account offers (ACP `models`), as Codex reports them.
@@ -2801,6 +2839,16 @@ def main():
                 continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            if os.environ.get("FAKE_FORK_BUSY") == "1":
+                result = {"sessionId": f"{params['sessionId']}-fork-{os.getpid()}-{sessions}"}
+
+                def answer_when_idle(reply={"jsonrpc": "2.0", "id": rid, "result": result}):
+                    import time as clock  # main() binds `time` locally
+                    while running_prompts[0] > 0:
+                        clock.sleep(0.02)
+                    send(reply)
+                threading.Thread(target=answer_when_idle, daemon=True).start()
+                continue
             if os.environ.get("FAKE_FORK_REPLAY") == "1":
                 new_sid = result["sessionId"]
                 update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
@@ -2831,7 +2879,7 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1" or params.get("modeId") in os.environ.get("FAKE_REFUSE_MODES", "").split(","):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
@@ -2882,7 +2930,7 @@ def main():
                 target = codex_store_prompt
             if CLAUDE_STORE and params.get("sessionId") in claude_files:
                 claude_write(params["sessionId"], {"type": "fake-prompt", "text": prompt_text(params)})
-            threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            threading.Thread(target=counted(target), args=(rid, params), daemon=True).start()
             # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
             # file exists: a long answer then waits in the agent host's stdin writer, as it does
             # for a harness that stopped reading.
