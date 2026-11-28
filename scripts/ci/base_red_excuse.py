@@ -8040,6 +8040,9 @@ def risk_evidence_quota(view: "FailedView | Unplaced", workflow_info: dict | Non
         r"Policy: docs/ci/risk-tiers\.md|"
         r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
         r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
+        # risk-tier.yml's own line when the reset is past RATE_LIMIT_WAIT_S (#64468 run 46145858015).
+        r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, the soonest budget reset \(\d{2}:\d{2}:\d{2}Z\) "
+        r"is past the \d+s wait; rerun after it|"
         r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
         r"gh api .*: GitHub rate limit; waiting \d+s for the budget|"
         r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"
