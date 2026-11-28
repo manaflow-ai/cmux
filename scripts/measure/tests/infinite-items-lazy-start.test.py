@@ -65,6 +65,21 @@ class EvictArm(Arm):
     def test_none_leaves_the_binarys_default_not_the_callers(self):
         self.assertNotIn("ACPMUX_EVICT_IDLE_SECS", self.env_of({"ACPMUX_EVICT_IDLE_SECS": "30"}))
 
+class RowArm(unittest.TestCase):
+    """--row-arm names an arm's rows infinite_items.ARM.nN.*, beside the product arm's infinite_items.nN.*."""
+
+    def rows_with(self, arm):
+        bench = load()
+        bench.ARGS = types.SimpleNamespace(row_arm=arm)
+        with patch("builtins.print"):
+            bench.perf_row("infinite_items.n1000.memory_vs_empty", 12.82, "x", floor=0.1)
+        return [r["name"] for r in bench.ROWS]
+
+    def test_no_arm_keeps_the_product_name(self):
+        self.assertEqual(self.rows_with(""), ["infinite_items.n1000.memory_vs_empty"])
+
+    def test_the_all_live_arm_has_its_own_name(self):
+        self.assertEqual(self.rows_with("all_live"), ["infinite_items.all_live.n1000.memory_vs_empty"])
 
 if __name__ == "__main__":
     unittest.main()
