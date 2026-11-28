@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -9,6 +9,7 @@ import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../servic
 import { ProviderNetworkFullError } from "../services/vms/drivers/types";
 import { VmCreateWaitingError, VmProviderOperationError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
+import { resetFleetAdmissionForTest } from "../services/vms/fleetAdmission";
 import {
   VM_CREATE_WAIT_EXPIRED_FAILURE_CODE,
   VM_CREATE_WAIT_MAX_MS,
@@ -125,6 +126,9 @@ function failure(exit: Exit.Exit<unknown, unknown>): unknown {
 
 const placementRejected = Object.assign(new Error("no manager has enough capacity for vm"), { status: 409, code: "PLACEMENT_REJECTED" });
 
+// Fleet admission keeps a per-process provider cooldown; one test's refusal must not refuse the next.
+beforeEach(() => resetFleetAdmissionForTest());
+
 describe("createWait helpers", () => {
   test("a full network waits for an address, a placement refusal for capacity, anything else fails", () => {
     expect(createWaitStateForCause(new ProviderNetworkFullError("freestyle", "full"))).toBe("waiting_for_address");
@@ -178,6 +182,20 @@ describe("createVm wait state", () => {
     expect(err).toBeInstanceOf(VmCreateWaitingError);
     expect((err as VmCreateWaitingError).state).toBe("waiting_for_capacity");
     expect(h.creates).toHaveLength(1);
+  });
+
+  test("each wait state names its own cause in the 202 (address, fleet cap, provider capacity)", async () => {
+    const answers = await Promise.all((["waiting_for_address", "waiting_for_fleet", "waiting_for_capacity"] as const).map(async (state) => {
+      const response = (await vmWorkflowErrorResponse(new VmCreateWaitingError({ idempotencyKey: "k", state, since: 1, deadline: 2, retryAfterSeconds: 15 })))!;
+      expect(response.status).toBe(202);
+      const body = await response.json() as { waitState: string; reason: string; ui: { title: string }; waitDeadline: number };
+      expect(body.waitState).toBe(state);
+      expect(body.waitDeadline).toBe(2);
+      return body;
+    }));
+    expect(new Set(answers.map((a) => a.reason)).size).toBe(3);
+    expect(new Set(answers.map((a) => a.ui.title)).size).toBe(3);
+    expect(answers[1]?.reason).toContain("machine cap");
   });
 
   test("the same-key retry starts the machine once an address frees, under the first deadline", async () => {

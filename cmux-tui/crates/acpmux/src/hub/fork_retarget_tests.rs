@@ -249,11 +249,16 @@ fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
     // Another family whose modes (`normal`, `strict`) no list names: a chat in one asks.
     let moded = json!({"argv": ["python3", fake], "family": "moded",
                        "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "1"}});
+    // Codex's shape: approval modes, and plan as its `collaboration_mode` option.
+    let collab =
+        json!({"argv": ["python3", fake], "family": "collab", "env": {"FAKE_COLLAB": "1"}});
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister,
                                    "nofork": nofork, "lister2": lister2, "moded": moded,
-                                   "native": native, "refuses-asking": refuses_asking},
+                                   "native": native, "refuses-asking": refuses_asking,
+                                   "collab": collab},
                      "webAskingModes": {"lister": ["default", "plan"],
-                                         "moded": ["normal", "strict"]},
+                                         "moded": ["normal", "strict"],
+                                         "collab": ["normal", "strict"]},
                      "defaultHarness": "fake",
                      // New chats start in full access, the default a person has: a fork must
                      // still start at its chat's own level.
@@ -736,5 +741,107 @@ async fn fork_catalog_aliases_reach_the_native_spawn_model() {
             assert_eq!(argv[at + 1], "claude-fable-5-2", "{harness}: {alias}");
         }
     }
+    hub.shutdown_all().await;
+}
+
+/// The value of config option `id` on `session`.
+fn option_of(session: &Session, id: &str) -> Option<String> {
+    let meta = session.meta();
+    let opts = meta.config_options.as_deref().and_then(Value::as_array)?;
+    opts.iter().find(|o| o["id"] == id)?["currentValue"].as_str().map(str::to_owned)
+}
+
+async fn chat_on(hub: &Arc<Hub>, harness: &str) -> Arc<Session> {
+    let chat = hub
+        .new_session(NewRequest {
+            harness: Some(harness.into()),
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&chat, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
+    chat
+}
+
+/// A chat in plan forked onto another harness stays in plan there, in that harness's own words:
+/// Claude's `plan` mode onto Codex's `collaboration_mode` plan, and back, onto an ACP Claude
+/// and onto Claude Code's own stdio. It came up in Codex's `default` (fork hammer,
+/// cmux#64233 issuecomment-7240124384). Leo: "we ought to really hammer it hard and just test
+/// tons of variations of it".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_of_a_chat_in_plan_stays_in_plan_on_another_harness() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = lister_hub(&dir.path().join("calls.jsonl"));
+    let mode = |s: &Session| crate::web_modes::mode_of(&s.meta());
+
+    // Claude's plan onto Codex: its collaboration mode plan, its approval mode still asking.
+    let claude = chat_on(&hub, "lister").await;
+    hub.set_mode(&claude, "plan").await.unwrap();
+    let fork = hub
+        .fork_to(&claude, to("collab"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "collab");
+    assert_eq!(option_of(&fork, "collaboration_mode").as_deref(), Some("plan"));
+    let approval = mode(&fork);
+    assert!(matches!(approval.as_deref(), Some("normal" | "strict")), "asks less: {approval:?}");
+
+    // Codex's plan onto an ACP Claude and onto Claude Code's stdio: its plan mode.
+    let codex = chat_on(&hub, "collab").await;
+    hub.set_config(&codex, "collaboration_mode", json!("plan")).await.unwrap();
+    assert_eq!(option_of(&codex, "collaboration_mode").as_deref(), Some("plan"));
+    for target in ["lister", "native"] {
+        let fork = hub
+            .fork_to(&codex, to(target), None, None, Default::default(), None, true)
+            .await
+            .unwrap();
+        assert_eq!(fork.meta().harness, target);
+        assert_eq!(mode(&fork).as_deref(), Some("plan"), "onto {target}");
+    }
+
+    // Codex's plan onto Codex: still plan.
+    let fork = hub
+        .fork_to(&codex, to("collab"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(option_of(&fork, "collaboration_mode").as_deref(), Some("plan"));
+    hub.shutdown_all().await;
+}
+
+/// A chat in plan forked onto a harness with no plan keeps the start mode a fork gets today,
+/// never one that asks less; a chat not in plan is not put in plan.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_in_plan_onto_a_harness_without_plan_keeps_its_start_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = lister_hub(&dir.path().join("calls.jsonl"));
+    let mode = |s: &Session| crate::web_modes::mode_of(&s.meta());
+
+    let claude = chat_on(&hub, "lister").await;
+    let plain = hub
+        .fork_to(&claude, to("moded"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    hub.set_mode(&claude, "plan").await.unwrap();
+    let fork = hub
+        .fork_to(&claude, to("moded"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "moded");
+    assert_eq!(mode(&fork), mode(&plain), "plan changed the start mode where there is none");
+    let skipped = hub
+        .events(&fork.id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .any(|e| e.kind == "start_default_skipped" && e.msg.get("plan").is_some());
+    assert!(!skipped, "tried a plan the harness does not list");
+
+    // Not in plan: Codex's collaboration mode stays default.
+    hub.set_mode(&claude, "default").await.unwrap();
+    let fork = hub
+        .fork_to(&claude, to("collab"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(option_of(&fork, "collaboration_mode").as_deref(), Some("default"));
     hub.shutdown_all().await;
 }

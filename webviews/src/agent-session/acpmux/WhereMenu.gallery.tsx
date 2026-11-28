@@ -42,6 +42,7 @@ function Board({ open, busy = false }: Props) {
       ...(open === "main" ? [] : [() => click('.acpmux-env-popover [data-action="otherDevices"]')]),
       ...(open === "agents" ? [() => click('.acpmux-env-popover [data-action="agentMachines"]')] : []),
     ];
+    // gallery-capture: the steps click the menu open (60 ms apart) right after mount, ahead of the stage's quiet-DOM ready mark; the still is of the open menu.
     const timers = steps.map((step, index) => window.setTimeout(step, 60 + index * 120));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [open]);

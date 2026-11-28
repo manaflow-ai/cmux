@@ -20,6 +20,7 @@ import http.server
 import io
 import tarfile
 import threading
+import time
 
 # tests/git_fixture_env.py turns off git's background maintenance in the temp repos; loaded by path for python3 -I.
 _git_fixture_env = importlib.util.spec_from_file_location(
@@ -497,15 +498,63 @@ class FakeController:
         self.entries = {}  # key -> {"manifest", "files": [{"name","sha256","size"}], "worker"}
         self.blobs = {}    # "sha256:<hex>" -> bytes
         self.gets = []
+        self.claims = {}   # key -> {"job", "worker"}: the controller's build claims (components_claim.go)
+        self.claim_calls = []  # (method, key, job or wait)
+        self.on_wait = None  # called at a waiting claim read of a claimed key (the holder publishes meanwhile)
         owner = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
 
+            def answer(self, code, obj):
+                body = json.dumps(obj).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def claim_state(self, key):
+                if key in owner.entries:
+                    return {"state": "present"}
+                if key in owner.claims:
+                    return dict(owner.claims[key], state="claimed")
+                return {"state": "free"}
+
+            def do_POST(self):
+                key = self.path.split("/")[5]
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                owner.claim_calls.append(("POST", key, body["job"]))
+                assert hashlib.sha256(body["manifest"].encode()).hexdigest() == key, "the claim's manifest is its key"
+                state = self.claim_state(key)
+                if state["state"] == "free" or owner.claims.get(key, {}).get("job") == body["job"]:
+                    owner.claims[key] = {"job": body["job"], "worker": "this-worker"}
+                    return self.answer(200, dict(owner.claims[key], state="mine"))
+                return self.answer(409, state)
+
+            def do_DELETE(self):
+                key = self.path.split("/")[5]
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                owner.claim_calls.append(("DELETE", key, body["job"]))
+                if owner.claims.get(key, {}).get("job") == body["job"]:
+                    del owner.claims[key]
+                    return self.answer(200, {"state": "free"})
+                return self.answer(409, self.claim_state(key))
+
             def do_GET(self):
                 owner.gets.append(self.path)
                 body, code = b"", 404
+                path, _, query = self.path.partition("?")
+                if path.startswith("/v1/components/dev/ios-ffi/") and path.endswith("/claim"):
+                    key = path.split("/")[5]
+                    wait = dict(q.split("=", 1) for q in query.split("&") if "=" in q).get("wait", "0")
+                    owner.claim_calls.append(("GET", key, wait))
+                    if wait != "0" and key in owner.claims and key not in owner.entries:
+                        if owner.on_wait:
+                            owner.on_wait(key)
+                        else:
+                            time.sleep(min(float(wait), 0.25))  # the controller holds a waiting read
+                    return self.answer(200, self.claim_state(key))
                 if self.path.startswith("/v1/components/dev/ios-ffi/"):
                     key = self.path.rsplit("/", 1)[1]
                     if key in owner.entries:
@@ -668,6 +717,118 @@ class FleetTierTest(FFIRepoCase):
         env, checkout = self.worker_b()
         self.assertEqual(self.run_helper("restore", str(checkout), key, env=env).returncode, 1)
         self.assertEqual(self.controller.gets, [])
+
+
+class ClaimTest(FFIRepoCase):
+    """2026-11-28: after the fleet tier went live, 5 of the 6 repeat FFI builds in 8.6 h were steps that missed one
+    key at the same time on different workers, and each built it. A step that misses claims the key at the
+    controller; a step that finds it claimed waits for the holder's entry (a bounded time) instead of building."""
+
+    worker_b = FleetTierTest.worker_b
+
+    def setUp(self):
+        super().setUp()
+        self.controller = FakeController()
+        self.addCleanup(self.controller.close)
+        self.job = self.tmp / "job"
+        self.job.mkdir()
+        self.env.update({"CMUX_CI_CONTROLLER": self.controller.url, "CI_JOB_DIR": str(self.job)})
+        # A worker that publishes a ready output while the step runs tells the step it may claim (components_ready.go).
+        self.env.update({"CMUX_CI_JOB_ID": "job-a", "CMUX_CI_COMPONENT_EARLY": "1"})
+
+    def restore(self, checkout, key, env, inputs):
+        return self.run_helper("restore", str(checkout), key, str(inputs), env=env)
+
+    def test_the_first_step_that_misses_claims_the_key_and_marks_its_export_ready(self):
+        key = self.key()
+        p = self.restore(self.checkout, key, self.env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("claimed", p.stdout)
+        self.assertEqual(self.controller.claims[key]["job"], "job-a")
+        self.build("worker-a")
+        self.assertIn("stored", self.probe_and_store().stdout)
+        out = self.job / "component-outputs" / "ios-ffi"
+        # The marker comes after the finished output: the worker spools only a marked one while the step runs.
+        self.assertTrue((out / key / "manifest.json").is_file())
+        self.assertTrue((out / (key + ".ready")).is_file(), sorted(p.name for p in out.iterdir()))
+
+    def test_a_step_that_finds_the_key_claimed_waits_for_the_entry_and_does_not_build(self):
+        key = self.key()
+        self.build("worker-a")
+        self.assertIn("stored", self.probe_and_store().stdout)
+        published = self.job / "component-outputs" / "ios-ffi" / key
+        self.controller.claims[key] = {"job": "job-x", "worker": "aws-m4pro-2"}
+        self.controller.on_wait = lambda k: (self.controller.publish(published), self.controller.claims.pop(k))
+        env, checkout = self.worker_b()
+        env["CMUX_CI_JOB_ID"] = "job-b"
+        p = self.run_helper("key", str(checkout), str(self.tmp / "inputs-b.json"), env=env)
+        p = self.restore(checkout, key, env, self.tmp / "inputs-b.json")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("waiting", p.stdout)
+        self.assertIn("hit %s (fleet store" % key[:12], p.stdout)
+        self.assertEqual((checkout / SWIFT).read_text(), "// generated worker-a\n")
+        self.assertNotIn(("POST", key, "job-b"), self.controller.claim_calls[1:], "it claimed while another held it")
+
+    def test_the_wait_is_bounded_and_then_the_step_builds_it_too(self):
+        key = self.key()
+        self.controller.claims[key] = {"job": "job-x", "worker": "aws-m4pro-2"}
+        env = dict(self.env, CMUX_IOS_FFI_CLAIM_WAIT="1")
+        p = self.restore(self.checkout, key, env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("building it too", p.stdout)
+        self.assertEqual(self.controller.claims[key]["job"], "job-x")
+
+    def test_when_the_holder_ends_without_an_entry_the_waiter_claims_and_builds(self):
+        key = self.key()
+        self.controller.claims[key] = {"job": "job-x", "worker": "aws-m4pro-2"}
+        self.controller.on_wait = lambda k: self.controller.claims.pop(k)  # its step failed
+        p = self.restore(self.checkout, key, self.env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(self.controller.claims[key]["job"], "job-a")
+
+    def test_a_step_on_an_older_worker_waits_but_never_claims(self):
+        key = self.key()
+        env = {k: v for k, v in self.env.items() if k not in ("CMUX_CI_JOB_ID", "CMUX_CI_COMPONENT_EARLY")}
+        p = self.restore(self.checkout, key, env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual([c[0] for c in self.controller.claim_calls], ["GET"])
+        self.assertEqual(self.controller.claims, {})
+
+    def test_a_holder_whose_build_is_not_stored_releases_its_claim(self):
+        key = self.key()
+        self.assertEqual(self.restore(self.checkout, key, self.env, self.work / "inputs.json").returncode, 1)
+        self.assertIn(key, self.controller.claims)
+        self.build("worker-a")
+        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn changed() {}\n")  # inputs changed mid-build
+        p = self.probe_and_store()
+        self.assertIn("not stored", p.stdout)
+        self.assertNotIn(key, self.controller.claims)
+        self.assertIn(("DELETE", key, "job-a"), self.controller.claim_calls)
+
+    def test_a_step_that_cannot_write_its_job_dir_still_records_and_releases_its_claim(self):
+        # 2026-11-28 probe: on lent workers the step runs as another user and $CI_JOB_DIR is the worker's
+        # ("claim of 4e0686530131 not recorded ([Errno 13] Permission denied: .../.ios-ffi-claim')"), so a holder
+        # whose build stored nothing never released its claim. component-outputs/ is the step's own (export writes it).
+        (self.job / "component-outputs" / "ios-ffi").mkdir(parents=True)
+        self.job.chmod(0o555)
+        self.addCleanup(self.job.chmod, 0o755)
+        key = self.key()
+        p = self.restore(self.checkout, key, self.env, self.work / "inputs.json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertNotIn("not recorded", p.stdout)
+        self.build("worker-a")
+        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn changed() {}\n")  # nothing is stored
+        self.probe_and_store()
+        self.assertIn(("DELETE", key, "job-a"), self.controller.claim_calls)
+
+    def test_remote_off_never_claims(self):
+        key = self.key()
+        env = dict(self.env, CMUX_CI_COMPONENT_REMOTE="0")
+        self.assertEqual(self.restore(self.checkout, key, env, self.work / "inputs.json").returncode, 1)
+        self.assertEqual(self.controller.claim_calls, [])
+
+    def test_the_simulator_step_passes_its_inputs_to_restore(self):
+        self.assertIn('"${ffi_cache[@]}" restore "$root" "$ffi_key" "$work/ffi-inputs.json"', SCRIPT.read_text())
 
 
 class RestorePatchLock(unittest.TestCase):
