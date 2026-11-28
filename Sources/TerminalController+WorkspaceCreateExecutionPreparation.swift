@@ -42,7 +42,8 @@ extension TerminalController {
     func v2PrepareWorkspaceCreateExecution(
         params: [String: Any],
         preparation: WorkspaceCreatePreparation,
-        workingDirectory: String?
+        workingDirectory: String?,
+        inheritCallerGroup: Bool = true
     ) -> WorkspaceCreateExecutionPreparationOutcome {
         let requestedInitialCommand = v2RawString(params, "initial_command")
         let initialCommand = requestedInitialCommand.flatMap {
@@ -146,6 +147,7 @@ extension TerminalController {
             }
         }
 
+        var callerGroup: (id: UUID, workspaceID: UUID, placement: WorkspaceGroupNewPlacement)?
         if let groupID {
             let validation = v2MainSync {
                 let groupExists = preparation.tabManager.workspaceGroups.contains { $0.id == groupID }
@@ -168,6 +170,40 @@ extension TerminalController {
                     data: ["group_reference_workspace_id": groupReferenceWorkspaceID?.uuidString ?? ""]
                 ))
             }
+        } else if inheritCallerGroup,
+                  !v2HasNonNullParam(params, "window_id"),
+                  v2HasNonNullParam(params, "workspace_id") {
+            guard let callerID = v2UUID(params, "workspace_id") else {
+                return .failure(.err(
+                    code: "invalid_params",
+                    message: controlWorkspaceStrings().invalidWorkspaceRef,
+                    data: nil
+                ))
+            }
+            let manager = preparation.tabManager
+            if let caller = manager.tabs.first(where: { $0.id == callerID }) {
+                if v2HasNonNullParam(params, "surface_id") {
+                    guard let surfaceID = v2UUID(params, "surface_id"),
+                          caller.controlSurfaceTarget(for: surfaceID) != nil else {
+                        return .failure(.err(
+                            code: "not_found",
+                            message: controlSurfaceNotFoundMessage(),
+                            data: ["workspace_id": callerID.uuidString]
+                        ))
+                    }
+                }
+                if let groupID = caller.groupId,
+                   let group = manager.workspaceGroups.first(where: { $0.id == groupID }) {
+                    callerGroup = (groupID, callerID, workspaceGroupPlacement(for: group, in: manager))
+                }
+            } else if !AppDelegate.isWindowDockRoutingId(callerID) {
+                // A window Dock supplies a valid routing ID without a sidebar row.
+                return .failure(.err(
+                    code: "not_found",
+                    message: controlWorkspaceStrings().workspaceNotFound,
+                    data: ["workspace_id": callerID.uuidString]
+                ))
+            }
         }
 
         return .ready(WorkspaceCreateExecutionPreparation(
@@ -180,9 +216,9 @@ extension TerminalController {
             initialEnvironment: initialEnvironment,
             workspaceEnvironment: workspaceEnvironment,
             workingDirectory: cwd,
-            groupID: groupID,
-            groupPlacement: groupPlacement,
-            groupReferenceWorkspaceID: groupReferenceWorkspaceID,
+            groupID: groupID ?? callerGroup?.id,
+            groupPlacement: groupPlacement ?? callerGroup?.placement,
+            groupReferenceWorkspaceID: groupReferenceWorkspaceID ?? callerGroup?.workspaceID,
             layoutNode: layoutNode,
             shouldFocus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
             shouldEagerLoadTerminal: v2Bool(params, "eager_load_terminal")

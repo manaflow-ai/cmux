@@ -42,6 +42,27 @@ import Testing
         #expect(updated.surfaceId == mirror.panel(forPane: 22)?.id)
     }
 
+    @Test func projectedPaneCanCreateWorkspaceInItsGroup() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let panel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
+        let manager = harness.manager
+        let workspace = harness.workspace
+        let groupID = try #require(manager.createWorkspaceGroup(name: "Remote", childWorkspaceIds: [workspace.id]))
+        #expect(workspace.panels[panel.id] == nil)
+
+        let result = TerminalController.shared.v2WorkspaceCreate(
+            params: ["workspace_id": workspace.id.uuidString, "surface_id": panel.id.uuidString],
+            tabManager: manager
+        )
+        guard case .ok(let raw) = result else {
+            Issue.record("Expected workspace creation from a projected pane to succeed")
+            return
+        }
+        let payload = try #require(raw as? [String: Any])
+        #expect(payload["group_id"] as? String == groupID.uuidString)
+    }
+
     @Test("local sidebar surface identifiers resolve to workspace panels")
     func customSidebarLocalTabsExposeFocusableSurface() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)

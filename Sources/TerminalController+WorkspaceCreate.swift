@@ -395,7 +395,8 @@ extension TerminalController {
         switch v2PrepareWorkspaceCreateExecution(
             params: createParams,
             preparation: preparation,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            inheritCallerGroup: false
         ) {
         case let .failure(result):
             return result

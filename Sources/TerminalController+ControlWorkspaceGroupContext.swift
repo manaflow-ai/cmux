@@ -334,15 +334,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
             return .notFound
         }
-        let anchorCwd = group.liveAnchorWorkspaceId
-            .flatMap { anchorId in
-                tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
-            }
-        let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
-        let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
-        let placement = explicitPlacement
-            ?? configured
-            ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
+        let placement = explicitPlacement ?? workspaceGroupPlacement(for: group, in: tabManager)
         guard let newWs = tabManager.createWorkspaceInGroup(
             groupId: groupID,
             placement: placement,
@@ -351,6 +343,17 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .notFound
         }
         return .created(workspaceID: newWs.id)
+    }
+
+    /// Resolves the group's configured placement, falling back to the window's settings.
+    func workspaceGroupPlacement(for group: WorkspaceGroup, in tabManager: TabManager) -> WorkspaceGroupNewPlacement {
+        let anchorCwd = group.liveAnchorWorkspaceId
+            .flatMap { anchorId in
+                tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
+            }
+        let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
+        let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+        return configured ?? tabManager.defaultNewWorkspacePlacementInGroup
     }
 
     func controlSetWorkspaceGroupColor(
