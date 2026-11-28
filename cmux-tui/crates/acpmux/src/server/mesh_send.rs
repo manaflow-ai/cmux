@@ -41,7 +41,7 @@ fn idempotency_key(id: &str) -> String {
 /// forward of a moved chat's message was refused and its text lost (the super-highway ring's 71
 /// "the forward was refused: the hub answered 400" bounces, 2026-11-28 22:04Z).
 pub(crate) fn forward_key(message_id: &str, to: &str) -> String {
-    idempotency_key(&format!("{message_id}~moved~{to}"))
+    format!("{message_id}~moved~{to}")
 }
 
 /// Whom `target` names: `HOST/ID`, `HOST/NAME`, or a bare name.
