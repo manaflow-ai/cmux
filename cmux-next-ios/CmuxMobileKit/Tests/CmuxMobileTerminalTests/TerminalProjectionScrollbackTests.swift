@@ -71,7 +71,10 @@ import Testing
             // The page keeps scrolling at the top while the reset is on its
             // way: those calls join the ask (true: the same reset follows).
             for _ in 0..<5 { #expect(session.loadOlderHistory(), "a call while older rows are on their way") }
-            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            // A bound, not a pace: the wait ends the moment the reset lands. On a
+            // loaded kit runner (1,000+ tests at once) the reset for load 2 came
+            // just past a 3 s bound (cmux#61725, run 46176304449).
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
             while page.olderRowsAsked, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(10))
             }
