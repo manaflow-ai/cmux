@@ -2000,6 +2000,23 @@ class PostMergeTierTests(unittest.TestCase):
                 (ROOT / ".github" / "post-merge-batch.json").read_text())
             self.assertEqual(head_tier.batch_post_merge_workflows(tmp), set())
 
+    def test_config_missing_on_disk_is_read_from_head(self) -> None:
+        # A reused pool workspace whose sparse reapply refused has both files in HEAD but not on disk
+        # (cmux-tui-spec run 46148570367 planned `full`): the rule reads HEAD's copies.
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            (Path(tmp) / ".github").mkdir()
+            for name in ("post-merge-checks.json", "post-merge-batch.json"):
+                (Path(tmp) / ".github" / name).write_text((ROOT / ".github" / name).read_text())
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-q", "-m", "c"], check=True)
+            want = head_tier.batch_post_merge_workflows(tmp)
+            self.assertIn("cmux-tui-spec.yml", want)
+            for name in ("post-merge-checks.json", "post-merge-batch.json"):
+                (Path(tmp) / ".github" / name).unlink()
+            self.assertEqual(head_tier.batch_post_merge_workflows(tmp), want)
+
     def test_decide_reads_the_run_s_workflow_and_the_switch(self) -> None:
         ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
         ref = "manaflow-ai/cmux/.github/workflows/rust-workspaces.yml@refs/pull/1/merge"
