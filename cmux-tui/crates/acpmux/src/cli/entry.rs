@@ -135,6 +135,12 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
         return crate::codex_repo_gate::main();
     }
+    // A Codex start's dedupe hooks (`codex_dedupe.rs`): no runtime, and it fails open.
+    if args.first().is_some_and(|a| a == crate::codex_dedupe::HOOK_ARG) {
+        let event = args.get(1).and_then(|a| a.to_str());
+        let dir = args.get(2).map(std::path::Path::new);
+        return crate::codex_dedupe::main(event, dir);
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())
