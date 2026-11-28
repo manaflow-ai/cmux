@@ -317,7 +317,7 @@ fn home_raw_tree_names_the_home_workspace() {
     let mux = session.open();
     let other = empty_workspace(&mux, "work");
     let home = ensure_home(&mux, "connect")["value"]["workspace_id"].as_str().unwrap().to_string();
-    let tree = crate::server::workspaces_json(
+    let tree = crate::tree_wire::workspaces_json(
         &mux.with_state(|state| state.clone()),
         &mux.tree_decorations(),
     );
