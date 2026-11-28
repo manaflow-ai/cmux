@@ -175,6 +175,9 @@ key = "cmux.acpmux.cloudLastPick"
 key = "cmux.acpmux.composer-draft."
 
 [[storage_key]]
+key = "cmux.acpmux.detail"
+
+[[storage_key]]
 key = "cmux.acpmux.harnessCatalog.v1"
 
 [[storage_key]]
