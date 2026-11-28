@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TeamTag, activeTeamFromReply, teamIconName } from "./TeamTag";
+import { TeamTag } from "./TeamTag";
+import { activeTeamFromReply, teamIconName } from "./teamTagModel";
 
 describe("TeamTag", () => {
   test("reads the app's team, and nothing that names none", () => {

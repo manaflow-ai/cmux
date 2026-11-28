@@ -363,7 +363,12 @@ pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpSer
 pub const PLUGIN_NAME: &str = "cmux";
 
 /// The skill files, as `(path inside the plugin's skills/, text)`.
-const SKILL_FILES: &[(&str, &str)] = &[
+/// The rich-output deck template, shared with `cmux md deck` (`cmux-tui` `md_deck.rs`) so the
+/// binary carries one copy. `static`, not `const`: each `const` use can emit its own copy.
+pub static RICH_OUTPUT_DECK_HTML: &str =
+    include_str!("../skills/cmux-rich-output/templates/deck.html");
+
+static SKILL_FILES: &[(&str, &str)] = &[
     ("cmux-browser/SKILL.md", include_str!("../../../../skills/cmux-browser/SKILL.md")),
     ("cmux-browser/references/repl-guide.md", include_str!("../../cmux-browser-host/js/guide.md")),
     (
@@ -426,10 +431,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
     // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
     // docs/design/next-rich-output.md). The deck template is a file the agent copies.
     ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),
-    (
-        "cmux-rich-output/templates/deck.html",
-        include_str!("../skills/cmux-rich-output/templates/deck.html"),
-    ),
+    ("cmux-rich-output/templates/deck.html", RICH_OUTPUT_DECK_HTML),
     ("agents/SKILL.md", include_str!("../skills/agents/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
@@ -445,7 +447,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
 /// the server gets no listing for the skill: each listing is in every turn's prompt, and a
 /// skill for a tool the chat lacks sends the agent to read it for nothing (a Linux or Cloud
 /// chat has no computer use; a chat without `cmux-secrets` has no `request_elevation`).
-const SKILL_SERVERS: &[(&str, &str)] = &[
+static SKILL_SERVERS: &[(&str, &str)] = &[
     ("cmux-computer-use", crate::computer_use::mcp::SERVER_NAME),
     ("cmux-sudo", crate::secret_mcp::SERVER_NAME),
 ];

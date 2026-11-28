@@ -445,11 +445,12 @@ function Columns({
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
   // The account card opens in the flow above the lists (cmux#63167: drawn over them, it hid the
-  // checked model). The menu grows by the card's height, away from the chip, as far as it has room
-  // (heightOf), so the lists keep theirs; past the room the card scrolls and the lists keep a floor
-  // (quickModelColumns.css). Its height is its content's, whatever room it was given.
+  // checked model). The menu keeps its height: the card takes its room from the lists, which keep a
+  // floor of two rows, and past that the card scrolls (quickModelColumns.css). Growing the menu by
+  // the card made the picker jump taller each time the avatar was clicked.
   // Read from the card's content (its body), which keeps its height while the card scrolls, plus the
-  // rule under the card; the observer goes with the body as the card closes.
+  // rule under the card, so the checked model is scrolled back into view as the card grows; the
+  // observer goes with the body as the card closes.
   const [cardHeight, setCardHeight] = useState(0);
   const cardWatch = useRef<ResizeObserver | null>(null);
   const cardBodyRef = useCallback((body: HTMLDivElement | null) => {
@@ -468,10 +469,9 @@ function Columns({
     cardWatch.current = new ResizeObserver(measure);
     cardWatch.current.observe(body);
   }, []);
-  // The card opening, growing as its accounts load, or closing grows or shrinks the whole menu by
-  // design: the rail and the models move down with its grips and the effort foot (or back up). An
-  // expand on the menu, so the motion judge and the gallery's shift score relate those moves to it
-  // (cmux#63232 moved the card into the flow).
+  // The card opening, growing as its accounts load, or closing moves the rail and the models down
+  // inside the menu (or back up). An expand on the menu, so the motion judge and the gallery's shift
+  // score relate those moves to it (cmux#63232 moved the card into the flow).
   const cardShown = useRef({ open: profileOpen, height: cardHeight });
   useLayoutEffect(() => {
     const was = cardShown.current;
@@ -600,10 +600,9 @@ function Columns({
     (popup: HTMLElement | null | undefined) => {
       const frame = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
       if (!frame || dragging.current) return;
-      // The open account card's height on top of the menu's own (cmux#63167), never past the room.
-      const card = profileOpen ? cardHeight : 0;
+      // The open account card never grows the menu: it takes its room from the lists (cmux#63167).
       if (ownHeight) {
-        const size = `min(${ownHeight + card}px, var(--available-height, ${ownHeight + card}px))`;
+        const size = `min(${ownHeight}px, var(--available-height, ${ownHeight}px))`;
         delete frame.dataset.fitHeight;
         frame.style.minHeight = "";
         frame.style.height = size;
@@ -613,8 +612,7 @@ function Columns({
       // The default: the tallest effort column whole, from the search row to Fast (fitMenuHeight),
       // never past the room; before it is measured, the stylesheet's cap.
       if (natural?.height) {
-        const tall = natural.height + card;
-        const size = `min(${tall}px, var(--available-height, ${tall}px))`;
+        const size = `min(${natural.height}px, var(--available-height, ${natural.height}px))`;
         // The measured default, also readable where the style's min() is not (a test, an inspector).
         frame.dataset.fitHeight = String(natural.height);
         frame.style.minHeight = "";
@@ -626,7 +624,7 @@ function Columns({
       frame.style.height = "";
       frame.style.maxHeight = "";
     },
-    [ownHeight, natural, profileOpen, cardHeight],
+    [ownHeight, natural],
   );
   useLayoutEffect(() => heightOf(popupRef.current), [heightOf, popupNode]);
 

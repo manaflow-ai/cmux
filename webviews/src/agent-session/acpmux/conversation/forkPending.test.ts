@@ -228,3 +228,30 @@ test("forkTo forks the chat live onto the picked harness and model and opens it 
     client.close();
   }
 });
+
+// A fork acpmux made is never dropped (fork-hammer, air-blue NIGHTLY 2026-11-22: Fork Conversation
+// to New Tab made `fh-claude-gui-img-fork` and opened no tab): a fork for its own tab opens even when
+// the page reselected meanwhile, and one that would open in this pane after another chat was opened
+// is taken back, never left as a chat nobody sees.
+test("a fork answered after the page reselected opens its own tab, or is taken back", async () => {
+  const { client, answers, sent } = await forkingClient();
+  const internals = client as unknown as { selectionGeneration: number };
+  try {
+    const own = client.fork("live", undefined, true);
+    await Promise.resolve();
+    internals.selectionGeneration += 1;
+    answers[0]!.resolve({ sessionId: "fork-1" });
+    expect(await own).toBe("fork-1");
+    expect(sent.some((call) => call.method === "_acpmux/kill")).toBe(false);
+
+    const here = client.fork(7);
+    await Promise.resolve();
+    internals.selectionGeneration += 1;
+    answers[1]!.resolve({ sessionId: "fork-2" });
+    expect(await here).toBeUndefined();
+    const kill = sent.filter((call) => call.method === "_acpmux/kill").at(-1);
+    expect(kill?.params).toEqual({ sessionId: "fork-2", purge: true, cancelFork: true });
+  } finally {
+    client.close();
+  }
+});
