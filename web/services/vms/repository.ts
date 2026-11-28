@@ -198,7 +198,12 @@ const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
 const LIVE_VM_RESOURCE_STATUSES = ["provisioning", "running", "paused"] as const;
 
 export type BeginCreateResult =
-  | { readonly inserted: true; readonly vm: CloudVmRow }
+  | {
+      readonly inserted: true;
+      readonly vm: CloudVmRow;
+      /** The team's live machines including this one, and its cap, as the insert transaction counted them. */
+      readonly teamActive?: { readonly count: number; readonly limit: number | null };
+    }
   | { readonly inserted: false; readonly vm: CloudVmRow };
 
 export type BeginBaseCreateResult =
@@ -250,6 +255,15 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly scope: "user" | "team";
     readonly cidr: string;
   }) => Effect.Effect<number, VmDatabaseError>;
+  /**
+   * Fleet-wide machine counts for one provider: rows holding provider
+   * resources (provisioning, running, paused) and rows still provisioning.
+   * Fleet admission (fleetAdmission.ts) reads it, cached, only when the
+   * deployment names a fleet quota. Optional so older test doubles compile.
+   */
+  readonly fleetCapacityUsage?: (input: {
+    readonly provider: ProviderId;
+  }) => Effect.Effect<{ readonly liveMachines: number; readonly starting: number }, VmDatabaseError>;
   /** The owner's private-network row for one provider, or null when they have none yet. */
   readonly findNetwork?: (
     userId: string,
@@ -1723,6 +1737,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return Number(row?.total ?? 0);
     }),
 
+  fleetCapacityUsage: (input) =>
+    dbEffect("fleetCapacityUsage", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .select({
+          live: count(),
+          starting: sql<number>`count(*) filter (where ${cloudVms.status} = 'provisioning')`,
+        })
+        .from(cloudVms)
+        .where(and(eq(cloudVms.provider, input.provider), inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES)));
+      return { liveMachines: Number(row?.live ?? 0), starting: Number(row?.starting ?? 0) };
+    }),
+
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();
@@ -2463,7 +2490,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
             await insertRuntimeForVm(tx, vm);
-            return { inserted: true as const, vm };
+            return { inserted: true as const, vm, teamActive: { count: activeCount + 1, limit } };
           });
         } catch (err) {
           if (idempotencyKey && pgErrorCode(err) === "23505") {

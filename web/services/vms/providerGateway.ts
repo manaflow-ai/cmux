@@ -48,6 +48,7 @@ import {
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 import { VmProviderReadDeadline } from "./routeDeadline";
+import { admitFleetCapacity, noteProviderStartOutcome } from "./fleetAdmission";
 import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/types";
 
 export type VmProviderGatewayShape = {
@@ -283,6 +284,15 @@ function boundedProviderRead<A>(
   });
 }
 
+/** Feed a provider start's outcome to the fleet start-capacity window. */
+function noteStartOutcome(provider: ProviderId) {
+  return <A>(effect: Effect.Effect<A, VmProviderOperationError>): Effect.Effect<A, VmProviderOperationError> =>
+    effect.pipe(
+      Effect.tap(() => Effect.sync(() => noteProviderStartOutcome(provider, null))),
+      Effect.tapError((err) => Effect.sync(() => noteProviderStartOutcome(provider, err))),
+    );
+}
+
 function providerEffect<A>(
   provider: ProviderId,
   operation: string,
@@ -308,6 +318,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
           cause: new Error(`provider create did not answer within ${VM_PROVIDER_CREATE_TIMEOUT_MS / 60_000} minutes`),
         }),
       }),
+      noteStartOutcome(provider),
     ),
   destroy: (provider, vmId, credential, options) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId, credential, options)),
@@ -355,8 +366,14 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const driver = getProvider(provider);
       return driver.getPauseState ? await driver.getPauseState(vmId, credential) : null;
     }),
+  // A resume is a start too: it is refused at fleet admission while the
+  // provider's start-capacity window is open (fleetAdmission.ts), before the
+  // provider call, and its outcome feeds that window.
   resume: (provider, vmId, credential) =>
-    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId, credential)),
+    admitFleetCapacity({}, { provider, operation: "resume" }).pipe(
+      Effect.andThen(providerEffect(provider, "resume", () => getProvider(provider).resume(vmId, credential))),
+      noteStartOutcome(provider),
+    ),
   pause: (provider, vmId, credential) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId, credential)),
   setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {

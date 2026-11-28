@@ -914,6 +914,55 @@ export function providerConflictKind(err: unknown): ProviderConflictKind | null 
 }
 
 /**
+ * Freestyle's 429 when it cannot place a start: INFRASTRUCTURE_OVERLOADED,
+ * "infrastructure overloaded: VM start capacity queue wait expired". The start
+ * was refused before any VM was made (scripts/cmux-vm-image/capacity.ts reads
+ * the same answer for image bakes).
+ */
+const PROVIDER_START_OVERLOAD_MESSAGE = /\binfrastructure overloaded\b|\bstart capacity\b|\bcapacity queue wait expired\b/i;
+
+/**
+ * No room to start a machine fleet-wide: the provider refused a start for
+ * capacity, or fleet admission (fleetAdmission.ts) refused it before the
+ * provider call. Retryable once capacity frees up; routes answer
+ * `vm_provider_capacity` with Retry-After.
+ */
+export class ProviderStartCapacityError extends ProviderError {
+  readonly atAdmission: boolean;
+  readonly retryAfterMs: number | null;
+  constructor(provider: ProviderId, message: string, options: { readonly atAdmission?: boolean; readonly retryAfterMs?: number; readonly cause?: unknown } = {}) {
+    super(provider, message, options.cause);
+    this.name = "ProviderStartCapacityError";
+    this.atAdmission = options.atAdmission ?? false;
+    this.retryAfterMs = options.retryAfterMs ?? null;
+  }
+}
+
+/**
+ * True when a start failed because the provider has no start capacity: a
+ * {@link ProviderStartCapacityError}, the provider's 429
+ * INFRASTRUCTURE_OVERLOADED, or a 409 placement refusal. The first error in
+ * the chain that carries an HTTP status decides.
+ */
+export function isProviderStartCapacityRefusal(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderStartCapacityError) return true;
+    if (typeof current !== "object") return false;
+    const record = current as { status?: unknown; code?: unknown; message?: unknown; body?: { code?: unknown; message?: unknown }; cause?: unknown };
+    if (typeof record.status === "number") {
+      if (record.status === 409) return providerConflictKind(current) === "capacity";
+      if (record.status !== 429) return false;
+      const code = typeof record.code === "string" ? record.code : typeof record.body?.code === "string" ? record.body.code : "";
+      const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";
+      return code === "INFRASTRUCTURE_OVERLOADED" || PROVIDER_START_OVERLOAD_MESSAGE.test(message);
+    }
+    current = record.cause;
+  }
+  return false;
+}
+
+/**
  * A guest command the server needed never ran or never exited: the provider's
  * exec channel failed, or the command outlived its timeout. Nothing about the
  * service the command would have checked is known, so routes name the machine

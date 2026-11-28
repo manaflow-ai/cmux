@@ -90,7 +90,7 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderTlsRuleLimitError, providerConflictKind } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderStartCapacityError, ProviderTlsRuleLimitError, isProviderStartCapacityRefusal, providerConflictKind } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
@@ -1014,6 +1014,11 @@ export const vmWorkflowErrorResponders = {
     if (providerCauseIs(error.cause, ProviderTlsRuleLimitError)) {
       return vmNetworkRuleCapacityResponse(error, context.locale);
     }
+    // No fleet start capacity: the provider's 429 overload or a 409 placement
+    // refusal, or fleet admission refusing before the provider call.
+    if (isProviderStartCapacityRefusal(error.cause)) {
+      return vmProviderCapacityResponse(error, context.locale);
+    }
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
     }
@@ -1504,7 +1509,7 @@ async function vmProviderCapacityResponse(error: VmProviderOperationError, local
     action: copy.action,
     phase: vmPhaseForOperation(error.operation),
     retryable: true,
-    retryAfterSeconds: VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS,
+    retryAfterSeconds: providerCapacityRetryAfterSeconds(error.cause),
     displayTitle: copy.title,
     displayMessage: copy.message,
     details: { operation: error.operation, retryable: true, providerCode: "provider_capacity" },
@@ -1536,6 +1541,18 @@ async function vmStateConflictResponse(error: VmProviderOperationError, locale: 
 
 /** Seconds a client waits before retrying a capacity refusal. */
 const VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS = 30;
+
+/** Fleet admission's open window, when it named one, else the default wait. */
+function providerCapacityRetryAfterSeconds(cause: unknown): number {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderStartCapacityError && current.retryAfterMs !== null) {
+      return Math.max(1, Math.ceil(current.retryAfterMs / 1000));
+    }
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS;
+}
 
 /**
  * The guest did not run or finish a command the operation needed, so the

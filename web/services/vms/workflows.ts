@@ -124,6 +124,7 @@ import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./plan
 import { GO_PAUSE_INTENT_KEY } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { admitNetworkAddress } from "./networkAdmission";
+import { admitFleetCapacity, alertTeamMachineQuota } from "./fleetAdmission";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
@@ -1498,6 +1499,11 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         requestedCreateVcpus(input as { imageSize?: { cpu: number }; resourceReservation?: { vcpus: number } }),
       );
     }
+    // Fleet-capacity admission (fleetAdmission.ts): no row, credit or provider
+    // start is spent while the provider is refusing starts for capacity or the
+    // fleet is at its quota; the route answers a retryable vm_provider_capacity.
+    yield* admitFleetCapacity(repo, { provider: input.provider, operation: "create" });
+
     // Record paid machine shapes for snapshot, fork, and resize recovery.
     const beginInput = createVmBeginInput(input);
 
@@ -1550,6 +1556,10 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       }
       const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
       return vmEntryFromRow(existingWithReservation);
+    }
+
+    if (create.teamActive) {
+      alertTeamMachineQuota({ provider: input.provider, billingTeamId: input.billingTeamId, active: create.teamActive.count, limit: create.teamActive.limit });
     }
 
     // Free-address admission (networkAdmission.ts): a full network refuses
