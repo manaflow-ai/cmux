@@ -47,6 +47,23 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         self.file = file
         self.value = value
     }
+    /// A diagnostic as cmux-config's ops answer it: `{kind, path, message, file?, value?}`; nil for
+    /// a kind this build does not know.
+    public init?(wire: JSONValue) {
+        guard let kind = wire["kind"]?.stringValue.flatMap(Kind.init(rawValue:)),
+              let message = wire["message"]?.stringValue else { return nil }
+        self.init(kind: kind, path: wire["path"]?.stringValue ?? "", message: message,
+                  file: wire["file"]?.stringValue, value: wire["value"]?.stringValue)
+    }
+
+    /// The diagnostic as cmux-config's ops take it (``init(wire:)``'s inverse).
+    public var wire: JSONValue {
+        var members: [String: JSONValue] = ["kind": .string(kind.rawValue), "path": .string(path), "message": .string(message)]
+        if let file { members["file"] = .string(file) }
+        if let value { members["value"] = .string(value) }
+        return .object(members)
+    }
+
     /// The message as a Settings row shows it: a theme file's entry names that file first.
     public var pageMessage: String { file.map { "\($0): \(message)" } ?? message }
     public var description: String { "\(kind.rawValue) \(file.map { "\($0): " } ?? "")\(path): \(message)" }

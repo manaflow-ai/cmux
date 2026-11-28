@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// Which settings problems the app tells the person about, and when. A load
@@ -32,17 +31,23 @@ public struct SettingsDiagnosticNotices: Sendable {
         /// error does not announce it again.
         public let fingerprint: String
 
+        init(path: String, value: String?, message: String, file: String?, fingerprint: String) {
+            self.path = path
+            self.value = value
+            self.message = message
+            self.file = file
+            self.fingerprint = fingerprint
+        }
+
         public init(kind: SettingsDiagnostic.Kind = .invalidValue, path: String, value: String?, message: String, file: String? = nil) {
             self.path = path
             self.value = value
             self.message = message
             self.file = file
-            if kind == .unreadableFile {
-                fingerprint = ([file, kind.rawValue] as [String?]).compactMap(\.self).joined(separator: "\u{0}")
-            } else {
-                let digest = value.map { SHA256.hash(data: Data($0.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined() } ?? ""
-                fingerprint = ([file, path, digest, message] as [String?]).compactMap(\.self).joined(separator: "\u{0}")
-            }
+            var request: [String: JSONValue] = ["kind": .string(kind.rawValue), "path": .string(path), "message": .string(message)]
+            if let value { request["value"] = .string(value) }
+            if let file { request["file"] = .string(file) }
+            fingerprint = SettingsRust.answer("notices.fingerprint", .object(request))["fingerprint"]?.stringValue ?? ""
         }
     }
 
@@ -65,30 +70,31 @@ public struct SettingsDiagnosticNotices: Sendable {
 
     /// The kinds that mean the file's own value was dropped.
     public static func announces(_ kind: SettingsDiagnostic.Kind) -> Bool {
-        switch kind {
-        case .unreadableFile, .invalidValue, .unknownAction, .unknownMetric, .unsupportedChord, .removedSetting: true
-        case .shortcutConflict, .managedOverride, .managedConflict, .correctedValue, .setByThemeFile, .overThemeFile,
-             .plainBackgrounds: false
-        }
+        SettingsRust.answer("notices.announces", ["kind": .string(kind.rawValue)])["announces"]?.boolValue ?? false
     }
 
     /// Takes one load's diagnostics, the user's file (`SettingsController.fileRoot`) and the
     /// managed keys (`managedKeys` and `managedPolicy`, dotted), whose problems are not the person's.
+    /// cmux-config `notices.update` decides.
     public mutating func update(_ diagnostics: [SettingsDiagnostic], file: JSONValue, managed: Set<String> = []) -> Update {
-        var seen: Set<String> = []
-        var pending: [Notice] = []
-        for diagnostic in diagnostics where Self.announces(diagnostic.kind) && !Self.isManaged(diagnostic.path, managed) {
-            // A theme file's refusal carries its own value; cmux-next.json's is read from the file.
-            let value = diagnostic.file != nil ? diagnostic.value
-                : diagnostic.path.isEmpty ? nil : file.value(at: CmuxConfigFile.keyPath(from: diagnostic.path))?.compactText
-            let notice = Notice(kind: diagnostic.kind, path: diagnostic.path, value: value, message: diagnostic.message, file: diagnostic.file)
-            guard seen.insert(notice.fingerprint).inserted else { continue }
-            if !remembered.contains(notice.fingerprint) { pending.append(notice) }
+        var request: [String: JSONValue] = [
+            "diagnostics": .array(diagnostics.map(\.wire)),
+            "file": file,
+            "managed": .array(managed.sorted().map(JSONValue.string)),
+            "remembered": .array(remembered.sorted().map(JSONValue.string)),
+        ]
+        if let shown { request["shown"] = .string(shown) }
+        // A failed call keeps the state as it was and announces nothing.
+        guard let reply = try? SettingsRust.call("notices.update", .object(request)) else { return Update(announce: [], cleared: false) }
+        remembered = Set(reply["remembered"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+        shown = reply["shown"]?.stringValue
+        let announce = (reply["announce"]?.arrayValue ?? []).compactMap { entry -> Notice? in
+            guard let path = entry["path"]?.stringValue, let message = entry["message"]?.stringValue,
+                  let fingerprint = entry["fingerprint"]?.stringValue else { return nil }
+            return Notice(path: path, value: entry["value"]?.stringValue, message: message, file: entry["file"]?.stringValue,
+                          fingerprint: fingerprint)
         }
-        remembered.formIntersection(seen)
-        let cleared = shown.map { !seen.contains($0) } ?? false
-        if cleared { shown = nil }
-        return Update(announce: pending, cleared: cleared)
+        return Update(announce: announce, cleared: reply["cleared"]?.boolValue ?? false)
     }
 
     /// Records that a toast showed `notices` (it names the first).
@@ -96,11 +102,5 @@ public struct SettingsDiagnosticNotices: Sendable {
         guard let first = notices.first else { return }
         remembered.formUnion(notices.map(\.fingerprint))
         shown = first.fingerprint
-    }
-
-    /// A key a managed layer sets, inside one, or holding one.
-    private static func isManaged(_ path: String, _ managed: Set<String>) -> Bool {
-        guard !path.isEmpty else { return false }
-        return managed.contains { $0 == path || path.hasPrefix($0 + ".") || $0.hasPrefix(path + ".") }
     }
 }
