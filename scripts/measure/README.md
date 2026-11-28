@@ -81,6 +81,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-ready.sh` | Time from Dock launch to a usable window, measured from outside the app. | CMUX-629, CMUX-631 | 2026-11-15 | active |
 | `launch-ready.swift` | Swift probe that launches one app copy like the Dock and records every mark. | CMUX-629 | 2026-11-15 | active |
 | `launch-premain.sh` | What makes a launch reach `main` 600 to 1170 ms late: arms after a 60 s run, page cache, purge, another app, sampled (launch bench mode=premain). | CMUX-629 | 2026-11-17 | active |
+| `macos-first-exec.sh` | What the first exec of a newly written executable costs by size (first, second, after a hard link, a copy) and whether Developer Tools exempts it: rust-live's daemon swap runs a fresh debug cmux-tui twice. | dev-loop-ceiling | 2026-11-28 | active |
 | `launch-premain.swift` | Probe for launch-premain.sh: open or exec one launch, pageins, CPU and the executable's residency at `main`. | CMUX-629 | 2026-11-17 | active |
 | `launch-reboot.sh` | The first launch after a reboot, with and without a post-login pre-read of the app's binaries (row F, background-ready-copy): one phase per step, before (shutdown -r) and after (noread, read, residency). | row F | 2026-11-18 | active |
 | `launch-matrix.sh` | One launch harness for any .app (cold-start tables against Claude, Codex, T3 Code, Edge, Chrome, Safari, Slack, Helium): scenarios, reboot phases, growth (launch-matrix bench). | ask-37d682a340 | 2026-11-22 | active |
@@ -408,3 +409,5 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
 - `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
 - `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
+
+Phone terminal deterministic work: `cmux-bench phone-speed` wraps the `phone-speed-icount` Linux PR gate; `--import LOG` records its six Callgrind instruction counts. Calibration and scope: [phone-speed](../bench/phone-speed/README.md).

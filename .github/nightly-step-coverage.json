@@ -559,8 +559,14 @@
         "Point the deltas job at the keyless prebuild": {"plumbing": true},
         "Wipe this job's credentials and temp files": {"plumbing": true},
         "Remove this job's checkout, DMG and deltas": {"plumbing": true}},
+      "restore-historical-notes": {
+        "Take the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
+        "Restore and verify the public signed pair": {"nightly_only": "a workflow_dispatch on nightly-next with a restore provenance input writes archived signed notes back to the nightly-next R2 bucket with its release-next secrets (scripts/ci/nightly-notes-restore.py, #62726); a pull request holds no R2 write credentials"},
+        "Release the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"}},
       "nightly-next-one": {
         "Hand the deltas job its inputs": {"plumbing": true},
+        "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check (#58009)"},
+        "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check (#58009)"},
         "Start building in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle", "note": "split into a start and a finish step around the other build steps (#56668)"},
         "Finish building in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle", "note": "split into a start and a finish step around the other build steps (#56668)"},
         "Hand the Mac to a newer nightly-next push after the feed": {"nightly_only": "releases the signing Mac to a newer nightly-next push once the feed is written (scripts/ci/nightly-steps/newer-push-waiting.sh); pull requests run no nightly-next"},
