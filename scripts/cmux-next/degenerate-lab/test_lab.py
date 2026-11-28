@@ -167,5 +167,31 @@ class Jobs(unittest.TestCase):
             self.assertTrue((t / "out" / "summary.md").exists())
 
 
+
+done_today = load("done_today")
+
+
+class DoneToday(unittest.TestCase):
+    KEY = "cmux-next-degenerate-lab-2026-11-28"
+
+    def art(self, **kw):
+        a = {"name": self.KEY, "expired": False, "workflow_run": {"head_branch": "nightly-next"}}
+        a.update(kw)
+        return a
+
+    def test_tonights_nightly_artifact_counts(self):
+        self.assertTrue(done_today.done({"artifacts": [self.art()]}, self.KEY))
+
+    def test_another_day_branch_or_expired_does_not(self):
+        for a in (self.art(name="cmux-next-degenerate-lab-2026-11-27"), self.art(workflow_run={"head_branch": "lane/x"}),
+                  self.art(expired=True)):
+            self.assertFalse(done_today.done({"artifacts": [a]}, self.KEY), a)
+        self.assertFalse(done_today.done({}, self.KEY))
+
+    def test_cli_reads_a_bad_listing_as_not_done(self):
+        r = subprocess.run([sys.executable, "-I", str(HERE / "done_today.py"), self.KEY], input="not json",
+                           capture_output=True, text=True, check=True)
+        self.assertEqual(r.stdout.strip(), "false")
+
 if __name__ == "__main__":
     unittest.main()

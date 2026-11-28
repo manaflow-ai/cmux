@@ -63,6 +63,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       run: ${{ steps.plan.outputs.run }}
@@ -72,25 +73,31 @@ jobs:
         id: day
         run: echo "key=cmux-next-degenerate-lab-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-      - name: Look for tonight's run
-        id: done
-        if: github.event_name == 'push'
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/degenerate-lab-marker
-          key: ${{ steps.day.outputs.key }}
-          lookup-only: true
-
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        if: steps.done.outputs.cache-hit != 'true'
         with:
           persist-credentials: false
           submodules: false
           sparse-checkout: scripts/cmux-next/degenerate-lab
 
+      # Tonight's marker is an artifact (report's "Keep tonight's marker"), not an Actions cache entry: the repo's
+      # cache sits at its 10 GB cap and evicted the marker within the hour, so the ~1.3k-minute matrix ran 3 times
+      # on 2026-11-28 (done_today.py). A failed read is "not done": the lab runs, as it did before.
+      - name: Look for tonight's run
+        id: done
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.day.outputs.key }}
+        run: |
+          set -uo pipefail
+          hit="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$KEY&per_page=20" 2>/dev/null \
+            | python3 -I scripts/cmux-next/degenerate-lab/done_today.py "$KEY" || echo false)"
+          echo "tonight's marker $KEY: $hit"
+          echo "hit=$hit" >> "$GITHUB_OUTPUT"
+
       - name: Plan the jobs
         id: plan
-        if: steps.done.outputs.cache-hit != 'true'
+        if: steps.done.outputs.hit != 'true'
         run: |
           set -euo pipefail
           matrix="$(python3 -I scripts/cmux-next/degenerate-lab/lab.py plan --preset "$PRESET")"
@@ -226,12 +233,13 @@ jobs:
         if: github.event_name == 'push' && needs.run.result != 'cancelled'
         run: mkdir -p "$RUNNER_TEMP/degenerate-lab-marker" && date -u > "$RUNNER_TEMP/degenerate-lab-marker/at"
 
-      - name: Save tonight's marker
+      - name: Keep tonight's marker
         if: steps.mark.outcome == 'success'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          name: ${{ needs.plan.outputs.key }}
           path: ${{ runner.temp }}/degenerate-lab-marker
-          key: ${{ needs.plan.outputs.key }}
+          retention-days: 2
 
       - name: Fail on a failed run
         if: steps.merge.outputs.status != '0'
