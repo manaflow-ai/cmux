@@ -273,6 +273,17 @@ class SysCrateCoverageTests(unittest.TestCase):
                                          "fn not_extern() {}\n")
             self.assertEqual(stubs.declared_externs(src), {"_kSecMatchSearchList", "_SecItemCopyMatching"})
 
+    def test_declared_externs_reads_objc2s_own_extern_macros(self) -> None:
+        # objc2::ffi declares the runtime in extern_c! / extern_c_unwind!, not a bare `extern "C" {`.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp)
+            (src / "rc.rs").write_text("macro_rules! extern_c {\n    { $(pub fn $name:ident();)* } => {};\n}\n"
+                                       "extern_c! {\n    #[cfg(target_vendor = \"apple\")]\n"
+                                       "    pub fn objc_alloc(value: *const AnyClass) -> *mut AnyObject;\n}\n"
+                                       "extern_c_unwind! {\n    /// fn some_external_function() in a doc\n"
+                                       "    pub fn objc_msgSend(); // and the linker\n}\n")
+            self.assertEqual(stubs.declared_externs(src), {"_objc_alloc", "_objc_msgSend"})
+
     def test_locked_versions_names_only_the_binding_crates(self) -> None:
         lock = ('[[package]]\nname = "security-framework-sys"\nversion = "2.17.0"\n\n'
                 '[[package]]\nname = "security-framework"\nversion = "3.7.0"\n\n'
@@ -301,7 +312,8 @@ class SysCrateCoverageTests(unittest.TestCase):
     def test_every_sys_crate_framework_has_a_stub(self) -> None:
         for framework in set(stubs.SYS_CRATES.values()):
             install, _ = stubs.read_stub(ROOT / "scripts/ci/macos-stubs" / f"{framework}.tbd")
-            self.assertIn(f"/{framework}.framework/", install)
+            # libobjc is a dylib, not a framework (objc2's runtime): its stub keeps /usr/lib/libobjc.A.dylib.
+            self.assertIn("/usr/lib/libobjc.A.dylib" if framework == "libobjc" else f"/{framework}.framework/", install)
 
     def test_sys_crates_starts_a_stub_for_a_new_framework(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -325,6 +337,16 @@ class SysCrateCoverageTests(unittest.TestCase):
         held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/Security.tbd")[1]
         for name in ("_kSecMatchSearchList", "_SecKeychainItemDelete", "_kSecUseAuthenticationUISkip"):
             self.assertIn(name, held)
+
+    def test_the_stubs_hold_the_objc_runtime_calls_that_broke_the_link(self) -> None:
+        # 2026-11-28: every Linux link of cmux-tui failed "undefined symbol: objc_alloc" and 4 more (objc2).
+        held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/libobjc.tbd")[1]
+        for name in ("_objc_alloc", "_sel_getName", "_class_getName", "_class_isMetaClass", "_object_getClass"):
+            self.assertIn(name, held)
+        # A libSystem routine bound to libobjc would not resolve on a Mac: sys-crates drops what libSystem exports
+        # (MACOS_STUBS_SYSTEM_TBD), and a comment's words are no symbols.
+        for name in ("_free", "_dlopen", "_dlsym", "_sysctlbyname", "_pthread_main_np", "_and", "_linker"):
+            self.assertNotIn(name, held)
 
 
 class MergeStubs(unittest.TestCase):

@@ -1054,6 +1054,39 @@ class ClockRetryTest(unittest.TestCase):
         self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
+class ClipboardTrialTest(unittest.TestCase):
+    """The first two-Mac pair, 11-28: a copy-paste trial's samples carry `echo_ns`, not `decoded_ns`,
+    and run_cmux read the frame time (KeyError after the warm-up)."""
+
+    def run_trials(self, cmux_input, sample):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.a = argparse.Namespace(warmup=1, trials=2, fps_trials=0, cmux_input=cmux_input)
+        o.synthetic, o.ledgers, o.summaries, o.ff_rows = True, [], [], []
+        o.marker = lambda flags: [0, 0]
+        o.host_timing = lambda: []
+        o.cmux_attempt = lambda origin, mode, snap=None: {
+            "ok": True, "first_frame_ms": None, "lost": 0, "sample_times": [dict(sample)]}
+        o.breakdown = lambda rec, timing, off: [{"stage": "x"}]
+        o.first_frame_breakdown = lambda rec, timing, off: None
+        logged = []
+        o.log = logged.append
+        return o.run_cmux({"offset_ns": 0}), logged
+
+    def test_a_copy_paste_trial_reads_its_round_trip(self):
+        (firsts, g2g, fps, rows), logged = self.run_trials(
+            "clipboard", {"sent_ns": 1_000_000, "echo_ns": 251_000_000})
+        self.assertEqual(g2g, [250.0, 250.0])
+        self.assertEqual((firsts, fps, rows), ([], [], []))
+        self.assertEqual([r.get("trial") for r in logged], [None, 1, 2])
+        self.assertTrue(all("sample_times" not in r for r in logged))
+
+    def test_a_key_trial_still_reads_the_decoded_frame(self):
+        (firsts, g2g, _, rows), _ = self.run_trials(
+            "key", {"sent_ns": 1_000_000, "decoded_ns": 41_000_000})
+        self.assertEqual(g2g, [40.0, 40.0])
+        self.assertEqual(len(rows), 2)
+
+
 class HostTestLossTest(unittest.TestCase):
     def orchestrator(self, pct):
         o = vs.Orchestrator.__new__(vs.Orchestrator)
