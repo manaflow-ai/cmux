@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf"
+	SDKIRSHA256        = "90b14bd1cb861733cffbec3c463c9bf4364d82ad029be9786efeee047fe5be40"
 )
 
 type Authority string
@@ -213,7 +213,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"list-terminal-commands":             {Name: "list-terminal-commands", GoMethod: "ListTerminalCommands", Authority: AuthorityLocalAdmin, Since: 12, Capability: "terminal-command-history-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-terminals":                     {Name: "list-terminals", GoMethod: "ListTerminals", Authority: AuthorityControl, Since: 9, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-workspace-groups":              {Name: "list-workspace-groups", GoMethod: "ListWorkspaceGroups", Authority: AuthorityControl, Since: 12, Capability: "workspace-groups-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
-	"list-workspaces":                    {Name: "list-workspaces", GoMethod: "ListWorkspaces", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: map[string]uint32{"after": 12, "known": 12, "limit": 12}, FieldCapabilities: map[string]string{"after": "list-workspaces-page-v1", "known": "list-workspaces-known-v1", "limit": "list-workspaces-limit-v1", "since": "workspace-list-delta-v1"}},
+	"list-workspaces":                    {Name: "list-workspaces", GoMethod: "ListWorkspaces", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: map[string]uint32{"after": 12, "known": 12, "limit": 12, "rows": 12}, FieldCapabilities: map[string]string{"after": "list-workspaces-page-v1", "known": "list-workspaces-known-v1", "limit": "list-workspaces-limit-v1", "rows": "list-workspaces-slim-v1", "since": "workspace-list-delta-v1"}},
 	"machine-listening-tcp":              {Name: "machine-listening-tcp", GoMethod: "MachineListeningTcp", Authority: AuthorityControl, Since: 12, Capability: "machine-listening-tcp-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"machine-usage":                      {Name: "machine-usage", GoMethod: "MachineUsage", Authority: AuthorityControl, Since: 12, Capability: "machine-usage-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"mark-workspaces-provider-managed":   {Name: "mark-workspaces-provider-managed", GoMethod: "MarkWorkspacesProviderManaged", Authority: AuthorityProviderAuthority, Since: 9, Capability: "provider-managed-workspace-authority-v2", Stream: "", FieldSince: nil, FieldCapabilities: nil},
