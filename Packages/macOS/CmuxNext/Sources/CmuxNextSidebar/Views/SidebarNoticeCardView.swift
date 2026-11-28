@@ -417,8 +417,10 @@ final class SidebarNoticeCardView: NSView {
         // text dismiss is: only that row leaves it room. The detail and the bar span the whole inner width in every
         // stage (Lawrence 2026-11-07: "cancel button is ugly not taking up full width here").
         let trailingRoom = notice.trailing == nil ? 0 : trailingWidth + Metrics.space1
-        let closeRoom = notice.dismissTitle != nil ? dismissWidth + Metrics.space1
-            : (notice.dismissLabel == nil ? 0 : closeSide) + trailingRoom
+        // Both the text dismiss (Hide) and the x leave room for the trailing control beside them: the
+        // ternary once bound tighter than `+`, so a card with Hide and Cancel ran its title under Cancel.
+        let closeRoom = (notice.dismissTitle != nil ? dismissWidth + Metrics.space1
+            : (notice.dismissLabel == nil ? 0 : closeSide)) + trailingRoom
         let titleX = pad + (showsGlyph && !frames.glyphRow ? glyphSide + Metrics.space2 : 0)
         let bodyX = placement == .column ? titleX : pad
         var y = pad
@@ -519,7 +521,9 @@ final class SidebarNoticeCardView: NSView {
         closeButton.concentricRadius = corner.childRadius
         // The card's Cancel: a text button on the first row at the top right, left of the x when the card has one.
         let trailingWidth = trailingButton.fittingWidth
-        let trailingEnd = closeButton.isHidden ? b.width - pad / 2 : closeButton.frame.minX - Metrics.space1
+        // Left of whatever holds the corner: the x, else the text dismiss (Hide), else the edge; never on top of Hide.
+        let trailingEnd = !closeButton.isHidden ? closeButton.frame.minX - Metrics.space1
+            : !dismissButton.isHidden ? dismissButton.frame.minX - Metrics.space1 : b.width - pad / 2
         trailingButton.frame = NSRect(x: trailingEnd - trailingWidth, y: dismissMid - dismissHeight / 2, width: trailingWidth, height: dismissHeight)
         layoutProgress(rows.progress)
         for (button, frame) in zip(actionButtons, rows.buttons) { button.frame = frame }
@@ -632,8 +636,9 @@ final class SidebarNoticeCardView: NSView {
             icon.contentTintColor = Palette.textSecondary
             icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.cardTitle.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
-            // The bar is the theme's accent (the primary text with none chosen), never a fixed gray.
-            bar.backgroundColor = Palette.accentFill.cgColor
+            // The bar is ink (the primary text), never a fixed gray and never the theme's accent hue
+            // (Leo 2026-11-27: "dont put this garish blue in man").
+            bar.backgroundColor = Palette.textPrimary.cgColor
         }
     }
 

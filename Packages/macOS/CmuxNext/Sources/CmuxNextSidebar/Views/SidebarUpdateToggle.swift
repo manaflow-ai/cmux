@@ -174,10 +174,12 @@ final class SidebarUpdateToggle: NSView {
         return CGRect(x: x, y: track.minY + inset, width: side, height: side)
     }
 
-    /// The switch's track and knob colors (theme-scoped: call inside `performWithTheme`): the
-    /// theme's accent pair when on, a quiet fill with a hairline and a muted knob when off.
+    /// The switch's track and knob colors (theme-scoped: call inside `performWithTheme`): ink when
+    /// on (the primary text, its knob the text on it), never the theme's accent hue (Leo
+    /// 2026-11-27: "we dont need it to be blue or highlighted"); a quiet fill with a hairline and a
+    /// muted knob when off.
     static func switchColors(isOn: Bool) -> (track: NSColor, knob: NSColor, edge: NSColor) {
-        isOn ? (Palette.accentFill, Palette.onAccent, Palette.accentFill)
+        isOn ? (Palette.textPrimary, Palette.textOnPrimary, Palette.textPrimary)
             : (Palette.hoverFill, Palette.textTertiary, Palette.separator)
     }
 

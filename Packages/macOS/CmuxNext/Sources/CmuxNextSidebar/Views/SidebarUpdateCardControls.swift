@@ -8,10 +8,10 @@ import QuartzCore
 /// picks one). Every variant is a theme token, never the system blue.
 public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The app's primary action (the default, Leo 2026-10-20: "give Restart to Update the primary
-    /// button style"): the theme's accent fill and its ink (`Palette.accentFill` / `onAccent`, the
-    /// selected menu row's pair), emphasized text. With no chosen accent (`accentFill` is then the
-    /// primary text, a white slab on a dark card) it is the dialogs' prominent neutral button
-    /// instead: the selection fill with the primary text (2026-10-22, "just make it look better").
+    /// button style"): the dialogs' prominent neutral button, the selection fill with the primary
+    /// text (2026-10-22, "just make it look better"), in every theme. A theme's accent never fills
+    /// it (Leo 2026-11-27: "dont put this garish blue in man we dont need it to be blue or
+    /// highlighted"; design decision D3: the accent colours only links, the cursor and focus).
     case primary
     /// The app's button (the default until 2026-10-20, Leo 2026-10-19: no light slab): the
     /// hover fill with a hairline edge and the primary text, as the Updated
@@ -173,8 +173,7 @@ final class SidebarUpdateButton: NSView {
     /// `performWithTheme`).
     static func colors(_ style: SidebarUpdateButtonStyle) -> (fill: NSColor, text: NSColor) {
         switch style {
-        case .primary where !Palette.hasChosenAccent: (Palette.selectionFill, Palette.textPrimary)
-        case .primary: (Palette.accentFill, Palette.onAccent)
+        case .primary: (Palette.selectionFill, Palette.textPrimary)
         case .bordered: (Palette.hoverFill, Palette.textPrimary)
         case .themeAccent where Palette.hasThemeAccent: (Palette.highlight, Palette.highlightText)
         case .accent: (Palette.accent, Palette.textPrimary)
@@ -182,9 +181,8 @@ final class SidebarUpdateButton: NSView {
         }
     }
 
-    /// The primary style in a theme with no chosen accent: the prominent neutral, not the accent
-    /// pair (theme-scoped: read inside `performWithTheme`).
-    private var isNeutralPrimary: Bool { !isQuiet && style == .primary && !Palette.hasChosenAccent }
+    /// The primary style: the prominent neutral, never the accent pair, in every theme.
+    private var isNeutralPrimary: Bool { !isQuiet && style == .primary }
 
     /// The fill now: the style's color, a step lighter under the pointer,
     /// darker while held, faded while disabled.
@@ -192,7 +190,7 @@ final class SidebarUpdateButton: NSView {
         performWithTheme {
             let neutral = isQuiet || style == .bordered
             let base = isQuiet ? Palette.hoverFill : Self.colors(style).fill
-            // The neutral primary (no chosen accent) steps to the pressed fill under the pointer, as
+            // The neutral primary steps to the pressed fill under the pointer, as
             // the dialogs' prominent button does; fading a translucent fill would only wash it out.
             if isNeutralPrimary, isEnabled, isHovered || isPressed { return Palette.pressedFill }
             if !isEnabled, neutral { return base.withAlphaComponent(0.5) }
