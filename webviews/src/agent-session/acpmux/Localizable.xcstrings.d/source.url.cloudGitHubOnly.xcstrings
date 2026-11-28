@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "source.url.cloudGitHubOnly" : {
+      "comment" : "New chat project source picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud starts in GitHub repositories only for now. Pick This Mac to clone this URL."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يبدأ Cloud حاليًا في مستودعات GitHub فقط. اختر This Mac لاستنساخ هذا الرابط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud za sada počinje samo u GitHub repozitorijima. Odaberite This Mac da klonirate ovaj URL."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud starter indtil videre kun i GitHub-repositorier. Vælg This Mac for at klone denne URL."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud startet vorerst nur in GitHub-Repositorys. Wähle This Mac, um diese URL zu klonen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Por ahora, Cloud solo empieza en repositorios de GitHub. Elige This Mac para clonar esta URL."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour l’instant, Cloud ne démarre que dans des dépôts GitHub. Choisissez This Mac pour cloner cette URL."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per ora Cloud parte solo da repository GitHub. Scegli This Mac per clonare questo URL."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在 Cloud は GitHub リポジトリでのみ開始できます。この URL をクローンするには This Mac を選んでください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ឥឡូវនេះ Cloud ចាប់ផ្តើមតែក្នុងឃ្លាំង GitHub ប៉ុណ្ណោះ។ ជ្រើស This Mac ដើម្បីក្លូន URL នេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "지금은 Cloud가 GitHub 저장소에서만 시작합니다. 이 URL을 클론하려면 This Mac을 고르세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Foreløpig starter Cloud bare i GitHub-repositorier. Velg This Mac for å klone denne URL-en."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Na razie Cloud startuje tylko w repozytoriach GitHub. Wybierz This Mac, aby sklonować ten URL."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Por enquanto, o Cloud só começa em repositórios do GitHub. Escolha This Mac para clonar esta URL."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока Cloud запускается только в репозиториях GitHub. Выберите This Mac, чтобы клонировать этот URL."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตอนนี้ Cloud เริ่มได้เฉพาะในรีโพสิทอรี GitHub เลือก This Mac เพื่อโคลน URL นี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud şimdilik yalnızca GitHub depolarında başlar. Bu URL'yi klonlamak için This Mac'i seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поки що Cloud запускається лише в репозиторіях GitHub. Виберіть This Mac, щоб клонувати цей URL."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiện Cloud chỉ bắt đầu trong kho GitHub. Chọn This Mac để nhân bản URL này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud 目前只能在 GitHub 仓库中开始。选择 This Mac 来克隆此 URL。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud 目前只能在 GitHub 儲存庫中開始。選擇 This Mac 來複製此 URL。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

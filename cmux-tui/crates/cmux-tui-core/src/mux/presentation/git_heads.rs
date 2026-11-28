@@ -9,8 +9,9 @@
 //! The values live in a [`TagCache`] keyed by directory. Each value carries the tag of the
 //! directory it was read from ([`HeadTag::Dir`]): the git dir that holds its HEAD file (a linked
 //! worktree's own one under `.git/worktrees/`), or, for a directory in no repository, the
-//! directory itself, where a new `.git` would make one. One file watch (`notify`, non-recursive)
-//! holds each of those directories. A write of a HEAD file (a checkout, a switch, a branch
+//! directory itself, where a new `.git` would make one. One file watch (non-recursive; on Linux
+//! an inotify watch that asks for no opens, [`quiet_watch`], elsewhere `notify`'s) holds each of
+//! those directories: every `git` command opens files in a git dir, and a read changes no HEAD. A write of a HEAD file (a checkout, a switch, a branch
 //! rename, a commit on a detached HEAD: git renames `HEAD.lock` over it) or of a `.git` entry
 //! invalidates that tag, which writes one number whatever is cached, and sends the directories
 //! cached with it to the refresh. The refresh reads them, and for a value that changed moves the
@@ -43,6 +44,9 @@
 //! so the worker reads it once more behind its new watch.
 //!
 //! A worker that panics ends the refresh ([`RefreshEnd`]); the next reply starts a new one.
+
+#[cfg(target_os = "linux")]
+mod quiet_watch;
 
 #[cfg(test)]
 use super::git_head_probe;
@@ -240,15 +244,26 @@ impl Inner {
 
 /// The file watch over the watched directories (`HeadTag::Dir`), and its thread.
 struct HeadWatch {
-    watcher: notify::RecommendedWatcher,
+    watcher: DirWatch,
     dirs: HashSet<PathBuf>,
 }
+
+/// Linux: an inotify watch that asks for no opens ([`quiet_watch`]); elsewhere `notify`'s.
+#[cfg(target_os = "linux")]
+type DirWatch = quiet_watch::QuietWatch;
+#[cfg(not(target_os = "linux"))]
+type DirWatch = notify::RecommendedWatcher;
 
 impl HeadWatch {
     /// A watcher whose events go to a thread that tells `mux`; `None` when the platform gives
     /// none (each value then keeps [`GIT_HEAD_TTL`]).
     fn start(mux: Weak<Mux>) -> Option<Self> {
         let (tx, rx) = std::sync::mpsc::channel();
+        #[cfg(target_os = "linux")]
+        let watcher = quiet_watch::QuietWatch::start(tx, "git-head-inotify")
+            .inspect_err(|error| eprintln!("cmux-tui: the git HEAD watch cannot start: {error}"))
+            .ok()?;
+        #[cfg(not(target_os = "linux"))]
         let watcher = notify::recommended_watcher(move |event| {
             let _ = tx.send(event);
         })
@@ -379,17 +394,31 @@ impl GitHeadCache {
         };
         let new: Vec<&PathBuf> = wanted.iter().filter(|dir| !watch.dirs.contains(*dir)).collect();
         if !gone.is_empty() || !new.is_empty() {
+            #[cfg(target_os = "linux")]
+            let (added, committed) = {
+                for dir in &gone {
+                    watch.watcher.remove(dir);
+                }
+                let added: Vec<PathBuf> =
+                    new.into_iter().filter(|dir| watch.watcher.add(dir).is_ok()).cloned().collect();
+                (added, true)
+            };
             // One change of the watch for the batch: FSEvents restarts its stream on each.
-            let mut paths = notify::Watcher::paths_mut(&mut watch.watcher);
-            for dir in &gone {
-                let _ = paths.remove(dir);
-            }
-            let added: Vec<PathBuf> = new
-                .into_iter()
-                .filter(|dir| paths.add(dir.as_path(), notify::RecursiveMode::NonRecursive).is_ok())
-                .cloned()
-                .collect();
-            let committed = paths.commit().is_ok();
+            #[cfg(not(target_os = "linux"))]
+            let (added, committed) = {
+                let mut paths = notify::Watcher::paths_mut(&mut watch.watcher);
+                for dir in &gone {
+                    let _ = paths.remove(dir);
+                }
+                let added: Vec<PathBuf> = new
+                    .into_iter()
+                    .filter(|dir| {
+                        paths.add(dir.as_path(), notify::RecursiveMode::NonRecursive).is_ok()
+                    })
+                    .cloned()
+                    .collect();
+                (added, paths.commit().is_ok())
+            };
             for dir in &gone {
                 watch.dirs.remove(dir);
             }

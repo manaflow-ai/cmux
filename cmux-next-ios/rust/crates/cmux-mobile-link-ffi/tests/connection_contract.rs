@@ -227,10 +227,10 @@ fn every_reachability_case_resolves_as_the_contract_says() {
         assert_eq!(kind_name(&got), e["kind"].as_str().unwrap(), "{name}");
         match got {
             MacReachabilityKind::Slow { quiet_seconds } => {
-                assert_eq!(Some(quiet_seconds), e["quiet_seconds"].as_i64(), "{name}")
+                assert_eq!(Some(quiet_seconds), e["quiet_seconds"].as_i64(), "{name}");
             }
             MacReachabilityKind::NoAnswer { listed_online } => {
-                assert_eq!(Some(listed_online), e["listed_online"].as_bool(), "{name}")
+                assert_eq!(Some(listed_online), e["listed_online"].as_bool(), "{name}");
             }
             _ => {}
         }
