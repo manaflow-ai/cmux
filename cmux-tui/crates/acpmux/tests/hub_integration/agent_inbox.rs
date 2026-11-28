@@ -6,8 +6,9 @@
 use super::*;
 
 /// What `acpmux send --from AGENT` sends when it waits for the reply: another agent's message,
-/// steering by default. Its caller reads the reply (`readsReply`), so its request answers with
-/// the notice's turn rather than once delivered (#62138, `hub/inbox_admit.rs`).
+/// steering by default. These tests read the turn that carried a message from its send's answer, so
+/// the sender reads the reply (`readsReply`): a send that reads none is answered once delivered
+/// (#62138), with no turn yet.
 fn from_agent(id: &str, prompt_id: &str, agent: &str, text: &str, mux: Value) -> Value {
     let mut meta =
         json!({"promptId": prompt_id, "fromAgent": agent, "steer": true, "readsReply": true});

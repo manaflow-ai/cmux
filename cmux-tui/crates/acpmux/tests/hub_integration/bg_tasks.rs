@@ -500,11 +500,9 @@ fn unread(path: &std::path::Path) -> Option<usize> {
 /// (`hub/bg_notify.rs`), by their text.
 fn ends(hub: &Hub, id: &str) -> Vec<String> {
     let events = hub.events(id, 0, 10_000).unwrap();
-    // An idle chat's own exit-0 end waits in its inbox for the next turn or 5 min (#59782,
-    // `bg_notify.rs` `OWN_END_HOLD_MS`): it has reached the chat there, as a turn's message has.
     events
         .iter()
-        .filter(|e| e.kind == "user_message" || e.kind == "inbox")
+        .filter(|e| e.kind == "user_message")
         .filter_map(|e| e.msg["text"].as_str())
         .filter(|t| t.contains("Background command"))
         .map(str::to_owned)
@@ -882,9 +880,8 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     std::fs::write(&go, "").unwrap();
     r.until("not every task ended", || ids.iter().all(|t| state(&r, &id, t) == "exited")).await;
     // 32 ends at once outrun the chat's reply period, so the receiver's surge rate holds most
-    // of them in its inbox (`hub/inbox_surge.rs`) and an idle chat holds its own exit-0 ends
-    // (#59782) instead of running a turn each: an end has reached its chat when a turn or an
-    // inbox message names its task.
+    // of them in its inbox (`hub/inbox_surge.rs`) instead of running a turn each: an end has
+    // reached its chat when a turn or a held inbox message names its task.
     let notified: Vec<&String> = ids.iter().step_by(2).collect();
     r.until("not every notify task's end reached its chat", || {
         let seen = reached(&r.hub, &id);
@@ -909,13 +906,14 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     }
 }
 
-/// The task ends chat `id` took: as a turn's message, or held in its inbox, by the surge rate or
-/// as an idle chat's own exit-0 end (#59782, `bg_notify.rs` `OWN_END_HOLD_MS`).
+/// The task ends chat `id` took: as a turn's message, or held in its inbox, by the surge rate or,
+/// once the chat ran a turn, as its own exit-0 end (`bg_notify.rs` `OWN_END_HOLD_MS`, #59782).
 fn reached(hub: &Hub, id: &str) -> Vec<String> {
     let events = hub.events(id, 0, 10_000).unwrap();
+    let held = |e: &&acpmux::store::EventRecord| e.kind == "inbox";
     events
         .iter()
-        .filter(|e| e.kind == "user_message" || e.kind == "inbox")
+        .filter(|e| e.kind == "user_message" || held(e))
         .filter_map(|e| e.msg["text"].as_str())
         .filter(|t| t.contains("Background command"))
         .map(str::to_owned)

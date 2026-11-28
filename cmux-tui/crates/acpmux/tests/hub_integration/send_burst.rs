@@ -15,14 +15,12 @@ const ROUNDS: usize = 3;
 /// How long a sender may wait for its answer.
 const SENDER_WAIT: Duration = Duration::from_secs(90);
 
-/// Session `caller`'s send of `text` to `target`, as its agent's `acpmux send` makes it when it
-/// waits for the reply (`readsReply`): its answer comes once the message went in, not once the
-/// inbox took it (#62138), so every sender answered means every message delivered.
+/// Session `caller`'s send of `text` to `target`, as its agent's `acpmux send` makes it.
 fn message(target: &str, prompt_id: &str, text: &str, resend: bool) -> Value {
     json!({
         "sessionId": target,
         "prompt": [{"type": "text", "text": text}],
-        "_meta": {"acpmux": {"promptId": prompt_id, "class": "blocker", "resend": resend, "readsReply": true}},
+        "_meta": {"acpmux": {"promptId": prompt_id, "class": "blocker", "resend": resend}},
     })
 }
 
@@ -65,7 +63,10 @@ async fn answer(rx: &mut mpsc::Receiver<String>, want: i64) -> Result<Value, Str
     }
 }
 
-/// The receiver `id` once it has settled: no turn, nothing queued, ready. Panics past 30 s.
+/// The receiver `id` once it has settled: no turn, nothing queued, nothing waiting in its inbox,
+/// ready. A sender is answered once its message is delivered to the inbox (#62138), before the
+/// notice that carries it runs, so a receiver between two notices is not settled yet. Panics past
+/// 30 s.
 async fn settled(hub: &Arc<Hub>, id: &str) -> Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
@@ -73,6 +74,7 @@ async fn settled(hub: &Arc<Hub>, id: &str) -> Value {
         let summary = hub.session_summary(&session);
         let idle = session.turn().is_none()
             && summary["status"] == "ready"
+            && summary["inboxDueAt"].is_null()
             && summary["queue"].as_array().is_none_or(|q| q.is_empty());
         if idle {
             return summary;
