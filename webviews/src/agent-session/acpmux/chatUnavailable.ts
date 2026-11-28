@@ -47,6 +47,7 @@ export function chatOpenRefusal(error: unknown): ChatOpenRefusal | undefined {
 
 /// What the pane shows in place of a chat the daemon does not list.
 export type ChatUnavailable =
+  | { reason: "refused"; refusal: ChatOpenRefusal }
   | { reason: "paused"; machine?: string }
   | { reason: "machineDeleted"; machine?: string }
   /// Gone from the machine that listed it; `machine` when the pane knows which one.

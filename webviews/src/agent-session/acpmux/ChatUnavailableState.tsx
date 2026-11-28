@@ -104,7 +104,7 @@ export function ChatUnavailableState({
   const named =
     unavailable.reason === "deleted"
       ? (unavailable.machine ?? machine)
-      : unavailable.reason === "notFound" || unavailable.reason === "gone"
+      : unavailable.reason === "notFound" || unavailable.reason === "gone" || unavailable.reason === "refused"
         ? machine
         : unavailable.machine;
   let title: string;
@@ -137,11 +137,16 @@ export function ChatUnavailableState({
     // since nothing here would reach it.
     title = t("unavailable.unreached.title", { machine: unavailable.machine });
     detail = t("unavailable.unreached.detail", { machine: unavailable.machine });
-  } else if (unavailable.reason === "notFound") {
+  } else if (unavailable.reason === "notFound" || unavailable.reason === "refused") {
     // Not listed here and never seen here: it may be deleted, or in an acpmux this tab is not routed
     // to (a Chief home's own), so the pane never says it was deleted.
-    title = t("unavailable.notFound.title");
-    detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
+    title = t("unavailable.refused.title");
+    const reason = unavailable.reason === "refused" ? unavailable.refusal : "no_session";
+    if (reason === "no_session")
+      detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
+    else if (reason === "device.revoked") detail = t("unavailable.refused.revoked");
+    else if (reason === "device.unauthorized") detail = t("unavailable.refused.unauthorized");
+    else detail = t("unavailable.refused.required");
   } else {
     // A machine down past the bound says it is offline, with Reconnect: never a "Reconnecting…" that
     // leaves the person in limbo (Leo, 2026-11-24: "making the user think they're constsntly suspended
