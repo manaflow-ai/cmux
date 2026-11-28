@@ -77,8 +77,6 @@ impl Hub {
         }
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
-            super::verify::stamp(&session.id, o);
-            super::speculative::stamp(&session.id, o);
             // What this turn's prefetch attached and how much of it was read anyway (`prefetch.rs`).
             if let Some(turn) = o.get("turnId").and_then(Value::as_str).map(str::to_owned) {
                 o.extend(self.take_prefetch_counters(session, &turn));
@@ -89,16 +87,12 @@ impl Hub {
         // The count alone: building the whole row here masked its title and step again on every
         // turn's end (goal sessions-2000-attached).
         msg.set("pendingPermissions", json!(session.pending_permission_count()));
-        // Which harness-magic features ran this turn, for the scorecard's like-with-like split.
-        super::sidecars::stamp(&session.id, &mut msg);
-        super::harness_magic::stamp(&mut msg);
-        super::turn_checkpoint::count(&mut msg);
-        self.cache_alarm(session, &mut msg);
-        self.turn_rules_end(session, &mut msg);
-        self.sidecars_end(session, &mut msg);
-        super::best_of_n::stamp(&session.id, &mut msg);
-        // The turn's edits, tests and PRs as one card (`turn_artifacts.rs`).
-        super::turn_artifacts::stamp(&session.id, &mut msg);
+        // Each harness-magic feature's turn-end step, in registry order: its counters, which
+        // features ran (the scorecard's like-with-like split) and its verdicts
+        // (`harness_magic_registry.rs`, where a feature adds its row).
+        for step in super::harness_magic::registry::TURN_END {
+            (step.run)(self, session, &mut msg);
+        }
         self.record_last_turn(session, &msg);
         // The chat's page after the turn (`turn_shots.rs`), taken once the result is written.
         let turn = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
