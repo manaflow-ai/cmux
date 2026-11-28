@@ -19,6 +19,7 @@ cmux-app-workspace-creation = { path = "../cmux-app-workspace-creation" }
 # Without its `url` feature: the app links no URL parser (cmux-bookmarks-core `validate_url`).
 cmux-bookmarks-core = { path = "../cmux-bookmarks-core" }
 cmux-browser-rules = { path = "../cmux-browser-rules" }
+cmux-app-closed-tabs = { path = "../cmux-app-closed-tabs" }
 cmux-cloud-config = { path = "../cmux-cloud-config" }
 cmux-cloud-handlers = { path = "../cmux-cloud-handlers" }
 cmux-cloud-machine = { path = "../cmux-cloud-machine" }
