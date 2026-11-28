@@ -24,7 +24,12 @@ target's socket; its path is passed as --to. The CLI's own stderr is timestamped
   carried     bytes in the freeze (frozen line); history_sent / raw: the "history arrived" line.
 
 Usage: move-usable.py --bin PATH/acpmux [--size-mb 20] [--reps 3] [--rates lan,1MBps,96KBps]
-       [--modes before,after] [--out /tmp/move-usable-results.jsonl]
+       [--modes before,after] [--out /tmp/move-usable-results.jsonl] [--learn DIR]
+
+  --learn DIR  every move at one rate shares DIR/RATE-MODE.json as its zstd level store
+               (ACPMUX_MOVE_LEVELS, `move_levels.rs`), as moves over one link share one machine's:
+               rep 0 starts at level 3, later reps at what the last one learned. Each run's
+               zstd_levels (the levels its `move:` lines showed) and learned line are recorded.
 Results are appended as JSON lines; a markdown table of medians is printed at the end.
 """
 import argparse, asyncio, json, os, re, secrets, shutil, socket, statistics, subprocess
@@ -180,7 +185,7 @@ def fill(sock, home, size_mb, text_kind):
     return sid, turns
 
 
-def one_run(binary, rate_name, mode, size_mb, text_kind="code"):
+def one_run(binary, rate_name, mode, size_mb, text_kind="code", levels_store=None):
     root = tempfile.mkdtemp(prefix="mu-", dir="/tmp")
     procs = []
     try:
@@ -195,6 +200,8 @@ def one_run(binary, rate_name, mode, size_mb, text_kind="code"):
         env = env_for(shome, ssock)
         if mode == "after":
             env["ACPMUX_MOVE_HISTORY_LATER"] = "4"
+        if levels_store:
+            env["ACPMUX_MOVE_LEVELS"] = levels_store
         os.makedirs(os.path.join(thome, "arrived"), exist_ok=True)
         t0 = time.monotonic()
         cli = subprocess.Popen([binary, "transfer", sid, "--to", proxy_sock, "--cwd",
@@ -223,6 +230,10 @@ def one_run(binary, rate_name, mode, size_mb, text_kind="code"):
                 res["frozen_line_ms"] = round(t)
                 pt = threading.Thread(target=probe_run)
                 pt.start()
+            for z in re.findall(r"zstd (\d+)", line):
+                res.setdefault("zstd_levels", []).append(int(z))
+            if "learned zstd" in line:
+                res["learned_line"] = line.strip()
             m = re.search(r"history arrived: (\d+) records.*?(\d+) bytes sent for (\d+) of log", line)
             if m:
                 res["history_arrived_ms"] = round(t)
@@ -253,18 +264,25 @@ def main():
     ap.add_argument("--out", default="/tmp/move-usable-results.jsonl")
     ap.add_argument("--text", choices=["code", "hex"], default="code",
                     help="turn text: slices of this repo's Rust source (like a real chat) or random hex")
+    ap.add_argument("--learn", metavar="DIR",
+                    help="share DIR/RATE-MODE.json as the zstd level store across reps (see README)")
     a = ap.parse_args()
+    if a.learn:
+        os.makedirs(a.learn, exist_ok=True)
     rows = []
     for rep in range(a.reps):
         for rate in a.rates.split(","):
             for mode in a.modes.split(","):
-                r = one_run(a.bin, rate, mode, a.size_mb, a.text)
+                store = os.path.join(a.learn, f"{rate}-{mode}.json") if a.learn else None
+                r = one_run(a.bin, rate, mode, a.size_mb, a.text, store)
                 r["rep"] = rep
                 rows.append(r)
                 with open(a.out, "a") as f:
                     f.write(json.dumps(r) + "\n")
                 print(rate, mode, rep, {k: r.get(k) for k in
-                      ("usable_ms", "complete_ms", "carried_bytes", "history_sent_bytes", "exit", "error")},
+                      ("usable_ms", "complete_ms", "carried_bytes", "history_sent_bytes",
+                                       "link_bytes_to_target", "exit", "error")},
+                      "zstd", sorted(set(r.get("zstd_levels", []))) or "-",
                       flush=True)
     print("\n| rate | mode | usable_ms | complete_ms | carried B | history sent B | n |\n|---|---|---|---|---|---|---|")
     for rate in a.rates.split(","):
