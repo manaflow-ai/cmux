@@ -88,7 +88,6 @@ dependencies = [
  "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-tailnet-local",
- "cmux-team-messaging",
  "cmux-transport",
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
