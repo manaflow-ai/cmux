@@ -21,8 +21,10 @@
 //! starts without it. An idle chat is the usual case of that (its agent hibernates after two idle
 //! minutes, `hub/idle.rs`), so its summary says `credentialOnlyHere` meanwhile and a machine update
 //! wakes it before it restarts this daemon (`hub/credentials.rs` `credential_only_here`, cmux-host
-//! `updater/credential_wake.rs`). Left open: a daemon that ends any other way while the agent
-//! sleeps (a crash, a rollback's restart), a closed chat, and a session that holds a credential
+//! `updater/credential_wake.rs`). A daemon that ends any other way while the agent sleeps (a
+//! crash, a rollback's restart) finds it in the kernel's user keyring, kept there from the
+//! hibernation to the wake (`kept_credential.rs`; Linux only). Left open: a keyring-less host
+//! (not Linux, a sandbox without keyrings), a closed chat, and a session that holds a credential
 //! with no agent and no hibernation (its agent crashed, or its first start failed or has not run
 //! yet). Without one the agent keeps today's coderouter route.
 //! with [`MARKER`]). Copilot is delivered again by the owner. Its OpenCode files are never a
@@ -588,6 +590,17 @@ pub fn launched_with(env: &[(String, String)]) -> Vec<(String, String)> {
     let Some(credential) = recovered_in(&vars) else { return Vec::new() };
     let mut out = vec![(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","))];
     out.extend(credential.env);
+    out
+}
+
+/// The variables [`recovered_from_launch`] reads `credential` back from: [`MARKER`], its variable
+/// and, for an endpoint credential, [`ENDPOINT_MARKER`] (what [`apply`] sets for them).
+pub(crate) fn launch_pairs(credential: &AgentCredential) -> Vec<(String, String)> {
+    let mut out = vec![(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","))];
+    out.extend(credential.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    if let Some(endpoint) = &credential.endpoint {
+        out.push((ENDPOINT_MARKER.to_owned(), serde_json::json!(endpoint).to_string()));
+    }
     out
 }
 

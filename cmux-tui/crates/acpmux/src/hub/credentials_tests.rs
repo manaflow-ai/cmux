@@ -778,3 +778,70 @@ async fn an_update_of_another_family_or_an_unknown_session_is_refused() {
     let e = hub.update_credential("no-such-session", credential(FIRST), false).await.unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "credentials.no_session");
 }
+
+/// cmux#65625: a chat started with a sent login, put to sleep, its daemon ended with no
+/// handoff (a crash: nothing of its memory survives), then woken on the next daemon. It
+/// starts with the login it was sent (`kept_credential.rs`), never signed out. Where the
+/// kernel keeps no key (no keyring in this sandbox) nothing is kept, and the test says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_asleep_through_a_daemon_crash_wakes_on_its_sent_login() {
+    let hub = hub();
+    let session = hub
+        .new_session(NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(credential(FIRST)),
+            ..NewRequest::default()
+        })
+        .await
+        .unwrap();
+    hub.child_for(&session).await.unwrap();
+    assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
+    assert!(hub.end_quiet_stale(&session, "test", None).await, "it did not hibernate");
+    assert!(session.child.lock().await.is_none());
+    let meta = session.meta();
+    assert_ne!(meta.hibernated_ms, 0);
+    assert!(!written(&hub, &session.id).contains(FIRST), "the credential was written down");
+    hub.shutdown_all().await;
+
+    let restarted = hub_for("claude", &["python3", FAKE]);
+    let woken = restarted.make_session(meta);
+    if crate::kept_credential::read(&woken.id).is_none()
+        && woken.credential.lock().unwrap().is_none()
+    {
+        eprintln!("no user keyring in this sandbox: nothing was kept across the crash");
+        return;
+    }
+    assert_eq!(*woken.credential.lock().unwrap(), Some(credential(FIRST)));
+    restarted.child_for(&woken).await.unwrap();
+    restarted.clear_hibernation(&woken);
+    assert_eq!(
+        launched(&woken).get(CLAUDE_OAUTH).map(String::as_str),
+        Some(FIRST),
+        "the woken chat started signed out"
+    );
+    assert!(crate::kept_credential::read(&woken.id).is_none(), "woken, it is still kept");
+    restarted.shutdown_all().await;
+}
+
+/// A withdrawn credential is not kept for a sleeping chat, and a later daemon holds none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_withdrawn_credential_is_not_kept_while_the_chat_sleeps() {
+    let hub = hub();
+    let session = hub
+        .new_session(NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(credential(FIRST)),
+            ..NewRequest::default()
+        })
+        .await
+        .unwrap();
+    session.meta.lock().unwrap().credential_withdrawn = true;
+    hub.keep_hibernated_credential(&session);
+    assert!(crate::kept_credential::read(&session.id).is_none());
+    let mut meta = session.meta();
+    meta.hibernated_ms = 1;
+    let restarted = hub_for("claude", &["python3", FAKE]);
+    assert!(restarted.make_session(meta).credential.lock().unwrap().is_none());
+    hub.shutdown_all().await;
+    restarted.shutdown_all().await;
+}

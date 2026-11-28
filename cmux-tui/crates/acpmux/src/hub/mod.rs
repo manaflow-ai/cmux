@@ -2479,8 +2479,7 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
-        // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
-        // turn or typing, never on an open alone (`idle.rs` `wake_for`).
+        // Hibernated before a restart: marked again; a turn, not an open, wakes it (`wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
@@ -2715,6 +2714,7 @@ impl Hub {
         self.child_tags.note(&session);
         // Its pull requests wait for a review verdict (`review_queue.rs`).
         self.note_session_prs(&session);
+        self.restore_kept_credential(&session, hibernated_at);
         session
     }
 

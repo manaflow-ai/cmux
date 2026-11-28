@@ -618,6 +618,8 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
             crate::store::now_ms().max(1);
         self.save_meta(session);
+        // Its sent login outlives a daemon that ends while it sleeps (`kept_credential.rs`).
+        self.keep_hibernated_credential(session);
         // Its `cmux` server, which the daemon runs (`mcp_gateway.rs`), goes with the harness.
         crate::mcp_gateway::hibernated(&session.id);
         true
@@ -633,6 +635,7 @@ impl Hub {
         );
         if was != 0 {
             self.save_meta(session);
+            crate::kept_credential::forget(&session.id);
         }
     }
 

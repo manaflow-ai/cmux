@@ -45,6 +45,40 @@ impl Hub {
         true
     }
 
+    /// A hibernating chat's held credential, kept in the kernel's user keyring while it sleeps
+    /// (`kept_credential.rs`): a daemon that ends without a handoff no longer takes it along.
+    /// None for a withdrawn credential or the machine's Claude login. Names only are logged.
+    pub(crate) fn keep_hibernated_credential(&self, session: &Session) {
+        if session.read_meta(|meta| meta.credential_withdrawn || uses_claude_machine_login(meta)) {
+            return;
+        }
+        let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(credential) = held {
+            crate::kept_credential::keep(&session.id, &credential);
+        }
+    }
+
+    /// A chat loaded hibernated after a daemon restart: the credential its last daemon kept for
+    /// it while it slept (`keep_hibernated_credential`), held again for its wake. One held
+    /// already stays; a withdrawn one or the machine's Claude login takes none. Whether one was.
+    pub(crate) fn restore_kept_credential(&self, session: &Session, hibernated_at: u64) -> bool {
+        if hibernated_at == 0
+            || session
+                .read_meta(|meta| meta.credential_withdrawn || uses_claude_machine_login(meta))
+        {
+            return false;
+        }
+        let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return false;
+        }
+        let Some(credential) = crate::kept_credential::read(&session.id) else { return false };
+        let names: Vec<&str> = credential.names().collect();
+        tracing::info!(session = %session.id, ?names, "a hibernated chat's kept launch credential is held again");
+        *held = Some(credential);
+        true
+    }
+
     /// Refuses `credential` for a chat of `harness` when its variable serves another family.
     pub(crate) async fn credential_serves(
         &self,
@@ -441,6 +475,7 @@ impl Hub {
         // and live-child reuse read this under the same spawn lock. Try the other leases without
         // waiting because their holders may be waiting for the spawn lock.
         self.set_credential_withdrawn(&session, meta.credential_withdrawn, true)?;
+        crate::kept_credential::forget(&session.id);
         let _turn = session.turn_lock.try_lock().map_err(|_| withdrawal_pending())?;
         let _using = session.harness_use.try_write().map_err(|_| withdrawal_pending())?;
         if unverified_host {
