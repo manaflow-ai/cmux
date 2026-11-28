@@ -47,7 +47,9 @@
 //!   session to that relay at once instead of spraying, and a direct path
 //!   the session left for a relay (suspect or dead) takes it back only
 //!   after `regain_streak` answers in a row, doubling per drop back (up to
-//!   8 times). On a weak link a path that answers one probe in two stays
+//!   8 times). Every direct path to the peer counts the drop (they share
+//!   the network that failed), so a flap does not hop the session through
+//!   each of the peer's addresses in turn. On a weak link a path that answers one probe in two stays
 //!   on the relay instead of flapping between it and the direct path.
 
 use crate::medium::Medium;
@@ -213,12 +215,24 @@ impl Selector {
         if self.find(id).is_some() || self.retired.contains(&id) {
             return Err(SelectorError::DuplicatePath(id));
         }
+        // A direct path found after the session dropped back to a relay
+        // shares the network that failed: it starts with the drops so far.
+        let demotions = if kind.class().is_direct() {
+            self.paths
+                .iter()
+                .filter(|path| path.view.kind.class().is_direct())
+                .map(|path| path.demotions)
+                .max()
+                .unwrap_or(0)
+        } else {
+            0
+        };
         self.paths.push(Path {
             view: PathView { id, kind, medium, state: PathState::Probing, rtt_us: None },
             lost: 0,
             better_streak: 0,
             answered: 0,
-            demotions: 0,
+            demotions,
         });
         Ok(())
     }
@@ -506,19 +520,30 @@ impl Selector {
         };
         if to != chosen {
             // Relay-first and regain: a direct path the session left for a
-            // relay needs a longer streak (from zero) to take it again.
+            // relay needs a longer streak (from zero) to take it again, and
+            // so does every other direct path to the peer. They share the
+            // network that just failed (a Mac's LAN, loopback and tailnet
+            // addresses all ride the phone's Wi-Fi), so each one's first
+            // answer on a flapping link took the session at once and lost
+            // it a second later: the session hopped from address to address,
+            // the label flipping Direct/Turn and the echo stalling 2 s each
+            // time (Leo's phone, 2026-11-27).
             let to_relay =
                 to.and_then(|id| self.path(id)).is_some_and(|view| !view.kind.class().is_direct());
             let relay_first = self.relay_first() || self.regain();
+            let left_direct = chosen
+                .and_then(|id| self.paths.iter().find(|path| path.view.id == id))
+                .filter(|path| path.view.kind.class().is_direct())
+                .map(|path| path.demotions.saturating_add(1));
             self.held_id = to;
             for path in &mut self.paths {
                 path.better_streak = 0;
                 if relay_first
                     && to_relay
-                    && Some(path.view.id) == chosen
+                    && let Some(demotions) = left_direct
                     && path.view.kind.class().is_direct()
                 {
-                    path.demotions = path.demotions.saturating_add(1);
+                    path.demotions = path.demotions.max(demotions);
                     path.answered = 0;
                 }
             }
