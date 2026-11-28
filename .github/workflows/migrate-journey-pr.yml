@@ -48,9 +48,56 @@ jobs:
     permissions:
       contents: read
 
+  # ci10k, Leo: "de facto, im asking for 99% fewer minutes of ci time, period." `migrate` holds a runner 25 to 45
+  # minutes, nearly all of it waiting on staging, and ran on every push of a PR touching its paths (90 runs on
+  # 2026-11-27, ~2,300 runner-min, one branch 8 times). A pull request whose journey inputs
+  # (scripts/ci/migrate_journey_key.py: what `paths:` watches) match a tree whose journey already passed has
+  # nothing new to prove: `migrate` skips. Only on a pull_request without full-ci; a dispatch always runs.
+  # CI_MIGRATE_JOURNEY_REUSE=0 turns the reuse off.
+  scope:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_MIGRATE_JOURNEY_REUSE || '1') != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.reuse.outputs.hit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/migrate_journey_key.py
+          sparse-checkout-cone-mode: false
+      - name: Hash the migrate journey's inputs
+        id: key
+        run: echo "key=$(python3 scripts/ci/migrate_journey_key.py)" >> "$GITHUB_OUTPUT"
+      - name: Look up a green marker for these inputs
+        id: green
+        if: ${{ steps.key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/migrate-journey-green-marker
+          key: migrate-journey-green-${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Decide whether the journey runs
+        id: reuse
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+          HIT: ${{ steps.green.outputs.cache-hit }}
+        run: |
+          if [ -n "$KEY" ] && [ "$HIT" = true ]; then
+            echo "::notice title=Migrate journey::these inputs already passed on staging (key $KEY); the journey skips"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
   migrate:
-    needs: self-edit
-    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [self-edit, scope]
+    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && needs.scope.outputs.hit != 'true' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: LINUX_RUNNER/RUNNER_POOLS.linux_8 (#54437)
     environment:
       name: cmux-next-vm-image-dev
@@ -251,6 +298,20 @@ jobs:
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           TARGET: staging
         run: bash scripts/cmux-next/migrate-journey-ci.sh
+      # A pass (exit 0) marks these inputs green for the `scope` lookup; a red, timeout or exit 4 saves nothing.
+      - name: Mark these journey inputs green
+        id: green-marker
+        if: ${{ success() && needs.scope.outputs.key != '' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/migrate-journey-green-marker"
+          echo "${{ github.sha }}" > "$RUNNER_TEMP/migrate-journey-green-marker/passed"
+      - name: Save the green marker
+        if: ${{ success() && steps.green-marker.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/migrate-journey-green-marker
+          key: migrate-journey-green-${{ needs.scope.outputs.key }}
       - name: Keep plans, journeys, ledgers and the results table
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

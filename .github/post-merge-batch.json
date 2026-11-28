@@ -317,7 +317,10 @@
         "cmux-tui/crates/cmux-vnc/**",
         "cmux-tui/crates/cmux-window-rules/**",
         "cmux-tui/vendor/crossterm/**",
-        "cmux-tui/vendor/terminput-crossterm/**"
+        "cmux-tui/vendor/terminput-crossterm/**",
+        "cmux-tui/crates/cmux-local-url/**",
+        "cmux-tui/crates/cmux-proxy/**",
+        "scripts/ci/ios-sim-linux-test.sh"
       ],
       "jobs": {"ios": "ios"}
     },

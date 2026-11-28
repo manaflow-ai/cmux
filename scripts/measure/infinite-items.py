@@ -231,12 +231,36 @@ def file_groups(disks):
 KERNEL_MAPPINGS = {"[vdso]", "[vvar]", "[vsyscall]", "[uprobes]"}
 
 
+# The largest PROT_NONE mapping below a stack that still reads as its guard page.
+STACK_GUARD_MAX = 64 << 10
+
+
+def thread_stack_pointers(pid):
+    """Each thread's user stack pointer, from /proc/PID/task/TID/syscall (a thread blocked in a syscall, as an idle one
+    is): the second-to-last field. Empty where the kernel refuses the read."""
+    sps = []
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return sps
+    for tid in tids:
+        try:
+            with open(f"/proc/{pid}/task/{tid}/syscall") as f:
+                fields = f.read().split()
+            if len(fields) >= 3:
+                sps.append(int(fields[-2], 16))
+        except (OSError, ValueError):
+            continue
+    return sps
+
+
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
     where a role's per-process memory sits. Anonymous memory is split three ways: a malloc arena (glibc maps each at a 64 MB boundary), a
-    thread's stack (another mapping above a guard page) and the rest."""
+    thread's stack (the mapping a thread's stack pointer is in, or one above a guard page) and the rest."""
     kinds, name = {}, None
-    prev_end, prev_guard = None, False
+    prev_end, prev_guard = None, 0
+    sps = thread_stack_pointers(pid)
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -247,8 +271,11 @@ def smaps_kinds(pid):
                     start, end = (int(x, 16) for x in head[0].split("-"))
                     # The arena test first: glibc maps arenas side by side, each one's writable start on a 64 MB
                     # boundary right after the previous arena's PROT_NONE tail, which reads as a guard page too.
+                    # A guard is a page or two (glibc's default, Rust's); an allocator's reserved tail (a mimalloc
+                    # segment's, a glibc arena's) is far larger, and the mapping above it is heap, not a stack.
                     anon = ("arena" if start % (64 << 20) == 0 else
-                            "thread-stack" if prev_guard and prev_end == start else "anon")
+                            "thread-stack" if any(start <= sp < end for sp in sps) else
+                            "thread-stack" if 0 < prev_guard <= STACK_GUARD_MAX and prev_end == start else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
                             "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path in KERNEL_MAPPINGS or path.startswith("[vvar") else
@@ -256,7 +283,7 @@ def smaps_kinds(pid):
                             # allocator's heap, mimalloc's arenas above all, not the kernel's pages.
                             "heap:" + path[6:-1] if path.startswith("[anon:") else
                             anon if path.startswith("[") else "file:" + os.path.basename(path))
-                    prev_end, prev_guard = end, not path and head[1].startswith("---")
+                    prev_end, prev_guard = end, (end - start) if not path and head[1].startswith("---") else 0
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
