@@ -24,28 +24,44 @@ pub(super) struct Route {
     api_key: Option<String>,
 }
 
-// The pooled-gateway wrapper `Route::from_env` recognizes; read only when `capacity.gate` is on.
-// fleet-only-ok: behind capacity.gate, off by default
+/// The setting that turns the capacity gate on: off unless `true`. The fleet names it in its own
+/// settings; nobody else's chats get the gate.
+pub const GATE_SETTING: &str = "agents.capacityGate.enabled";
+
+/// Whether the settings document turns [`GATE_SETTING`] on.
+fn gate_in(doc: &serde_json::Value) -> bool {
+    crate::user_settings::value(doc, GATE_SETTING).and_then(|v| v.as_bool()) == Some(true)
+}
+
+// The pooled-gateway wrapper `Route::from_env` recognizes; read only when the gate is on.
+// fleet-only-ok: behind agents.capacityGate.enabled, off by default
 const WRAPPER_PROGRAMS: [&str; 2] = ["sr2", "sr"];
-// fleet-only-ok: behind capacity.gate, off by default
+// fleet-only-ok: behind agents.capacityGate.enabled, off by default
 const WRAPPER_BASE_URL: &str = "SUBROUTER2_BASE_URL";
-// fleet-only-ok: behind capacity.gate, off by default
+// fleet-only-ok: behind agents.capacityGate.enabled, off by default
 const WRAPPER_TOKEN: &str = "SUBROUTER2_PROXY_TOKEN";
-// fleet-only-ok: behind capacity.gate, off by default
+// fleet-only-ok: behind agents.capacityGate.enabled, off by default
 const WRAPPER_DEFAULT_TOKEN: &str = "subrouter2";
-// fleet-only-ok: behind capacity.gate, off by default
+// fleet-only-ok: behind agents.capacityGate.enabled, off by default
 const AGENT_HEADER: &str = "x-subrouter-agent";
 
 impl Route {
-    /// The gateway this chat's turns go through, when the capacity gate is on. `capacity.gate`
-    /// (config, off by default) holds a gateway's turns while it answers 503 "no non-exhausted
+    /// The gateway this chat's turns go through, when the capacity gate is on. [`GATE_SETTING`]
+    /// (off by default) holds a gateway's turns while it answers 503 "no non-exhausted
     /// claude accounts" (a pooled-account gateway), probes it, and releases
     /// them paced when it reopens. Off: no route, no gate; those errors take the ordinary retry
-    /// path, as before. The fleet turns it on in its own config.
+    /// path, as before. The fleet turns it on in its own settings.
     pub(super) fn of(config: &Config, meta: &SessionMeta) -> Option<Self> {
-        if !config.capacity.gate {
-            return None;
+        match crate::user_settings::read() {
+            crate::user_settings::Settings::Parsed(doc) if gate_in(&doc) => {
+                Self::of_gated(config, meta)
+            }
+            _ => None,
         }
+    }
+
+    /// [`Route::of`] with the gate on.
+    fn of_gated(config: &Config, meta: &SessionMeta) -> Option<Self> {
         let profile = config.profile(&meta.harness)?;
         if profile.kind != HarnessKind::ClaudeStdio {
             return None;
@@ -781,7 +797,7 @@ mod capacity_gate_tests {
             "/home/test/.local/bin/claude-coord-cap",
             "600000",
             "",
-            // fleet-only-ok: behind capacity.gate, off by default
+            // fleet-only-ok: behind agents.capacityGate.enabled, off by default
             "/home/test/bin/sr2",
             "claude2",
             "--autocompact",
@@ -796,14 +812,14 @@ mod capacity_gate_tests {
     }
 
     #[test]
-    fn capacity_gate_is_off_unless_the_config_turns_it_on() {
+    fn capacity_gate_is_off_unless_the_setting_turns_it_on() {
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA,
             "id": "chat", "name": "chat", "harness": "claude", "cwd": "/tmp",
             "status": "idle", "createdAt": 1, "updatedAt": 2
         }))
         .unwrap();
-        let mut config: Config = serde_json::from_value(json!({
+        let config: Config = serde_json::from_value(json!({
             "harnesses": {"claude": {
                 "kind": "claude-stdio",
                 "argv": ["claude"],
@@ -811,13 +827,12 @@ mod capacity_gate_tests {
             }}
         }))
         .unwrap();
-        assert!(!config.capacity.gate);
-        assert!(Route::of(&config, &meta).is_none(), "off by default: no route, no gate");
-        config.set("capacity.gate", "true").unwrap();
-        let route = Route::of(&config, &meta).expect("on: the profile's gateway");
+        assert!(!gate_in(&json!({})), "off by default");
+        assert!(!gate_in(&json!({"agents": {"capacityGate": {"enabled": "yes"}}})));
+        assert!(gate_in(&json!({"agents": {"capacityGate": {"enabled": true}}})));
+        assert!(gate_in(&json!({"agents.capacityGate.enabled": true})));
+        let route = Route::of_gated(&config, &meta).expect("on: the profile's gateway");
         assert_eq!(route.url.as_str(), "https://gateway.test/v1/messages");
-        let parsed: Config = serde_json::from_value(json!({"capacity": {"gate": true}})).unwrap();
-        assert!(parsed.capacity.gate);
     }
 
     #[test]

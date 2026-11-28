@@ -114,14 +114,6 @@ impl Config {
             };
             return Ok(());
         }
-        if key.trim() == "capacity.gate" {
-            self.capacity.gate = match value.trim().to_ascii_lowercase().as_str() {
-                "true" | "on" | "1" => true,
-                "false" | "off" | "0" | "default" => false,
-                _ => anyhow::bail!("capacity.gate must be true or false"),
-            };
-            return Ok(());
-        }
         if key.trim() == "capacity.release_per_min" {
             self.capacity.release_per_min = if value.trim().eq_ignore_ascii_case("default") {
                 CapacityConfig::default().release_per_min
