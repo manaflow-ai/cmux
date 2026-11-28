@@ -47,6 +47,11 @@ enum State {
     Working,
 }
 
+/// Whether a chat on `harness` starts in a mode that asks before it acts.
+fn asks(harness: &str) -> bool {
+    !matches!(harness, "codex" | "opencode" | "native")
+}
+
 fn hub() -> Arc<Hub> {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -76,6 +81,25 @@ fn hub() -> Arc<Hub> {
     cfg.store.mode = StoreMode::Memory;
     let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
+}
+
+/// The refusal a variation must meet, by the rules acpmux keeps on purpose:
+/// - a chat with no turn has nothing to fork, unless its agent forks it itself (`NOTHING_TO_FORK`);
+/// - an agent's own fork that fails while the chat is idle is said, not swapped for a transcript
+///   copy that would lose what the agent kept (`fork.rs`), so the ACP adapter's error shows;
+/// - a switch never starts a session that asks less than its chat: Codex and OpenCode have no
+///   reviewed mode that asks (`web_modes::REFUSED_FAMILIES`), so a chat that asks (a fake in its
+///   `normal` mode) cannot move there; one that does not (Codex, OpenCode, Claude Code in full
+///   access, the default) can.
+fn must_refuse(from: &str, state: State, onto: Option<&str>) -> Option<&'static str> {
+    match (onto, state) {
+        (None, State::Fresh) if matches!(from, "acp-claude" | "nofork" | "native") => {
+            Some("no turn yet")
+        }
+        (None, State::Idle) if from == "acp-claude" => Some("acp-claude could not fork this chat"),
+        (Some("codex" | "opencode"), _) if asks(from) => Some("would ask less than this one"),
+        _ => None,
+    }
 }
 
 fn text(words: &str) -> Vec<Value> {
@@ -192,7 +216,20 @@ async fn variation(
         let _ = hub.cancel(&parent).await;
         let _ = bounded("the chat's cancelled turn", turn).await?;
     }
-    let fork = forked?.map_err(|e| format!("refused: {}", e.message))?;
+    let forked = forked?;
+    if let Some(why) = must_refuse(from, state, onto) {
+        return match forked {
+            Ok(fork) => Err(format!("forked to {}, want a refusal: {why}", fork.id)),
+            Err(e) if !e.message.contains(why) => {
+                Err(format!("refused {:?}, want {why}", e.message))
+            }
+            Err(_) if parent.meta().harness != from => {
+                Err(format!("refused, but the chat now runs {}", parent.meta().harness))
+            }
+            Err(_) => Ok(()),
+        };
+    }
+    let fork = forked.map_err(|e| format!("refused: {}", e.message))?;
     let mut broke = Vec::new();
     let meta = fork.meta();
     if meta.harness != onto.unwrap_or(from) {
@@ -291,19 +328,21 @@ async fn every_flavor_switches_onto_every_other() {
 /// A fork of a fork of a fork, each onto the next flavor: the last one shows every turn.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_chain_of_forks_through_every_flavor_keeps_every_turn() {
+    // From the chats that do not ask to the ones that do: once a chat asks, no switch moves it onto
+    // a harness that cannot (`must_refuse`).
+    let order = ["native", "codex", "opencode", "plain", "acp-claude", "nofork", "slow"];
+    assert_eq!(order.len(), FLAVORS.len());
     let hub = hub();
     let mut chat = hub
         .new_session(NewRequest {
-            harness: Some(FLAVORS[0].0.into()),
+            harness: Some(order[0].into()),
             cwd: Some(std::env::temp_dir()),
             ..Default::default()
         })
         .await
         .unwrap();
     let mut said = Vec::new();
-    for (i, (flavor, _)) in
-        FLAVORS.iter().enumerate().skip(1).chain(FLAVORS.iter().enumerate().take(1))
-    {
+    for (i, flavor) in order.iter().enumerate().skip(1) {
         let words = format!("STEP-{i}");
         hub.prompt(&chat, text(&words), "test", false).await.unwrap();
         said.push(words);
