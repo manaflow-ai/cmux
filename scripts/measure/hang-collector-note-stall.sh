@@ -89,6 +89,10 @@ for sha in "$@"; do
   measure_fetch_commit . "$sha" || exit 1
   git show "$sha:$src" > "$src" || { echo "no $src at $sha" >&2; exit 1; }
   echo "BENCH-AT $(git rev-parse --short "$sha")"
-  (cd "$pkg" && NOTE_STALL_BENCH=1 swift test -c release --filter NoteStallBench)
+  # package-test-lane.sh's release suite build: @testable needs -enable-testing, DEBUG stays defined so the package's
+  # DEBUG-only test helpers build (without it the build failed on them, 2026-11-27), and the Xcode 26.6 optimizer's
+  # CopyPropagation crash is avoided. CmuxNextHangReports has no #if, so the measured code is the same.
+  (cd "$pkg" && NOTE_STALL_BENCH=1 swift test -c release -Xswiftc -enable-testing -Xswiftc -DDEBUG \
+    -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation --filter NoteStallBench)
   echo "load: $(uptime | sed 's/.*load average[s]*: //')"
 done
