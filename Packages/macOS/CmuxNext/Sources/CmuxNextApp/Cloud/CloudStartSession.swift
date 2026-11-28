@@ -194,7 +194,7 @@ struct CloudStartSession {
         let request: Request, cloud = services.cloud
         do {
             request = try await original.preflight(setup: cloud.setup, scheme: services.linkScheme, refreshNamed: {
-                try await original.requireFreshNamedList(isFresh: { cloud.hasCurrentList(within: Self.listFresh) }, refresh: { _ = await cloud.refresh() }, check: { try still(original.destinationName) })
+                try await original.requireFreshNamedList(isFresh: { cloud.hasCurrentList(within: Self.listFresh) }, refresh: { _ = await cloud.refresh() }, check: { try still(original.destinationName) }, failure: { cloud.unavailableReason ?? cloud.lastError })
             }, heldRefusal: { cloud.computerControl.heldRefusal(invocation, machine: $0) })
         } catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
         try still(request.name ?? request.machineID ?? "")

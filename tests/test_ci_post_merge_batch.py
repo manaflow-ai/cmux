@@ -1246,6 +1246,105 @@ class DeeperReachTest(unittest.TestCase):
         self.assertEqual(pmb.with_skip_reason("`other / job` was already red: a known red, no bisect.", skipped),
                          "`other / job` was already red: a known red, no bisect.")
 
+    # Gallop: batch run 46164328032 (11-28) named 23 reds "no green batch run in reach (82 read)" and bisected none.
+    def gallop_probe(self, rid: int, sha: str, verdict: str, status: str = "completed") -> dict:
+        self.jobs[rid] = ({self.job: ("cmux-tui-sdks", verdict)}, True)
+        return run(rid, "9" * 40, "2026-11-27T09:00:00Z", status=status, title=f"probe cmux-tui-sdks {self.only()} at {sha}")
+
+    def only(self) -> str:
+        return self.suites["cmux-tui-sdks"].probe_only(self.job.partition(" / ")[2])
+
+    def gallop(self, runs: list[dict], **kw):
+        self.jobs[20] = ({self.job: ("cmux-tui-sdks", "failure")}, True)  # red on every batch run read
+        back = lambda sha, n: f"{n:040x}" if sha == "2" * 40 else ""
+        gallops: list = []
+        skipped: dict = {}
+        stuck = pmb.stuck_reds("6" * 40, self.verdicts, runs + self.reach + self.deep, lambda rid: self.jobs[rid],
+                               self.suites, skipped=skipped, back=back, gallops=gallops, **kw)
+        return stuck, gallops, skipped
+
+    def test_a_red_with_no_green_in_reach_gallops_back_one_commit_first(self) -> None:
+        stuck, gallops, skipped = self.gallop([])
+        self.assertEqual(stuck, [])
+        self.assertEqual(gallops, [(self.job, "cmux-tui-sdks", f"{1:040x}", "2" * 40, 1)])
+        self.assertIn("galloping back 1 commits", skipped[self.job])
+        with mock.patch.dict(os.environ, {"POST_MERGE_GALLOP": "0"}):
+            stuck, gallops, skipped = self.gallop([])
+        self.assertEqual((stuck, gallops), ([], []))
+        self.assertNotIn("galloping", skipped[self.job])
+
+    def test_a_red_gallop_doubles_the_distance(self) -> None:
+        probes = [self.gallop_probe(61, f"{1:040x}", "failure"), self.gallop_probe(62, f"{2:040x}", "failure")]
+        _, gallops, skipped = self.gallop(probes)
+        self.assertEqual(gallops, [(self.job, "cmux-tui-sdks", f"{4:040x}", "2" * 40, 4)])
+        self.assertIn("galloping back 4 commits", skipped[self.job])
+        # A gallop probe still running starts no other.
+        _, gallops, _ = self.gallop([self.gallop_probe(63, f"{4:040x}", "", status="in_progress")] + probes)
+        self.assertEqual(gallops, [])
+
+    def test_a_green_gallop_is_bisected_like_a_stuck_red(self) -> None:
+        probes = [self.gallop_probe(61, f"{1:040x}", "failure"), self.gallop_probe(62, f"{2:040x}", "success")]
+        # The bisect's chain starts mid-range (stuck_chain_start), so the gallop probes are no finished bisects of it.
+        stuck, gallops, _ = self.gallop(probes, chain_start=lambda good, bad: "c" * 40)
+        self.assertEqual(gallops, [])
+        self.assertEqual(stuck, [(self.job, "cmux-tui-sdks", f"{2:040x}", "2" * 40)])
+
+    def test_the_gallop_stops_at_its_cap(self) -> None:
+        probes = [self.gallop_probe(100 + k, f"{2 ** k:040x}", "failure") for k in range(20) if 2 ** k <= pmb.GALLOP_MAX_COMMITS]
+        stuck, gallops, skipped = self.gallop(probes)
+        self.assertEqual((stuck, gallops), ([], []))
+        self.assertIn(f"no green galloping back {pmb.GALLOP_MAX_COMMITS} commits", skipped[self.job])
+
+    def test_a_capped_gallop_keeps_the_reach_reason_and_starts_no_probe(self) -> None:
+        self.jobs[20] = ({self.job: ("cmux-tui-sdks", "failure")}, True)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        today = [run(200 + i, "9" * 40, stamp, title=f"probe cmux-tui-sdks {self.only()} at {i:040x}")
+                 for i in range(pmb.DEFAULT_JOB_PROBES_PER_DAY)]
+        for r in today:
+            self.jobs[r["id"]] = ({}, True)
+        real = pmb.stuck_reds
+
+        def stuck(sha, verdicts, runs, jobs_of, suites, **kw):
+            return real(sha, verdicts, runs, lambda rid: self.jobs.get(rid, ({}, True)), suites,
+                        **{**kw, "back": lambda s, n: f"{n:040x}"})
+        note = f"`{self.job}` was already red on `55555555555` (run 50): a known red, no bisect."
+        dispatched: list = []
+        summaries: list = []
+        args = Namespace(manifest="m", mode="batch", reuse="", run_id=70, repo="o/r", branch="feat", sha="6" * 40,
+                         reds_dir="", dry_run=False, summary=None, github_output=None)
+        with mock.patch.object(pmb, "load_manifest", return_value=self.suites), \
+                mock.patch.object(pmb, "run_jobs", return_value=[]), \
+                mock.patch.object(pmb, "suite_verdicts", return_value=self.verdicts), \
+                mock.patch.object(pmb, "list_runs", return_value=today + self.reach), \
+                mock.patch.object(pmb, "with_deeper_runs", return_value=today + self.reach + self.deep), \
+                mock.patch.object(pmb, "new_reds", return_value=([], [note])), \
+                mock.patch.object(pmb, "stuck_reds", stuck), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: dispatched.append(probe)), \
+                mock.patch.object(pmb, "summary", lambda path, text: summaries.append(text)), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: None):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        self.assertEqual(dispatched, [])
+        text = "\n".join(summaries)
+        self.assertIn("no green batch run in reach", text)
+        self.assertNotIn("galloping back", text)
+        self.assertIn(f"cap {pmb.DEFAULT_JOB_PROBES_PER_DAY}", text)
+        # Under the cap the same red's gallop probe is dispatched: the good-anchor probe at the gallop sha.
+        summaries.clear()
+        with mock.patch.object(pmb, "load_manifest", return_value=self.suites), \
+                mock.patch.object(pmb, "run_jobs", return_value=[]), \
+                mock.patch.object(pmb, "suite_verdicts", return_value=self.verdicts), \
+                mock.patch.object(pmb, "list_runs", return_value=self.reach), \
+                mock.patch.object(pmb, "with_deeper_runs", return_value=self.reach + self.deep), \
+                mock.patch.object(pmb, "new_reds", return_value=([], [note])), \
+                mock.patch.object(pmb, "stuck_reds", stuck), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: dispatched.append(probe)), \
+                mock.patch.object(pmb, "summary", lambda path, text: summaries.append(text)), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: None):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        self.assertEqual([(p.sha, p.good, p.bad) for p in dispatched], [(f"{1:040x}", f"{1:040x}", "2" * 40)])
+        self.assertTrue(pmb.is_anchor(dispatched[0]))
+        self.assertIn("galloping back 1 commits", "\n".join(summaries))
+
     def test_no_deeper_read_when_every_red_has_a_green_in_reach(self) -> None:
         self.jobs[40] = ({self.job: ("cmux-tui-sdks", "success")}, True)
         with mock.patch.object(pmb, "list_runs", side_effect=AssertionError("read deeper")):
