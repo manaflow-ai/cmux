@@ -7,20 +7,30 @@
 # onboarding_golden_path_probe.py setup_rows does: no row without the title "Set Up cmux"; agents needs both
 # "Claude Code" and "Codex", account "cmux account", cli "command line", classic "cmux Classic" (only when Classic
 # left a session on this Mac). This changes no default.
+# On the on side, before the rows are read, the first-run steps in front of Home's card are pressed through as a new
+# person does, the way hq's walk does (cua_make_it_yours, cua_meet_chief; hq#38193): Make cmux Yours' Continue (else
+# Skip), then Meet Chief's Continue on each step and Start chatting (Skip after 5 looks with no step button). The
+# fresh --onboarding window opens on Make cmux Yours and the card waits behind it and Meet Chief, so a walk that
+# presses nothing reads no "Set Up cmux".
+# classic=seed: when this Mac has no Classic session, seed cmux's tests/fixtures/classic-to-next session where Classic
+# saves it (~/Library/Application Support/cmux/session-com.cmuxterm.app.json, its folders made under the walk's
+# scratch), as hq's walk does for its Classic launch (seed_classic), and remove only what the seed made at exit. Then
+# the on side must also show the classic row (the goal's Classic 4/4).
 #   cmux-ci run --class exclusive --label measure --display --script scripts/measure/first-run-setup-walk.sh \
-#     --ref <sha> [--arg=build=JOB|dmg=URL] --artifact .build/first-run-setup-walk/report.tgz --timeout 1800
-# Prints `FRSW side=on|off title=0|1 rows=a,b,... {...}` per side, then `FRSW exit=N` (0: on shows the title and
-# agents, account and cli; off shows no title).
+#     --ref <sha> [--arg=build=JOB|dmg=URL] [--arg=classic=seed] --artifact .build/first-run-setup-walk/report.tgz --timeout 1800
+# Prints `FRSW side=on|off title=0|1 rows=a,b,... presses=... classic_dialog=0|1 {...}` per side, then `FRSW exit=N`
+# (0: on shows the title and agents, account and cli, plus classic when Classic state is on this Mac; off shows no title).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
 out="$root/.build/first-run-setup-walk"
 rm -rf "$out" && mkdir -p "$out"
-dmg="" build_job=""
+dmg="" build_job="" seed=0
 for arg in "$@"; do
   case "$arg" in
     dmg=https://*) dmg="${arg#dmg=}" ;;
     build=*) build_job="${arg#build=}" ;;
+    classic=seed) seed=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -38,9 +48,13 @@ side="$root/scripts/cmux-next/side-instance.sh"
 name="frswalk"
 mnt=""
 # shellcheck disable=SC2317  # run by the EXIT trap
+seeded_file="" seeded_dir=""
 cleanup() {
   "$side" stop "$name" >/dev/null 2>&1 || true
   "$side" remove "$name" >/dev/null 2>&1 || true
+  # Only what the Classic seed made: its session file, and its folder when the seed created the folder.
+  [[ -n "$seeded_file" ]] && rm -f "$seeded_file"
+  [[ -n "$seeded_dir" ]] && rm -rf "$seeded_dir"
   [[ -n "$mnt" ]] && hdiutil detach "$mnt" >/dev/null 2>&1
   rm -rf "$work"
 }
@@ -67,8 +81,38 @@ fi
 pb() { [[ -f "$1/Contents/Info.plist" ]] || return 0; /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist" 2>/dev/null || true; }
 echo "FRSW app $(basename "$app") version $(pb "$app" CFBundleShortVersionString) build $(pb "$app" CFBundleVersion) commit $(pb "$app" CMUXCommit)"
 classic=0
-[[ -d "$HOME/Library/Application Support/cmux" ]] && classic=1
+classic_dir="$HOME/Library/Application Support/cmux"
+[[ -d "$classic_dir" ]] && classic=1
 echo "FRSW classic_state_on_host=$classic"
+if [[ $seed == 1 ]]; then
+  session="$classic_dir/session-com.cmuxterm.app.json"
+  if [[ -e "$session" ]]; then
+    echo "FRSW classic_seed=kept (a Classic session is already on this Mac)"
+  else
+    [[ -d "$classic_dir" ]] || { mkdir -p "$classic_dir" && seeded_dir="$classic_dir"; }
+    seeded_file="$session"
+    # The fixture's /Users/cmux paths moved under the scratch, its folders made (hq seed_classic).
+    python3 -I - "$root/tests/fixtures/classic-to-next/session-com.cmuxterm.app.json" "$work/classic" "$session" <<'PY' || exit 3
+import json, os, sys
+fixture, scratch, dest = sys.argv[1:4]
+def move(v):
+    if isinstance(v, str):
+        return v.replace("/Users/cmux/p4rt-classic/proj", scratch + "/split").replace("/Users/cmux", scratch)
+    if isinstance(v, list):
+        return [move(x) for x in v]
+    if isinstance(v, dict):
+        return {k: move(x) for k, x in v.items()}
+    return v
+data = move(json.load(open(fixture)))
+for d in ("split/api/logs", "split/web", "split/db"):
+    os.makedirs(os.path.join(scratch, d), exist_ok=True)
+json.dump(data, open(dest, "w"))
+n = sum(len((w.get("tabManager") or {}).get("workspaces") or []) for w in data.get("windows") or [])
+print(f"FRSW classic_seed=seeded {n} workspace(s)")
+PY
+    classic=1
+  fi
+fi
 
 drv="$work/frsw"
 xcrun swiftc -O -o "$drv" scripts/measure/first-run-setup-walk.swift 2>"$out/swiftc.log" || { cat "$out/swiftc.log" >&2; exit 3; }
@@ -85,6 +129,26 @@ rows() {
   (IFS=,; echo ${r[*]+"${r[*]}"})
 }
 
+# press_through LOG TEXT: Make cmux Yours, then Meet Chief, pressed as a new person does (on side only); echoes
+# the labels pressed, comma-joined. Stops once "Set Up cmux" shows, or after 30 looks 2 s apart.
+press_through() {
+  local pressed=() misses=0 t
+  for _ in $(seq 1 30); do
+    "$drv" "$bid" text >"$out/press.ax" 2>>"$1" || true
+    grep -v '^FRSW-COUNT' "$out/press.ax" >>"$2"
+    t="$(tr '\n' ' ' <"$out/press.ax" | tr '[:upper:]' '[:lower:]')"
+    [[ "$t" == *"set up cmux"* ]] && break
+    if [[ "$t" == *"meet chief"* || "$t" == *"what chief can do"* || "$t" == *"make it comfortable"* ]]; then
+      if p="$("$drv" "$bid" press "Start chatting" "Continue" 2>>"$1")"; then pressed+=("chief:$p"); misses=0
+      elif (( ++misses >= 5 )) && p="$("$drv" "$bid" press "Skip" 2>>"$1")"; then pressed+=("chief:$p"); misses=0; fi
+    elif [[ "$t" == *"make cmux yours"* ]]; then
+      p="$("$drv" "$bid" press "Continue" "Skip" 2>>"$1")" && pressed+=("yours:$p")
+    fi
+    sleep 2
+  done
+  (IFS=,; echo ${pressed[*]+"${pressed[*]}"})
+}
+
 status=0
 for which in on off; do
   log="$out/$which.log"; text="$out/$which.text"; : >"$text"
@@ -99,6 +163,7 @@ for which in on off; do
   waited=0
   for _ in $(seq 1 90); do [[ -S "$sock" ]] && break; sleep 1; waited=$((waited + 1)); done
   "$drv" "$bid" trusted >>"$log" 2>&1 || { echo "FRSW side=$which no Accessibility grant for the step"; status=2; break; }
+  presses=""; [[ $which == on ]] && presses="$(press_through "$log" "$text")"
   best="" counts=""
   for i in $(seq 1 9); do
     sleep 5
@@ -110,8 +175,11 @@ for which in on off; do
   done
   title=0; grep -qi 'set up cmux' "$text" && title=1
   union="$(rows "$text")"
-  echo "FRSW side=$which title=$title rows=${union} best_single_read=${best} socket_s=$waited reads:${counts}"
-  if [[ $which == on ]]; then [[ $title == 1 && "$union" == *agents* && "$union" == *account* && "$union" == *cli* ]] || status=1
+  dialog=0; grep -qi 'import these classic workspaces' "$text" && dialog=1
+  echo "FRSW side=$which title=$title rows=${union} best_single_read=${best} presses=${presses:-none} classic_dialog=$dialog socket_s=$waited reads:${counts}"
+  if [[ $which == on ]]; then
+    [[ $title == 1 && "$union" == *agents* && "$union" == *account* && "$union" == *cli* ]] || status=1
+    [[ $classic == 0 || "$union" == *classic* ]] || status=1
   else [[ $title == 0 ]] || status=1; fi
   "$side" stop "$name" >>"$log" 2>&1 || true
 done

@@ -528,6 +528,17 @@ fn production_signs_in_with_codex_s_own_client() {
     assert_eq!(e.revoke_url, "https://auth.openai.com/oauth/revoke");
 }
 
+/// cmux#63349: the egress gate refused `auth.openai.com`, so a nightly's sign-in got its callback
+/// and then failed its token exchange (`network`) while Set up Cloud kept waiting. Every endpoint
+/// the sign-in calls (token, discovery, revoke) and the page it opens are on the gate's allowlist.
+#[test]
+fn the_egress_gate_lets_every_chatgpt_endpoint_through() {
+    let e = Endpoints::openai();
+    for url in [&e.token_url, &e.discovery_url, &e.revoke_url, &e.authorize_url] {
+        assert_eq!(cmux_egress::verdict(url), cmux_egress::Verdict::Listed, "{url}");
+    }
+}
+
 /// cmux#45774: Sign in with ChatGPT is Codex's own sign-in, so its token runs Codex on the
 /// ChatGPT Codex backend (the token-sharing protocol's token was refused for most accounts).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

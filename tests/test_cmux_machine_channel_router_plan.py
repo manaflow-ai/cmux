@@ -83,7 +83,10 @@ class RouterAnswersThePlan(unittest.TestCase):
         for arch in ("x86_64", "aarch64"):
             job = jobs[f"build-{arch}"]
             # A skipped plan must not skip the builds: !cancelled(), and the router's answer first.
-            self.assertEqual(job["if"], "${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}")
+            # SPLIT_PAIR_STARVED: aarch64 also waits for this run's x86_64 build to pass.
+            pair = " && needs.build-x86_64.result == 'success'" if arch == "aarch64" else ""
+            self.assertEqual(job["if"], "${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true'"
+                             + pair + " }}")
             self.assertEqual(job["with"]["target_set"],
                              f"${{{{ inputs.{arch}_target_set || needs.plan.outputs.{arch}_target_set }}}}")
             self.assertEqual(job["with"]["lto"], "${{ inputs.lto || needs.plan.outputs.lto }}")

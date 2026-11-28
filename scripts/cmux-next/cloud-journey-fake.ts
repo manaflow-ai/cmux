@@ -41,6 +41,10 @@ export type JourneyFixture = {
   /** The create also leaves a second, paused machine under the run's own name (FIXTURE_TWIN_MACHINE), as the
    * 2026-11-27 production run 46059808882 did: listed from create on, until the run deletes it. */
   twin?: boolean;
+  /** CMUX_JOURNEY_CLAUDE_OAUTH_POOL (one login per line). */
+  pool?: string;
+  /** What the login preflight (POST /v1/messages) answers per login: an HTTP status, and a unified reset (epoch s) on 429. Unset: 200. */
+  loginAnswers?: Record<string, { status: number; reset?: number }>;
 };
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
@@ -133,6 +137,14 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   const url = new URL(String(input));
   const body = init.body ? JSON.parse(String(init.body)) : {};
   const route = url.pathname;
+  if (url.hostname === "api.anthropic.com" && route === "/v1/messages") {
+    const token = String((init.headers as Record<string, string>)?.authorization ?? "").replace(/^Bearer /, "");
+    const answer = (${JSON.stringify(fixture.loginAnswers ?? {})} as Record<string, { status: number; reset?: number }>)[token] ?? { status: 200 };
+    log("login preflight " + answer.status + " max_tokens=" + body.max_tokens + " beta=" + (init.headers as Record<string, string>)?.["anthropic-beta"]);
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (answer.status === 429) { headers["anthropic-ratelimit-unified-status"] = "rejected"; if (answer.reset) headers["anthropic-ratelimit-unified-reset"] = String(answer.reset); }
+    return new Response(JSON.stringify(answer.status === 200 ? { content: [] } : { error: { type: answer.status === 429 ? "rate_limit_error" : "authentication_error" } }), { status: answer.status, headers });
+  }
   if (route === "/v1/health") return json({ commit: "fixture" });
   if (route === "/v1/client-config") return json({ platform_origin: ${JSON.stringify(FIXTURE_PLATFORM)} });
   if (route === "/api/v1/auth/password/sign-in") return json({ access_token: "fake-access", refresh_token: "fake-refresh" });
@@ -215,6 +227,7 @@ process.exit(await main(${JSON.stringify(args)}));
         // The fake has no platform spans to wait for: the journey's 5 s send-trace settle would eat bun's 5 s test budget.
         CMUX_JOURNEY_SEND_TRACE_SETTLE_MS: "0",
         ...(fixture.login ? { CLAUDE_CODE_OAUTH_TOKEN: fixture.login } : {}),
+        ...(fixture.pool ? { CMUX_JOURNEY_CLAUDE_OAUTH_POOL: fixture.pool } : {}),
         ...(fixture.github?.sandbox ? { CMUX_JOURNEY_GITHUB_REPO: fixture.github.sandbox } : {}),
       },
     });
