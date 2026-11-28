@@ -1946,6 +1946,27 @@ class LaunchFailureTest(unittest.TestCase):
         self.assertNotIn("abcdefgh12345678", said)
         self.assertNotIn("ZZZZZZZZZZZZZZ", said)
 
+    def test_a_dead_copys_crash_line_comes_first_past_a_long_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("cmux: open-file limit 256 -> 61440\n"
+                           "cmux: ignored inherited " + " ".join(f"CMUX_CI_{i}" for i in range(400)) + "\n"
+                           "CmuxNextHostedChief/HostedChiefRules.swift:15: Fatal error: home rules op chiefs_tab: "
+                           "unknownOp\n")
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            said = hv.launch_failure(dead.pid, [str(err)])
+        head = said[:300]
+        self.assertTrue(head.startswith("app launch: running False\ncrash: "), head)
+        self.assertIn("Fatal error: home rules op chiefs_tab: unknownOp", head)
+
+    def test_no_crash_line_adds_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("just slow\n")
+            said = hv.launch_failure(os.getpid(), [str(err)])
+        self.assertNotIn("crash:", said)
+
     def test_a_live_copy_with_no_output_says_so(self):
         said = hv.launch_failure(os.getpid(), [])
         self.assertEqual(said, "app launch: running True\nno output from the copy")
