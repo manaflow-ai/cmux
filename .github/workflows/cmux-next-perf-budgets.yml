@@ -326,6 +326,9 @@ jobs:
           if-no-files-found: warn
 
   plan:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: perf cron plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.tip_sha == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -343,6 +346,10 @@ jobs:
       # The Linux part asked of the build controller instead (vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER=1): the
       # linux-request job's name is the request; a part joins linux_matrix only after its requests went unanswered.
       linux_request: ${{ steps.plan.outputs.linux_request }}
+      # A goal's Linux part asked of the controller at the newer tip side_sha while the measurement in flight (sha) has
+      # only Mac parts left (perf-cron.py side_linux_pick); its Mac pass keeps its host.
+      side_sha: ${{ steps.plan.outputs.side_sha }}
+      side_request: ${{ steps.plan.outputs.side_request }}
       mac_parts: ${{ steps.plan.outputs.mac_parts }}
       result_parts: ${{ steps.plan.outputs.result_parts }}
       worker: ${{ steps.plan.outputs.worker }}
@@ -571,6 +578,26 @@ jobs:
             echo "Asked the build controller for Linux part \`$PART\` at \`${SHA:0:12}\` on an idle Linux pool worker;"
             echo "its result starts a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
 
+  # A goal's Linux part at the newer tip, beside a measurement whose Linux parts are done and whose Mac parts may take
+  # many hours (perf-cron.py side_linux_pick, SIDE_STALE_HOURS): the same request to the controller, at side_sha; its
+  # result's report stores the part's rows at side_sha and leaves the measurement in flight alone (store_side).
+  linux-side-request:
+    name: perf cron request ${{ needs.plan.outputs.side_sha }} ${{ needs.plan.outputs.side_request }}
+    needs: plan
+    if: ${{ needs.plan.outputs.side_request != '' && needs.plan.outputs.side_sha != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Ask the build controller for the goal's Linux part at the newer tip
+        env:
+          SHA: ${{ needs.plan.outputs.side_sha }}
+          PART: ${{ needs.plan.outputs.side_request }}
+        run: |
+          { echo "### perf cron Linux side request"; echo
+            echo "Asked the build controller for goal Linux part \`$PART\` at the newer tip \`${SHA:0:12}\`, beside"
+            echo "the Mac pass in flight; its result starts a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
+
   linux:
     name: perf cron part (Linux) ${{ matrix.part }}
     needs: plan
@@ -658,6 +685,9 @@ jobs:
           if-no-files-found: ignore
 
   report:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: perf cron report
     needs: [plan, measure, linux]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}

@@ -173,6 +173,9 @@ jobs:
       - name: Prune seeds older than a day
         if: ${{ success() }}
         continue-on-error: true
+        # Bounded: the prune is best effort (storage-maintenance.yml prunes the bucket daily too), and unbounded it
+        # ran 7.5 min without a line until the job's 30 min limit cancelled seed run 46139555693 after its saves.
+        timeout-minutes: 4
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}

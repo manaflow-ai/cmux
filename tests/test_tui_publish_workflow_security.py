@@ -135,10 +135,10 @@ def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
     # The startup tests live in the cmux_tui library (src/main.rs since the
     # Windows thin-exe split); the cmux-tui bin's test binary has the same
     # cmux_tui-<hash> name and none of them.
-    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text()
-    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "src/main.rs"', cargo_toml)
+    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui-lib/Cargo.toml").read_text()
+    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "../cmux-tui/src/main.rs"', cargo_toml)
     assert re.search(
-        r"cargo test \\\s+-p cmux-tui --lib \\\s+"
+        r"cargo test \\\s+-p cmux-tui-lib --lib \\\s+"
         r"-p ghostty-vt --test terminal \\\s+"
         r"--locked --no-run --message-format=json",
         build,
@@ -422,7 +422,11 @@ def test_tree_request_keys_each_revision_in_its_blobless_sparse_checkout() -> No
                                               "--no-checkout", "--branch", "feat-cmux-next")
         git("sparse-checkout", "set", "--cone", "scripts/ci", cwd=checkout)
         git("checkout", "-q", "--detach", requested, cwd=checkout)
-        assert key(checkout, older).returncode != 0, "without the prefetch the older inputs list is not local"
+        # The older inputs list is not local and the script reads no object lazily, but it fetches that one blob
+        # itself: a revision keys by its own list, never the checkout's newer one (before, the newer list named an
+        # input the older revision lacks, and hot-verify plans of such commits stopped on "no cmux-tui tree key").
+        unfetched = key(checkout, older)
+        assert unfetched.returncode == 0 and unfetched.stdout == expected[older].stdout, unfetched.stderr
 
         subprocess.run(("bash", "-c", f'set -euo pipefail\n{prefetch.group(1)}\n'
                         f'prefetch_key_inputs {requested}\nprefetch_key_inputs {older}\n'),

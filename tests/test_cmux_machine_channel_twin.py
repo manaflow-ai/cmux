@@ -137,6 +137,29 @@ class Wait(unittest.TestCase):
         self.assertIsNone(run_wait(api, [X86], wait_s=300))
         self.assertLessEqual(sum("/artifacts" in c for c in api.calls), 7)
 
+    def test_a_refused_read_keeps_waiting(self):
+        # WAIT_THROUGH_REFUSALS: run 46156562765's first read met the App's spent quota and its point never ran.
+        name = f"{PREFIX}cmux-tui-{X86}"
+        inner = Fake(jobs={7: [job(X86, "in_progress", None)]}, artifacts={7: lambda n: [name] if n > 6 else []})
+
+        def api(path):
+            if len(inner.calls) < 3:
+                inner.calls.append(path)
+                raise RuntimeError(f"{path}: HTTP 403: API rate limit exceeded for installation ID 1")
+            return inner(path)
+
+        self.assertEqual(run_wait(api, [X86]), 7)
+
+    def test_a_read_refused_throughout_is_still_bounded(self):
+        calls = []
+
+        def api(path):
+            calls.append(path)
+            raise RuntimeError(f"{path}: HTTP 403: API rate limit exceeded")
+
+        self.assertIsNone(run_wait(api, [X86], wait_s=300))
+        self.assertLessEqual(len(calls), 7)
+
 
 class Workflow(unittest.TestCase):
     def test_the_twin_is_wired_to_the_waiters_and_the_points(self):
