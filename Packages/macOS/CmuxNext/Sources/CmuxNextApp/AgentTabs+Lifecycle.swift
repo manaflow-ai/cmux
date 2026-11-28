@@ -238,7 +238,7 @@ extension AgentTabStore {
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
         wire(spare.model, key: key.key, machine: key.machine)
-        spare.adoptNewTab(page)
+        spare.adoptNewTab(page); if tabStores[key] != nil { followBound(key) } // a tab taking a moved view again: track's wait ran at its first track only
     }
 
     /// Local tab `key`, which shows this Mac's chat `session`, adopts the prewarmed, connected `spare`:
@@ -422,8 +422,8 @@ extension AgentTabStore {
         }
     }
 
-    /// Tab `scoped`'s page with no chat takes one another device binds to the tab (a phone's first send; AgentPaneView.adoptWhenBound).
-    func followBound(_ scoped: AgentTabKey) { if sessions[scoped] == nil { views[scoped]?.adoptWhenBound({ [weak self] in self?.record(for: scoped)?.record.session }, tab: scoped.key) { [weak self] in self?.sessions[scoped] = $0 } } }
+    /// Tab `scoped`'s page with no chat takes one another device binds to the tab (a phone's first send; AgentPaneView.adoptWhenBound), while the view is that tab's: a moved one (``idlePage(for:leaving:take:)``, the pool) adopted it in another tab (ask-acaf57cddd).
+    func followBound(_ scoped: AgentTabKey) { if sessions[scoped] == nil, let view = views[scoped] { view.adoptWhenBound({ [weak self, weak view] in guard let self, let view, views[resolvedKey(scoped)] === view else { return "" }; return record(for: scoped)?.record.session }, tab: scoped.key) { [weak self] in self?.sessions[scoped] = $0 } } }
 
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore, machine: String? = nil) {

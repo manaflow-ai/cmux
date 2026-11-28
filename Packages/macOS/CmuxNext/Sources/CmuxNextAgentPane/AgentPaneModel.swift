@@ -599,7 +599,10 @@ public final class AgentPaneModel {
     public private(set) var touchedBy: String?
 
     public func adoptNewTab(_ page: AgentPaneNewTab) {
-        guard newTab != nil else { return }
+        // A page with no chat that a New Tab tab adopts is that tab's New Tab page, as ``becomeNewTab(_:)`` makes it:
+        // ignoring the context left the tab titled New Tab drawing a bare chat (Leo, ask-acaf57cddd: "the new tab page
+        // is sometimes opening as just ... some agent chat view").
+        guard newTab != nil || sessionId == nil else { return }
         newTab = page
     }
 
