@@ -1060,6 +1060,33 @@ class PerFileRunner(unittest.TestCase):
             self.assertEqual(len(width), 1, name)
             self.assertIn(width[0], compare, name)
 
+    def test_browser_files_left_when_the_plain_pool_is_done_run_at_the_dev_server_width(self):
+        """Shard 8 of run 46177265997 (8 vCPU, a 1-wide browser pool) ran its browser files one at a time for 26 min
+        after the plain pool drained, three of its four slots idle. Once the plain pool is done the browser files left
+        run at the dev server width; CMUX_WEB_TEST_BROWSER_ALONE_JOBS sets it, and a run of browser files alone gets it
+        from the start."""
+        if subprocess.run(["xargs", "--version"], capture_output=True, text=True).stdout.find("GNU findutils") < 0:
+            self.skipTest("only GNU xargs takes more workers while it runs")
+        browser = {f"test/pool-browser-{index}.test.ts": 'import { webkit } from "playwright";\n' for index in range(20)}
+        files = [*browser, "test/pool-jsdom-a.test.ts"]
+        result, _, calls = self.run_runner(files, contents=browser, extra_env={"CMUX_WEB_TEST_DEV_JOBS": "4"})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in files), "each file runs once")
+        everything, browsers = self.peaks()
+        self.assertEqual(browsers, 4, output)
+        self.assertLessEqual(everything, 8, output)
+        self.assertIn("6 at a time, beside 20 browser files 2 at a time, 4 once the plain pool is done", output)
+        self.assertIn("plain pool done: the browser files left run 4 at a time", output)
+        result, _, _ = self.run_runner(files, contents=browser, extra_env={"CMUX_WEB_TEST_DEV_JOBS": "4",
+                                                                           "CMUX_WEB_TEST_BROWSER_ALONE_JOBS": "2"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.peaks()[1], 2, result.stdout)
+        result, _, calls = self.run_runner(list(browser), contents=browser, extra_env={"CMUX_WEB_TEST_DEV_JOBS": "3"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(calls), 20)
+        self.assertEqual(self.peaks()[1], 3, result.stdout)
+
     def test_a_smaller_runner_runs_the_declared_widths_at_its_share_and_splits_the_same(self):
         """The 16 vCPU shards (8 jobs, 4 dev-server files) got 2 and 4 vCPU runners when the pool writer
         marked the large sizes dead: 8 files at once on 2 cores ran every shard of run 44249075431 (attempt 2)
@@ -1067,7 +1094,8 @@ class PerFileRunner(unittest.TestCase):
         declared size runs at that share of each width, and the split still reads the declared widths."""
         browser = {f"test/pool-browser-{index}.test.ts": 'import { webkit } from "playwright";\n' for index in range(6)}
         files = [*browser, *(f"test/pool-jsdom-{index}.test.ts" for index in range(6))]
-        sized = {"CMUX_WEB_TEST_DEV_JOBS": "4", "CMUX_WEB_TEST_SIZED_FOR_VCPU": "16"}
+        # Pool widths only: the browser files' widening once the plain pool is done has its own test.
+        sized = {"CMUX_WEB_TEST_DEV_JOBS": "4", "CMUX_WEB_TEST_SIZED_FOR_VCPU": "16", "CMUX_WEB_TEST_BROWSER_ALONE_JOBS": "1"}
         for cores, peaks in (("16", (8, 2)), ("8", (4, 1)), ("4", (2, 1)), ("2", (1, 1))):
             result, _, calls = self.run_runner(files, contents=browser,
                                                extra_env={**sized, "CMUX_CI_CPU_BUDGET": cores})

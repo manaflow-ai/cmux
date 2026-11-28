@@ -332,8 +332,11 @@ PARTS = [
     # the 1 MB chat's (chat_size.<size>.<axis>_ratio) and the worst of them (chat_size.ratio_max; missing when any size
     # crashed, stalled or read nothing). The bench configuration, as memory-agents: one build serves both. Seeding the
     # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
+    # goal: NOW's infinite_chat_size_ratio_max (goal infinite-chats). Without it the part kept its PARTS place, 18th of
+    # 19 Mac parts: on 2026-11-28 a batch preempted at 14:21Z left its after number for cmux#65013 about 11 h out.
     {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size",
+     "goal": "infinite-chats", "goal_rows": r"chat_size\.ratio_max@", "run_seconds": 3600},
     # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
     # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
@@ -1443,11 +1446,18 @@ def linux_bench_runs(root, part="diff-viewer"):
         # infinite_items.nN.*: NOW shows what lazy start saves next to what it costs (practices gap c155dd8eab85).
         # Chat eviction off there too (the bench's default evicts at 5 s): every chat stays resident, so the arm is the
         # everything-in-memory baseline the product's lazy start and eviction are measured against.
+        # musl=1: every arm measures the binaries Linux users run, the musl flavor cmux-tui-build-package.yml ships
+        # (acpmux-standalone on mimalloc, cmux-tui on musl's malloc), not the runner's glibc build. glibc: the glibc
+        # build the board measured before, its rows named infinite_items.glibc.nN.* (built last, in a run of its own)
+        # so the old series stays comparable.
         script = os.path.join(root, INFINITE_ITEMS)
-        return {"build": (["bash", script, "build-only"], root or ".", {}),
-                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {}),
-                "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--lazy-start=off",
-                              "--evict-idle-secs=0", "--row-arm=all_live"], root or ".", {})}
+        return {"build": (["bash", script, "build-only", "musl=1"], root or ".", {}),
+                "suite": (["bash", script, "pages=0", "days=1", "--window=5", "musl=1"], root or ".", {}),
+                "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "musl=1",
+                              "--lazy-start=off", "--evict-idle-secs=0", "--row-arm=all_live"], root or ".", {}),
+                "glibc-build": (["bash", script, "build-only"], root or ".", {}),
+                "glibc": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--row-arm=glibc"],
+                          root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -1868,11 +1878,12 @@ def supersede_for_unread(state, t, newest, supported_parts, changed=None):
     return why
 
 
-def part_order(state, todo, t):
+def part_order(state, todo, t, tail_by_age=False):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
-    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
-    the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order (tail_by_age, for a batch's tail: those that
+    feed a goal first, each group oldest store first, ties in their PARTS order). A part with no stored rows yet goes
+    before the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
     yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
     38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
     ran (2026-11-21)."""
@@ -1910,7 +1921,18 @@ def part_order(state, todo, t):
     lead = [n for n in unseen if n not in failing and not PART_BY_NAME.get(n, {}).get("goal")]
     goal = [n for n in first if PART_BY_NAME.get(n, {}).get("goal")]
     first = lead + goal + [n for n in first if n not in lead and n not in goal]
-    return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+    if not tail_by_age:
+        return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+    # The parts not due yet in a batch: a goal's part first, then the part furthest past its last store, so the order
+    # of a batch cut short does not decide which rows age. On 2026-11-28 every Mac part had stored at 08:05Z (870585ff),
+    # a preempted batch restarted from launch, and chat-size (goal infinite-chats) sat 18th of 19, about 11 h out.
+    rest = [(i, n) for i, n in enumerate(todo) if n != "build" and n not in first]
+    def rest_key(item):
+        i, n = item
+        e = stored.get(n)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) else None
+        return (not PART_BY_NAME.get(n, {}).get("goal"), at.timestamp() if at else 0.0, i)
+    return [n for n in todo if n == "build"] + first + [n for _, n in sorted(rest, key=rest_key)]
 
 
 def goal_rows_missing(state, name, stored):
@@ -2142,8 +2164,10 @@ def commit_failed(cur):
 
 def batch_parts(state, cur, first, t):
     """The Mac parts a controller request lists after first, in part_order (pure): [first] and the measurement's
-    other Mac parts to do, at most BATCH_MAX; [first] alone when there is no other."""
-    rest = [p for p in part_order(state, cur["parts_todo"], t) if p != first and not is_linux_part(p)]
+    other Mac parts to do, at most BATCH_MAX; [first] alone when there is no other. The parts not due go goal parts
+    first, then oldest store first (tail_by_age): a batch is cut short by preemption and its bound, so its fixed tail
+    starved a part near its end (chat-size, 18th of 19, about 11 h out on 2026-11-28)."""
+    rest = [p for p in part_order(state, cur["parts_todo"], t, tail_by_age=True) if p != first and not is_linux_part(p)]
     return [first, *rest][:BATCH_MAX]
 
 

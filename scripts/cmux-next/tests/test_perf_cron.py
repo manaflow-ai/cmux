@@ -317,11 +317,47 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "memory-agents"], t),
                          ["build", "memory-agents", "motion", "stress"])
 
-    def test_a_part_with_a_goal_that_is_not_due_keeps_its_place(self):
+    def test_a_part_with_a_goal_that_is_not_due_goes_before_the_other_parts_not_due_in_a_batch(self):
         state = cron.empty_state(T0)
         t = at(1)
         state["part_stored"] = {"chat-anim": {"at": cron.iso(t)}, "motion": {"at": cron.iso(t)}}
         self.assertEqual(cron.part_order(state, ["build", "motion", "chat-anim"], t), ["build", "motion", "chat-anim"])
+        self.assertEqual(cron.part_order(state, ["build", "motion", "chat-anim"], t, tail_by_age=True),
+                         ["build", "chat-anim", "motion"])
+        # A due part still goes before it.
+        state["part_stored"]["motion"] = {"at": cron.iso(T0)}
+        late = at(cron.PART_STALE_HOURS + 0.5)
+        self.assertEqual(cron.part_order(state, ["build", "chat-anim", "motion"], late, tail_by_age=True),
+                         ["build", "motion", "chat-anim"])
+
+    def test_the_part_furthest_past_its_store_goes_first_of_a_batchs_parts_not_due(self):
+        # Detector: a part past cadence behind N fresher parts. Before, the parts not due kept their PARTS order.
+        state = cron.empty_state(T0)
+        t = at(10)
+        state["part_stored"] = {"motion": {"at": cron.iso(at(9))}, "stress": {"at": cron.iso(at(2))},
+                                "sidebar": {"at": cron.iso(at(9))}}
+        self.assertEqual(cron.part_order(state, ["build", "motion", "sidebar", "stress"], t, tail_by_age=True),
+                         ["build", "stress", "motion", "sidebar"])
+
+    def test_chat_size_goes_right_after_the_requested_part_of_a_batch_whose_parts_stored_together(self):
+        # 2026-11-28: the 19 Mac parts all stored at 08:05Z (870585ff); the batch preempted at 14:21Z restarted from
+        # launch with chat-size 18th, about 11 h out, while goal infinite-chats waited on its after number (cmux#65013).
+        part = cron.PART_BY_NAME["chat-size"]
+        self.assertEqual(part.get("goal"), "infinite-chats")
+        self.assertTrue(re.match(part["goal_rows"], "chat_size.ratio_max@cmux20-bench"))
+        todo = ["launch", "launch-dock", "launch-cold", "sidebar", "workspace-scaling", "home-idle", "idle-budget",
+                "chat-anim", "tabs", "memory-agents", "throughput", "cef-resize", "typing", "power", "wake",
+                "power-user-native", "typing-load", "chat-size", "chat-snappy"]
+        stored_at = cron.iso(T0)
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"at": stored_at} for n in todo}
+        state["part_rows"] = {"chat_size.ratio_max@h": {"p95": 8.2, "at": stored_at},
+                              "chat_snappy.none.send_paint@h": {"p95": 30, "at": stored_at}}
+        batch = cron.batch_parts(state, {"parts_todo": todo}, "launch", at(6))
+        goals = [n for n in todo if cron.PART_BY_NAME[n].get("goal")]
+        self.assertEqual(batch[:1 + len(goals)], ["launch", *goals])
+        self.assertLess(batch.index("chat-size"), 1 + len(goals))
+        self.assertEqual(sorted(batch), sorted(todo))
 
     def test_a_part_with_no_stored_rows_that_failed_last_time_goes_after_the_stale_ones(self):
         state = cron.empty_state(T0)
@@ -1449,7 +1485,13 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
         runs = cron.linux_bench_runs("/r", "infinite-items")
-        self.assertEqual(list(runs), ["build", "suite", "all-live"])  # the build runs first, under its own cap
+        self.assertEqual(list(runs), ["build", "suite", "all-live", "glibc-build", "glibc"])  # each build first, under its own cap
+        for name in ("build", "suite", "all-live"):
+            self.assertIn("musl=1", runs[name][0])  # the shipped flavor: musl, acpmux on mimalloc
+        for name in ("glibc-build", "glibc"):
+            self.assertNotIn("musl=1", runs[name][0])
+        self.assertIn("--row-arm=glibc", runs["glibc"][0])
+        self.assertEqual(cron.part_for_row("webui.infinite_items.glibc.n1000.memory_vs_empty@linux"), "infinite-items")
         live, _, _ = runs["all-live"]
         self.assertIn("--lazy-start=off", live)  # the all-live arm, beside the product (lazy start on) suite
         self.assertIn("--row-arm=all_live", live)
@@ -1457,7 +1499,7 @@ class WebUiTests(unittest.TestCase):
         self.assertNotIn("--evict-idle-secs=0", runs["suite"][0])  # the product arm keeps eviction on
         self.assertIn("counts=1000", live)
         self.assertEqual(cron.part_for_row("webui.infinite_items.all_live.n1000.memory_vs_empty@linux"), "infinite-items")
-        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only", "musl=1"])
         argv, cwd, _ = runs["suite"]
         self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
         self.assertIn("pages=0", argv)
@@ -1470,7 +1512,7 @@ class WebUiTests(unittest.TestCase):
     def test_the_linux_job_cap_covers_every_run_of_the_part(self):
         # 2026-11-17: the fixed 40-minute job cap cancelled infinite-items' build-only run three ticks running, so its
         # job left no result and the part ended yielded_out.
-        self.assertEqual(cron.linux_job_minutes("infinite-items"), 100)  # build, suite, all-live
+        self.assertEqual(cron.linux_job_minutes("infinite-items"), 160)  # build, suite, all-live, glibc-build, glibc
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
         self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
         # web-ui-god's paired rounds build the pane once, stop starting at GOD_PAIRED_DEADLINE_S, the last may run one
@@ -5183,7 +5225,8 @@ class StalePartFirstTests(unittest.TestCase):
         state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
                               "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"]),
                               "infinite_tabs.mac.memory_vs_empty@h": dict(state["part_stored"]["infinite-tabs"]),
-                              "chat_snappy.none.send_paint@h": dict(state["part_stored"]["chat-snappy"])}
+                              "chat_snappy.none.send_paint@h": dict(state["part_stored"]["chat-snappy"]),
+                              "chat_size.ratio_max@h": dict(state["part_stored"]["chat-size"])}
         return state, now
 
     def test_a_part_past_the_bound_runs_before_a_yielding_one(self):
