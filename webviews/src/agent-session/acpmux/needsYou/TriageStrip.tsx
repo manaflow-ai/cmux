@@ -5,7 +5,7 @@
 // command, plan or question being answered. It comes and goes with the ask, in the same stack and
 // the same frame, so nothing moves on its own; its counts change in place. With no triage key bound
 // it draws nothing. It reads the Needs you list the page already holds: no timer, no request.
-import { Keycap } from "../Keycap";
+import { KeyHint } from "../../../ui/KeyHint";
 import { useT } from "../i18n";
 import { shortAge } from "../sessionList";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
@@ -52,12 +52,12 @@ export function TriageStrip({
       {facts.length > 0 && <span className="acpmux-triage-facts">{facts.join(" · ")}</span>}
       <span className="acpmux-triage-keys">
         <span className="acpmux-triage-key" data-key="answer">
-          <Keycap>{answerKey}</Keycap>
+          <KeyHint keys={answerKey} />
           <span className="acpmux-triage-key-label">{answer}</span>
         </span>
         {nextKey && look !== "chip" && others > 0 && (
           <span className="acpmux-triage-key" data-key="next">
-            <Keycap>{nextKey}</Keycap>
+            <KeyHint keys={nextKey} />
             <span className="acpmux-triage-key-label">{t("triage.next")}</span>
           </span>
         )}
