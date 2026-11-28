@@ -91,9 +91,11 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
 
   async function open(variant: string): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    // Tall enough that the command's line is in sight at the very bottom: the finished turn's
-    // edited-files card (#42247) sits between it and the composer.
-    const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+    // Tall enough that the command's line is in sight at the very bottom, with its call open: the
+    // finished turn's edited-files card (#42247) sits between it and the composer, and the open
+    // command is its line over a 24-line output box (outputScrollBox.css), 557 px in all. At 900 px
+    // the view's very end put that line 12 px over the view's top, where no click reaches it (#41892).
+    const page = await browser!.newPage({ viewport: { width: 900, height: 1000 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
     if (variant !== "idle") await pinLiveTurnRuns(page);

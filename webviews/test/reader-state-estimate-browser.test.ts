@@ -137,7 +137,7 @@ await requireBrowserLane("reader-state-estimate-browser.test.ts", async () => {
         ),
       ]),
       open: "click",
-      // Past 400 lines its end shows, with Show all under the box (ShellBlock.tsx `OutputMore`).
+      // Past 400 lines its end shows in the 24-line scroll box (outputScrollBox.css).
       all: true,
     },
     {

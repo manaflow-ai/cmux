@@ -1,20 +1,21 @@
 // An opened edit inside the transcript: a card per changed file with its name, the lines added
-// and removed, Wrap lines and copy, and the change on @pierre/diffs, scrolling in an eight-line
-// box when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
+// and removed, Wrap lines and copy, and the change on @pierre/diffs, whole up to `OUTPUT_BOX_LINES`
+// lines and scrolling inside a box that tall past them (outputScrollBox.css). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { cornerAction } from "./cornerActions";
 import {
   lazy,
   Suspense,
+  useCallback,
   useContext,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ComponentType,
-  type CSSProperties,
   type ReactNode,
+  type CSSProperties,
 } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
@@ -24,9 +25,10 @@ import { HEADER_TOGGLE_ATTRIBUTE, HEADER_TOGGLES_ATTRIBUTE, headerToggleClick } 
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
 import { WrapButton } from "./BlockParts";
-import { usePreview, useSidewaysRef } from "./blockPartsModel";
+import { OUTPUT_SCROLL_BOX, useSidewaysEdge } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
-import { useMoreBelowOn } from "./moreBelow";
+import { watchOutputViewport } from "./outputViewport";
+import "./outputScrollBox.css";
 import { EditDiffLoading } from "./EditDiffLoading";
 import { EDIT_DIFF_VARS } from "./editDiffBox";
 import { useDiffPainted } from "./editDiffLoadingModel";
@@ -37,8 +39,9 @@ import { Tooltip } from "../../../ui/Tooltip";
 import { foldPlays } from "./transcriptView";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
 
-/// Bumps each time Find in Chat's current match is in `file` (its text, or the call that made it),
-/// so a cut diff opens wherever it is drawn: a call's row, an edits group, the edited-files card.
+/// Bumps each time Find in Chat's current match is in `file` (its text, or the call that made it), and
+/// asks for a repaint, so a folded file opens and the match's mark lands in the diff's lines once
+/// Pierre has drawn them, wherever it is drawn: a call's row, an edits group, the edited-files card.
 function useFindInFile(file: TurnFile) {
   const reveal = useContext(FindReveal);
   const text = useMemo(
@@ -59,16 +62,16 @@ function useFindInFile(file: TurnFile) {
     if (!hit) return;
     setFound((count) => count + 1);
     reveal?.repaint();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens and repaints, not a new callback
   }, [hit, reveal]);
   return found;
 }
 
 type EditDiffProps = {
   file: TurnFile;
-  /** Bumped when Find in Chat reveals the call: opens the preview, as the match may be past it. */
+  /** Bumped when Find in Chat reveals the call. Every line is drawn already: nothing to open. */
   reveal?: number;
-  /** Never cut to a preview (an edit a permission ask is about). */
+  /** Never held in a scroll box: every line drawn in the card (an edit a permission ask is about). */
   whole?: boolean;
   /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
   actions?: ReactNode;
@@ -89,7 +92,6 @@ export function EditDiff(props: EditDiffProps) {
 /** The real card and preview boundary, also used by the gallery with a deferred renderer. */
 export function EditDiffFrame({
   file,
-  reveal = 0,
   whole = false,
   actions,
   label,
@@ -107,8 +109,8 @@ export function EditDiffFrame({
   const [wrap] = useBlockWrap(kind);
   const found = useFindInFile(file);
   const [collapsed, setCollapsed] = useState(false);
-  // Find in Chat's match in a folded file opens it, as it opens a cut preview: before paint, as the
-  // transcript's other disclosures open for Find.
+  // Find in Chat's match in a folded file opens it: before paint, as the transcript's other
+  // disclosures open for Find.
   useLayoutEffect(() => {
     if (found) setCollapsed(false);
   }, [found]);
@@ -130,16 +132,17 @@ export function EditDiffFrame({
   // A file folds with the transcript's fold (fold.ts), as the card that holds it opens: its lines' height
   // and opacity on the shared token, the chevron turning with them (EditedFilesCard.css).
   const { present: drawn, ref: foldRef } = useFold(!folded, foldPlays);
-  const preview = usePreview(
-    whole
-      ? 0
-      : file.edits.reduce((sum, edit) => sum + edit.hunks.reduce((lines, hunk) => lines + hunk.lines.length, 0), 0),
-    reveal + found,
+  const body = useRef<HTMLDivElement>(null);
+  useSidewaysEdge(body);
+  const edges = useCallback(
+    (node: HTMLDivElement | null) => {
+      body.current = node;
+      return node && !whole ? watchOutputViewport(node) : undefined;
+    },
+    [body, whole],
   );
-  const body = useSidewaysRef<HTMLDivElement>();
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
-  useMoreBelowOn(body, painted);
   // The lines: in the box the fold sizes (`.cv-fold`) when the file folds, bare when it never does.
   const lines = (
     <>
@@ -217,7 +220,13 @@ export function EditDiffFrame({
         </Tooltip>
         {actions}
       </div>
-      <div ref={body} className="cv-edit-diff__body" data-preview={preview.attribute} hidden={!drawn}>
+      <div
+        ref={edges}
+        className={whole ? "cv-edit-diff__body" : `cv-edit-diff__body ${OUTPUT_SCROLL_BOX}`}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the scroll box to read it with arrow keys.
+        tabIndex={whole ? undefined : 0}
+        hidden={!drawn}
+      >
         {collapsible ? (
           <div ref={foldRef} className="cv-fold">
             {lines}

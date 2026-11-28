@@ -51,7 +51,6 @@ export function BackgroundTaskBody({
         cut={read.cut}
         exitCode={read.exitCode}
         live={read.running}
-        whole
         footer={foot}
       />
     </div>

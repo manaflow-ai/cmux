@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample shell commands and output), not shipped UI.
 import { useState } from "react";
+import { OUTPUT_BOX_LINES } from "../conversation/blockPartsModel";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
@@ -20,7 +21,12 @@ const running: ShellRun = {
   version: 2,
 };
 
-const longOutput = Array.from({ length: 12 }, (_, index) => `step ${index + 1}: completed`).join("\n");
+const stepLines = (count: number) =>
+  Array.from({ length: count }, (_, index) => `step ${index + 1}: completed`).join("\n");
+/// Under the output box's cap: drawn whole, no scrollbar.
+const shortOutput = stepLines(12);
+/// Past the cap: a box of OUTPUT_BOX_LINES lines that scrolls in place.
+const longOutput = stepLines(OUTPUT_BOX_LINES * 3);
 
 const done: ShellRun = {
   id: "gallery-done",
@@ -68,10 +74,9 @@ const row = (shell: ShellRun): AcpmuxRow => ({
   shell,
 });
 
-type Props = { row: AcpmuxRow; expanded?: boolean };
+type Props = { row: AcpmuxRow };
 
-function GalleryShellRow({ row: input, expanded: initialExpanded = false }: Props) {
-  const [expanded, setExpanded] = useState(initialExpanded);
+function GalleryShellRow({ row: input }: Props) {
   const [receipt, setReceipt] = useState("");
   const shell = input.shell;
   if (!shell) return null;
@@ -84,7 +89,7 @@ function GalleryShellRow({ row: input, expanded: initialExpanded = false }: Prop
           openInTerminal: (run) => setReceipt(`Opened ${run.command} in a terminal`),
         }}
       >
-        <ShellRow row={input} expanded={expanded} onToggleActivity={() => setExpanded((value) => !value)} />
+        <ShellRow row={input} />
       </ShellActionsContext.Provider>
       <output className="acpmux-shell-row-gallery-receipt" data-testid="gallery-receipt" aria-live="polite">
         {receipt}
@@ -116,9 +121,14 @@ const keyboardOpen: Play = async (ctx) => {
   );
 };
 
-const expandOutput: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Show all output" });
-  await ctx.waitFor(() => ctx.find({ role: "button", name: "Show less" }));
+/// Scrolls the long output's box halfway down in place: no button, the block stays put.
+const scrollOutput: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell-block-output[data-scrolls]"));
+  const box = ctx.document.querySelector<HTMLElement>(".acpmux-shell-block-output")!;
+  box.scrollTop = (box.scrollHeight - box.clientHeight) / 2;
+  await ctx.waitFor(() => box.scrollTop > 0);
+  if (ctx.document.querySelector(".acpmux-shell-block button[aria-expanded]"))
+    throw new Error("long shell output still offers an expand button");
 };
 
 export default componentEntry<Props>({
@@ -139,20 +149,19 @@ export default componentEntry<Props>({
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "Expanding shell output and triggering a shell action must not move the shell block anchor.",
+      reason: "Scrolling shell output in its box and triggering a shell action must not move the shell block anchor.",
     },
     layoutShiftMax: {
       value: 0.05,
-      reason:
-        "Expanding an in-flow transcript intentionally moves the disclosure and receipt below the newly revealed output.",
+      reason: "A shell action's receipt appears under the block; the output box itself keeps its height.",
     },
     longFrameFailMs: {
       value: 33,
-      reason: "Shell row controls should remain responsive while output disclosure updates the transcript.",
+      reason: "Shell row controls should remain responsive while the output box scrolls.",
     },
     settleMaxMs: {
       value: 250,
-      reason: "Stop, Open in terminal, and output disclosure are local state updates and should settle promptly.",
+      reason: "Stop, Open in terminal, and scrolling the output are local updates and should settle promptly.",
     },
   },
   variants: {
@@ -161,8 +170,22 @@ export default componentEntry<Props>({
       props: { row: row(running) },
     },
     "stop-receipt": { props: { row: row(running) }, play: stop },
-    collapsed: {
-      note: "Closed long output keeps the last eight lines and offers Show all output.",
+    "short-output": {
+      note: "Output under the 24-line cap is drawn whole: no scrollbar, no button.",
+      props: {
+        row: row({
+          ...running,
+          id: "gallery-short",
+          command: "pnpm build",
+          status: "done",
+          endedAt: now - 500,
+          output: shortOutput,
+          version: 3,
+        }),
+      },
+    },
+    "long-output": {
+      note: "Output past the cap sits in a 24-line box that scrolls in place, a fade at its foot while more is below (Leo: no Show all).",
       props: {
         row: row({
           ...running,
@@ -175,26 +198,12 @@ export default componentEntry<Props>({
         }),
       },
     },
-    expanded: {
+    "long-output-scrolled": {
+      note: "The same box scrolled halfway: the block and the rows around it do not move.",
       props: {
         row: row({
           ...running,
-          id: "gallery-long-expanded",
-          command: "pnpm build",
-          status: "done",
-          endedAt: now - 500,
-          output: longOutput,
-          version: 3,
-        }),
-        expanded: true,
-      },
-    },
-    "expand-output": {
-      note: "Show all output reveals the complete transcript and changes to Show less without moving the block.",
-      props: {
-        row: row({
-          ...running,
-          id: "gallery-long-play",
+          id: "gallery-long-scrolled",
           command: "pnpm build",
           status: "done",
           endedAt: now - 500,
@@ -202,7 +211,7 @@ export default componentEntry<Props>({
           version: 3,
         }),
       },
-      play: expandOutput,
+      play: scrollOutput,
     },
     succeeded: { props: { row: row(done) }, play: openInTerminal },
     failed: { props: { row: row(failed) } },

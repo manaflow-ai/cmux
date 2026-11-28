@@ -43,7 +43,7 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
     }
     return page;
   };
-  test("a fetched Markdown result scrolls to its final line in its box and drops the fade there", async () => {
+  test("a fetched Markdown result scrolls to its final line and drops the fade there, with no Show all", async () => {
     const page = await stage("compact");
     try {
       expect(await page.locator(".cv-tool-output__markdown h2").first().textContent()).toBe("Network map: summary");
@@ -56,11 +56,10 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
         () => !document.querySelector(".cv-tool-output__markdown")?.hasAttribute("data-more-below"),
       );
       expect(await body.evaluate((node) => getComputedStyle(node).maskImage)).toBe("none");
-      // Short of the 400 lines past which only its end is drawn, the whole result is in the box:
-      // it scrolls there, with no Show all row under it.
-      expect(await body.getAttribute("data-preview")).toBe("cut");
       expect(await body.textContent()).toContain("End of the complete result.");
-      expect(await page.locator(".cv-output-more").count()).toBe(0);
+      // Its box is about 24 lines tall, and nothing under it opens more.
+      expect(await body.evaluate((node) => node.clientHeight)).toBeGreaterThan(300);
+      expect(await page.getByRole("button", { name: /^Show (all|less)/ }).count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -72,9 +71,10 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       await body.evaluate((node) => {
         const outer = node.ownerDocument.createElement("div");
         outer.id = "wheel-reader";
-        outer.style.cssText = "height:260px; overflow:auto; width:720px";
+        // Taller than the card's 24-line box, so hovering the box never scrolls the reader to it.
+        outer.style.cssText = "height:640px; overflow:auto; width:720px";
         const spacer = node.ownerDocument.createElement("div");
-        spacer.style.height = "900px";
+        spacer.style.height = "1800px";
         const card = node.closest(".cv-tool-output-card")!;
         card.parentElement!.insertBefore(outer, card);
         outer.append(card, spacer);
@@ -98,39 +98,32 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       await page.close();
     }
   });
-  test("a single wrapped line past eight rows scrolls in its box, with no Show all row", async () => {
+  test("a single wrapped line taller than the box scrolls in it, with no Show all", async () => {
     const page = await stage("wrapped-line");
     try {
       const body = page.locator("pre.cv-tool-output");
-      await page.waitForFunction(
-        () => document.querySelector("pre.cv-tool-output")?.getAttribute("data-preview") === "cut",
-      );
-      expect(await body.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
-      expect(await page.locator(".cv-output-more").count()).toBe(0);
-      await body.evaluate((node) => {
-        node.scrollTop = node.scrollHeight;
-      });
-      await page.waitForFunction(() => !document.querySelector("pre.cv-tool-output")?.hasAttribute("data-more-below"));
-      expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      await page.waitForFunction(() => document.querySelector("pre.cv-tool-output")?.hasAttribute("data-scrolls"));
+      expect(await page.getByRole("button", { name: /^Show (all|less)/ }).count()).toBe(0);
+      // Focused, the keyboard scrolls it.
+      await body.focus();
+      await page.keyboard.press("PageDown");
+      await page.waitForFunction(() => (document.querySelector("pre.cv-tool-output")?.scrollTop ?? 0) > 0);
     } finally {
       await page.close();
     }
   });
-  test("a cut wrapped line drops its cut once its content or width fits", async () => {
+  test("a wrapped line's box drops its edge marks after its content or width fits", async () => {
     for (const change of ["content", "width"]) {
       const page = await stage("wrapped-line");
       try {
         const body = page.locator("pre.cv-tool-output");
-        await page.waitForFunction(
-          () => document.querySelector("pre.cv-tool-output")?.getAttribute("data-preview") === "cut",
-        );
+        await page.waitForFunction(() => document.querySelector("pre.cv-tool-output")?.hasAttribute("data-scrolls"));
         await body.evaluate((node, change) => {
           if (change === "content") node.textContent = "Short result.";
           else node.style.width = "18000px";
         }, change);
-        await page.waitForFunction(() => !document.querySelector("pre.cv-tool-output")?.hasAttribute("data-preview"));
+        await page.waitForFunction(() => !document.querySelector("pre.cv-tool-output")?.hasAttribute("data-scrolls"));
         expect(await body.getAttribute("data-more-below")).toBeNull();
-        expect(await page.locator(".cv-output-more").count()).toBe(0);
       } finally {
         await page.close();
       }

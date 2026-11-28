@@ -12,9 +12,9 @@
 // CMUX_BROWSER_TESTS=1 bun test test/tool-output-wraps-down-browser.test.ts
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page, type BrowserType } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { requireBrowserLane, probeEngineOrSkip } from "./support/requireBrowserLane";
 import { HUGE, LEO_LINE, UNBROKEN } from "../src/agent-session/acpmux/conversation/ToolOutputWrap.gallery";
 
 await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
@@ -110,25 +110,24 @@ await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
           expect(output.wrap).toBe("true");
           expect(output.scrollWidth).toBe(output.clientWidth);
           expect(output.rows).toBeGreaterThan(1);
-          // One 10,000-character line, wrapped, scrolls in an eight-row box, as a long output does
-          // (Codex review of #41108): it never fills the transcript with hundreds of rows. Short of the
-          // 40,000 characters past which only its end is drawn, it has no Show all row under it.
+          // One 10,000-character line, wrapped, scrolls inside the shared 24-line box as a long output
+          // does (Codex review of #41108): it never fills the transcript with hundreds of rows, and
+          // never hides behind Show all (Leo, 2026-11-12).
           const huge = await page.evaluate(() => {
             const body = document.querySelector<HTMLElement>('[data-gallery-block="huge"] .cv-shell__body')!;
             const row = parseFloat(getComputedStyle(body).lineHeight);
             return {
-              preview: body.getAttribute("data-preview"),
+              scrolls: body.scrollHeight > body.clientHeight + 1,
               rows: body.clientHeight / row,
-              scrolls: body.scrollHeight > body.clientHeight,
               scrollWidth: body.scrollWidth,
               clientWidth: body.clientWidth,
-              more: Boolean(document.querySelector('[data-gallery-block="huge"] .cv-output-more')),
+              more: Boolean(document.querySelector('[data-gallery-block="huge"] button.cv-expand-row')),
             };
           });
           expect(HUGE.length).toBeGreaterThanOrEqual(10_000);
-          expect(huge.preview).toBe("cut");
-          expect(huge.rows).toBeLessThanOrEqual(9);
           expect(huge.scrolls).toBe(true);
+          expect(huge.rows).toBeLessThanOrEqual(25);
+          expect(huge.rows).toBeGreaterThan(20);
           expect(huge.scrollWidth).toBe(huge.clientWidth);
           expect(huge.more).toBe(false);
           // A table keeps each row whole, its columns aligned, and scrolls for what runs past.

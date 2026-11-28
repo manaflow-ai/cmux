@@ -51,7 +51,6 @@ import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
 import { isRunPart } from "./conversation/runPartId";
 import { keptPrefix } from "./conversation/prefixFlatMap";
-import { outputTail, stripAnsi } from "./conversation/toolOutputModel";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -2229,9 +2228,8 @@ function openThoughtBody(text: string, width: number): number {
 /// card (ShellBlock.tsx, conversation.css `.cv-shell`): 4px above and 8px below it, 12px of padding,
 /// the 20px "Shell" label, the command's 18px lines 8px under it (8px and the rule below them), the
 /// exit code's 20px line 8px under that when it failed, and its output's 18px lines 8px under that,
-/// at most PREVIEW_LINES of them before the box scrolls; a long output's Show all under the box
-/// (toolOutputModel.ts `outputTail`, ShellBlock.tsx `OutputMore`), 4px over a 16px detail line, its
-/// height the same shown or not. Closed, nothing.
+/// at most OUTPUT_BOX_LINES of them before the box scrolls (outputScrollBox.css); nothing sits under
+/// the box. Closed, nothing.
 const SHELL_LINE = 18;
 function openShellBody(tool: NonNullable<AcpmuxActivity["tool"]>, width: number, sessionId?: string): number {
   if (!tool.command || !disclosureOpen(sessionId, callDisclosureKey(tool.id))) return 0;
@@ -2242,11 +2240,10 @@ function openShellBody(tool: NonNullable<AcpmuxActivity["tool"]>, width: number,
     .split("\n")
     .reduce((sum, line) => sum + Math.max(1, Math.ceil((line.length + 2) / perLine)), 0);
   const output = tool.output?.replace(/\n$/, "") ?? "";
-  const lines = output ? Math.min(PREVIEW_LINES, output.split("\n").length) : 0;
+  const lines = output ? Math.min(OUTPUT_BOX_LINES, output.split("\n").length) : 0;
   const failed = tool.exitCode !== undefined && tool.exitCode !== 0;
   const card = 12 + 20 + 8 + command * SHELL_LINE + 9 + (failed ? 28 : 0) + (lines ? 8 + lines * SHELL_LINE : 0) + 12;
-  const more = output && outputTail(stripAnsi(output)) !== undefined ? gridLength("base") + 16 : 0;
-  return (gridLength("base") + 4 + 8 + more) * chromeScale + card;
+  return (gridLength("base") + 4 + 8) * chromeScale + card;
 }
 
 /// An `acpmux send` the reader opened (SentMessageLine.tsx, its `send:` disclosure): the message whole
@@ -2365,7 +2362,7 @@ function openEditsBody(
 /// with (conversation/editDiffBox.ts, at the chat's text and code size and the Interface Size): the room above and
 /// below it, its head, and its body: the edits' rows, with the separator Pierre draws before a hunk that skips
 /// lines of the file (EditDiffLoading.tsx `editParts`, whose placeholder is drawn at the rendered diff's height),
-/// and the scrollbar lane under unwrapped rows (`--cv-edit-diff-lane`, padded in every engine). Past PREVIEW_LINES rows the body is cut to that many
+/// and the scrollbar lane under unwrapped rows (`--cv-edit-diff-lane`, padded in every engine). Past OUTPUT_BOX_LINES rows the body is cut to that many
 /// and the lane (`--cv-block-cut`). An edit with no line changes is its note. Wrapped (a prose file, by default), a
 /// row takes as many lines as its text needs at the card's width.
 function editDiffHeight(file: TurnFile, width: number): number {
@@ -2396,7 +2393,7 @@ function editDiffHeight(file: TurnFile, width: number): number {
       }
     }
   }
-  if (rows > PREVIEW_LINES) body = PREVIEW_LINES * box.row + (wrap ? 0 : EDIT_DIFF_LANE);
+  if (rows > OUTPUT_BOX_LINES) body = OUTPUT_BOX_LINES * box.row + (wrap ? 0 : EDIT_DIFF_LANE);
   else if (!wrap && rows) body += EDIT_DIFF_LANE;
   return box.margins + box.head + body;
 }
@@ -4950,7 +4947,7 @@ import {
 } from "./conversation/transcriptDisclosureModel";
 import { groupDisclosureKey, runDisclosureKey, runLinks, thoughtIds } from "./conversation/turnRowsModel";
 import { thoughtChoices } from "./conversation/thoughtChoices";
-import { PREVIEW_LINES } from "./conversation/blockPartsModel";
+import { OUTPUT_BOX_LINES } from "./conversation/blockPartsModel";
 import { blockWrapOf, fileBlockKind } from "./conversation/blockWrap";
 import { toolFiles, type TurnFile } from "./diff";
 import { cardOpen } from "./turnChanges/openStore";
