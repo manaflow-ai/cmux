@@ -55,11 +55,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -168,7 +168,7 @@ jobs:
             all=true
             grep -qx 'tooling_all=false' "$RUNNER_TEMP/tooling.out" && all=false
             keep=" "
-            for id in tt-remote-p10k tt-webviews-tests-per-file tt-web-lint-prepush tt-tailnet; do
+            for id in tt-remote-p10k tt-cli-path-folder-access tt-webviews-tests-per-file tt-web-lint-prepush tt-tailnet; do
               if [ "$all" = true ] || [[ "$routed" == *" $id "* ]]; then keep="$keep$id "; fi
             done
             printf 'tooling_all=false\ntooling_steps=%s\n' "$keep" > "$RUNNER_TEMP/tooling.out"
@@ -282,12 +282,23 @@ jobs:
           fi
           python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
 
+      # First-run findings row 18: a folder macOS refuses (Desktop after Don't Allow) gets a hint that says where to allow it.
+      - name: The app's zsh layer says where to allow a folder macOS refused
+        id: tt-cli-path-folder-access
+        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cli-path-folder-access ')) }}
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            bash scripts/ci/apt-ensure.sh zsh
+          fi
+          bash scripts/cmux-next/tests/cli-path-folder-access.test.sh
+
       - name: The fast gates workflow and its merge and gate script
         id: tt-fast-gates
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-fast-gates ')) }}
         run: |
           python3 tests/test_cmux_next_fast_gates.py
           python3 tests/test_ci_entry_logs.py
+          python3 tests/test_ci_check_huge_files.py
 
       - name: A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip
         id: tt-tip-swift-suite
@@ -381,6 +392,14 @@ jobs:
         id: tt-swift-test-coverage-tests
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage-tests ')) }}
         run: python3 -I tests/test_swift_test_coverage.py
+
+      # A Swift file under CmuxNext/Sources that builds a Cloud HTTP or WebSocket request and is not in
+      # scripts/cmux-next/swift-cloud-http-allow.txt fails, and so does a listed file that no longer builds one:
+      # the Mac app's Cloud calls go through the Rust app server (cmuxterm-hq goals/cloud-client-swift-to-rust.md).
+      - name: No new Swift Cloud networking in CmuxNext (swift-cloud-http.py --check)
+        id: tt-swift-cloud-http
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http ')) }}
+        run: python3 -I scripts/cmux-next/swift-cloud-http.py --check
 
       - name: The Swift Cloud networking count's own tests (swift-cloud-http.py)
         id: tt-swift-cloud-http-tests
