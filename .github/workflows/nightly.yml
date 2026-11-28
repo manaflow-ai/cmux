@@ -6470,7 +6470,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
       BUILD_SHA: ${{ needs.published-build.outputs.publish_build_sha }}
@@ -6495,7 +6495,22 @@ jobs:
       - name: Wait for API budget before the dSYM download
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
+      # 2026-11-28 10:53Z (run 46137161280): the action below died on "API rate limit exceeded for installation"
+      # with no retry. The script waits through the reset (and tries the spares first); the action stays as fallback.
+      - name: Download the build's dSYMs (parallel, waits through a rate limit)
+        id: dsyms-parallel
+        continue-on-error: true
+        timeout-minutes: 65
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "3600"
+          DSYMS_ARTIFACTS: ${{ steps.producer.outputs.artifacts }}
+          DSYMS_RUN: ${{ steps.producer.outputs.run }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACTS" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/dsyms" --connections 32
+
       - name: Download the build's dSYMs
+        if: steps.dsyms-parallel.outcome != 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ steps.producer.outputs.artifacts }}
