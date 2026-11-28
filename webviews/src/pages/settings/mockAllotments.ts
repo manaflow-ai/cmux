@@ -221,6 +221,8 @@ export function runMockAllotment(view: AllotmentView, run: AllotmentSet, by = "L
     changed_at: view.as_of,
     changed_by: by,
   };
+  if (run.person_hold_seconds === null) delete next.person_hold_seconds;
+  else if (run.person_hold_seconds !== undefined) next.person_hold_seconds = run.person_hold_seconds;
   if (onlyMode) return { ...view, allotment: next };
   const allot = view.decision.allot_micros - before.commit_micros + commit;
   return {

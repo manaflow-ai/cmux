@@ -9,8 +9,8 @@ A record is a JSON object (version 1):
 
   kind "cmux-proof-record", version 1, suite (ios-flows | mac-flows | web-flows | gui-flows), repo, pr, head_sha
   (the commit the runs built, the PR's head when it was posted), base_ref, base_sha (the base commit under the head),
-  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, worker, args,
-  result, seconds}]), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
+  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, args, result,
+  seconds}]; no worker: PR text names no fleet host), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
   pr, step} or null), video, verdict ("pass" | "fail"), timing ({pushed_at, proof_at, push_to_proof_s}), tool.
 
 On the PR it is one comment whose first line is the marker `<!-- cmux-proof-record SUITE HEAD_SHA -->` and whose body
@@ -25,6 +25,7 @@ whose head_sha is the PR's current head, and trusts it only when the comment's a
 from __future__ import annotations
 
 import argparse
+import contextvars
 import fnmatch
 import json
 import os
@@ -33,9 +34,13 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Callable, Iterable, TypeVar
 
 T = TypeVar("T")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 
 KIND = "cmux-proof-record"
 VERSION = 1
@@ -82,14 +87,35 @@ def problems(record: object) -> list[str]:
     return out
 
 
+# The longest comment render returns: the lane-gh broker refuses a body past 32768, GitHub one past 65536.
+COMMENT_BUDGET = 32000
+
+
 def render(record: dict, summary_md: str = "") -> str:
     """The PR comment for RECORD: the marker, a short human summary, and the record itself."""
     bad = problems(record)
     if bad:
         raise ValueError("not a proof record: " + "; ".join(bad))
     head = f"<!-- {KIND} {record['suite']} {record['head_sha']} -->"
-    body = json.dumps(record, indent=1, sort_keys=True)
-    return f"{head}\n{summary_md.strip()}\n\n<details><summary>Proof record</summary>\n\n```json\n{body}\n```\n</details>\n"
+    summary = summary_md.strip()
+
+    def comment(body: str) -> str:
+        return f"{head}\n{summary}\n\n<details><summary>Proof record</summary>\n\n```json\n{body}\n```\n</details>\n"
+
+    # A comment past COMMENT_BUDGET is refused (the lane-gh broker caps a body at 32768), so the proof never posts
+    # and the gate waits forever (cmux#38466: 201 screens rendered 38365). Tighter forms keep every field the gate
+    # and ui_proof_verdict read; a capture's hash shortens to 12 hex, still naming its picture.
+    short = {**record, "captures": [{**c, "sha256": c["sha256"][:12]} if isinstance(c, dict) and
+                                    isinstance(c.get("sha256"), str) else c for c in record.get("captures") or []]}
+    forms = (json.dumps(record, indent=1, sort_keys=True), json.dumps(record, separators=(",", ":"), sort_keys=True),
+             json.dumps(short, separators=(",", ":"), sort_keys=True))
+    out = comment(forms[-1])
+    for form in forms:
+        if len(comment(form)) <= COMMENT_BUDGET:
+            return comment(form)
+    if len(out) > COMMENT_BUDGET:
+        raise ValueError(f"proof record comment is {len(out)} characters, past {COMMENT_BUDGET}")
+    return out
 
 
 def parse(comment_body: str) -> dict | None:
@@ -143,6 +169,14 @@ def gate(record: dict | None, suite: str) -> tuple[str, str]:
     return "success", f"{suite} proof at this head: {len(flows)} flows passed" + (f" in {took}s" if took else "")
 
 
+# How long a read waits out a rate limit that names its end (gh_http's rate_budget_s). with_tokens sets it per token:
+# 0 while another token is left (that token reads it now), RATE_WAIT_LAST_S for the last one. Both gates run in
+# 5-min jobs; before, the run token's 403 slept gh_http's 900 s and the job was cancelled at its timeout, unposted.
+RATE_WAIT_LAST_S = 90.0
+_rate_wait_s: contextvars.ContextVar[float] = contextvars.ContextVar("proof_record_rate_wait_s",
+                                                                     default=RATE_WAIT_LAST_S)
+
+
 def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[dict]:
     out: list[dict] = []
     for page in range(1, pages + 1):
@@ -150,8 +184,10 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
             f"https://api.github.com/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}",
             headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                      "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            got = json.loads(resp.read())
+        # A passing refusal (429, rate-limit 403, 5xx, a dropped connection) is asked again (gh_http): one
+        # blip used to turn a passed build into "proof record not read (HTTPError): rerun this job".
+        _, body, _ = gh_http.request(req, 20, raise_errors=True, rate_budget_s=_rate_wait_s.get())
+        got = json.loads(body or b"[]")
         out += got
         if len(got) < 100:
             break
@@ -175,12 +211,15 @@ def with_tokens(read: Callable[[str], T], tokens: list[str]) -> T:
     if not tokens:
         raise ValueError("no token")
     for i, token in enumerate(tokens):
+        mark = _rate_wait_s.set(RATE_WAIT_LAST_S if i == len(tokens) - 1 else 0.0)
         try:
             return read(token)
         except urllib.error.HTTPError as e:
             if e.code not in TOKEN_REFUSED or i == len(tokens) - 1:
                 raise
             print(f"read refused (HTTP {e.code}) with token {i + 1} of {len(tokens)}; trying the next", file=sys.stderr)
+        finally:
+            _rate_wait_s.reset(mark)
     raise AssertionError("unreachable")
 
 
@@ -207,6 +246,11 @@ def read_error(error: Exception) -> str:
     return kind
 
 
+# Exit status of `gate` when the record could not be read: the caller fails its job (rerunnable) rather than post
+# the printed `error` for a build that passed, which no sanctioned path could refresh.
+UNREAD = 3
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -227,13 +271,13 @@ def main(argv: list[str] | None = None) -> int:
     tokens = read_tokens()
     if not (repo and pr and sha and tokens):
         print("error\tproof record not read: REPO, PR, SHA and GH_TOKEN are needed")
-        return 0
+        return UNREAD
     try:
         comments = with_tokens(lambda token: pr_comments(repo, pr, token), tokens)
         record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b])
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
         print(f"error\tproof record not read ({read_error(e)}): see job log")
-        return 0
+        return UNREAD
     state, desc = gate(record, a.suite)
     print(f"{state}\t{desc}")
     return 0

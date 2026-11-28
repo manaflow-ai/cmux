@@ -90,6 +90,9 @@ OWN_REPOSITORY = {
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
     "scripts/cmux-next/swift-logic-pr-status.py":
         "merge_base and swift_trees fetch only into `git init --bare` repositories partial_repo just made in its work dir",
+    "scripts/ci/ci_receipt.py": "the compare read fetches only into a `git init --bare` temporary repository it just made",
+    "scripts/ci/cmux-next-steps/dev-landing-place-place-the-compile.sh":
+        "fetches only into the `git init --bare` $GAP_REPO it just made",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
         "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }
