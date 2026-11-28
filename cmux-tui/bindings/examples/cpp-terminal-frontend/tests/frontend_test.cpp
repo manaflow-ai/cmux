@@ -482,7 +482,9 @@ void test_terminal_selection_prefers_focused_opaque_tab() {
 void test_recovery_typed_reads_exit_and_cancellation() {
     auto scenario = make_scenario();
     cmux_example::FrontendConfig config;
-    config.client_options.timeout = std::chrono::milliseconds(1);
+    // Each request gets a real steady_clock deadline; at 1 ms a preempted
+    // runner timed out a request the in-memory fake had already answered.
+    config.client_options.timeout = std::chrono::milliseconds(250);
     config.client_options.transport_factory =
         factory_for(scenario->control);
     config.client_options.stream_transport_factory =
