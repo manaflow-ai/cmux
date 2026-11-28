@@ -1216,8 +1216,15 @@ button.cv-subagent > :last-child {
   overflow-wrap: anywhere;
 }
 .acpmux-agent-card__state,
+.acpmux-agent-card__setup,
 .acpmux-agent-card__task {
   color: var(--agent-muted, var(--cmux-text-secondary));
+}
+/* What it was started with (subagentSetup.ts): model, effort, permission mode, one line. */
+.acpmux-agent-card__setup {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* An expanded background command keeps its bounded tail in the row; only this disclosed row

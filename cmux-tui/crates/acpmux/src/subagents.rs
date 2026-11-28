@@ -626,7 +626,14 @@ impl SubagentTree {
                         event.insert(key.into(), json!(v));
                     }
                 }
-                for key in ["model", "effort", "reasoningEffort", "lastMessage", "last_message"] {
+                for key in [
+                    "model",
+                    "effort",
+                    "reasoningEffort",
+                    "permissionMode",
+                    "lastMessage",
+                    "last_message",
+                ] {
                     if let Some(v) = s(update, key) {
                         let key = if key == "reasoningEffort" {
                             "effort"
@@ -1221,6 +1228,20 @@ mod codex_tests {
         );
         assert_eq!(mux, Some(json!({"subagent": grandchild})));
         assert!(!tree.owns(chat));
+    }
+
+    /// A spawn says the model and the permission mode its subagent was started under (Leo,
+    /// 2026-11-22: "are their permissions/model locked right then and there?").
+    #[test]
+    fn a_spawn_carries_its_model_and_permission_mode() {
+        let mut tree = SubagentTree::default();
+        let spawned = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1", "name": "Scout",
+                   "model": "claude-haiku-4-5", "permissionMode": "acceptEdits"}),
+        );
+        assert_eq!(spawned[0]["model"], "claude-haiku-4-5");
+        assert_eq!(spawned[0]["permissionMode"], "acceptEdits");
     }
 
     /// A failed Claude agent's entry says why and which agent a resume names.

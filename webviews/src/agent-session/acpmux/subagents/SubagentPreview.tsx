@@ -21,6 +21,7 @@ import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { subagentTime, useNow } from "./subagentGroupModel";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { latestLine } from "./trayDetail";
+import { subagentSetup } from "./subagentSetup";
 
 const NO_WAITING: ReadonlySet<string> = new Set();
 
@@ -31,6 +32,7 @@ export function SubagentCardBody({
   state,
   latest,
   task,
+  setup,
 }: {
   name: ReactNode;
   status: SubagentStatus;
@@ -40,6 +42,8 @@ export function SubagentCardBody({
   latest?: string;
   /// Its whole task, when its name is not that.
   task?: string;
+  /// The model, effort and permission mode it was started with (subagentSetup.ts).
+  setup?: string;
 }) {
   return (
     <span className="acpmux-agent-card">
@@ -49,6 +53,7 @@ export function SubagentCardBody({
           {state}
         </span>
       )}
+      {setup && <span className="acpmux-agent-card__setup">{setup}</span>}
       {latest && <span className="acpmux-agent-card__latest">{latest}</span>}
       {task && <span className="acpmux-agent-card__task">{task}</span>}
     </span>
@@ -95,6 +100,7 @@ export function SubagentPreviewCard({
       state={state}
       latest={latest && latest !== title ? latest : undefined}
       task={task && task !== title && task !== latest ? task : undefined}
+      setup={subagentSetup(agent)}
     />
   );
 }

@@ -1330,6 +1330,13 @@ impl Translator {
         if let Some(effort) = effort {
             update.set("effort", json!(effort));
         }
+        // The chat's permission mode as it starts (Leo, 2026-11-22: "are their permissions/model
+        // locked right then and there?"). Claude Code runs a subagent's tool calls under its
+        // chat's permissions, so the card says which; its model above is fixed here, at spawn.
+        let mode = self.mode.lock().await.clone();
+        if !mode.is_empty() {
+            update.set("permissionMode", json!(mode));
+        }
         // It outlives a stopped turn: a client keeps it running past one.
         if background {
             update.set("background", json!(true));

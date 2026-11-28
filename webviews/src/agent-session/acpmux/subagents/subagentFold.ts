@@ -1145,7 +1145,7 @@ export class SubagentFold {
       this.noteActivity(agent, event.at);
     // Optional orchestration fields may be removed explicitly when a resumed harness no longer
     // reports them. Keep omitted fields unchanged, but do not leave stale values after `null`.
-    for (const key of ["model", "effort", "lastMessage"] as const) {
+    for (const key of ["model", "effort", "permissionMode", "lastMessage"] as const) {
       if (!Object.prototype.hasOwnProperty.call(change, key)) continue;
       if (change[key] === null) delete agent[key];
       else {

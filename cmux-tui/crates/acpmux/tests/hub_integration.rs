@@ -1851,6 +1851,8 @@ mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 
+#[path = "hub_integration/fork_hammer.rs"]
+mod fork_hammer;
 #[path = "hub_integration/fork_restart.rs"]
 mod fork_restart;
 #[path = "hub_integration/fork_through.rs"]

@@ -79,6 +79,8 @@ export type Subagent = {
   harness?: string;
   model?: string;
   effort?: string;
+  /// The permission mode reported when the subagent was spawned.
+  permissionMode?: string;
   command?: string;
   session?: string;
   host?: string;

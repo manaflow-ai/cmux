@@ -41,7 +41,7 @@ async fn an_agent_tool_call_spawns_a_subagent_session() {
             "task": "Branch A",
             "prompt": "Look at the tests",
             "capabilities": {},
-            "model": "haiku", "effort": "default",
+            "model": "haiku", "effort": "default", "permissionMode": "default",
             "_meta": {"claude": {"subagentType": "Explore", "toolUseId": "toolu_1"}}
         })
     );
@@ -358,4 +358,16 @@ async fn failed_agents_past_the_limit_forget_only_the_oldest() {
     assert_eq!(out[0].1["subagentSessionId"], "acp-1/toolu_1");
     let lines = late_lines("toolu_0");
     assert_eq!(updates(&t.inbound(&lines[0]).await)[0].0, "acp-1/toolu_0");
+}
+
+/// A subagent's spawn names the model it was started on and the chat's permission mode it runs
+/// under (Leo, 2026-11-22: "are their permissions/model locked right then and there?").
+#[tokio::test]
+async fn a_spawn_names_its_model_and_the_chats_permission_mode() {
+    let t = Translator::new("acp-1".into(), "plan", "sonnet", "high");
+    let line = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_7", "name": "Agent",
+        "input": {"description": "Scout", "prompt": "Look", "model": "haiku"}}]}});
+    let out = updates(&t.inbound(&line).await);
+    assert_eq!(out[0].1["model"], "haiku");
+    assert_eq!(out[0].1["permissionMode"], "plan");
 }
