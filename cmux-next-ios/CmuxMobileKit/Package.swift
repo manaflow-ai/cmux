@@ -70,7 +70,9 @@ let package = Package(
     targets: [
         // CmuxMobileDesign's pure rules (no UI framework), which build and test on Linux; CmuxMobileDesign re-exports it.
         .target(name: "CmuxMobileDesignCore"),
-        .target(name: "CmuxMobileDesign", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxSpinner", package: "CmuxSpinner"), .product(name: "CmuxTheme", package: "CmuxTheme")], resources: [.process("Resources")]),
+        // Process start to the first static initializer, wall and CPU (LaunchMarks `pre_main_*`).
+        .target(name: "CmuxMobileLaunchClock"),
+        .target(name: "CmuxMobileDesign", dependencies: ["CmuxMobileDesignCore", "CmuxMobileLaunchClock", .product(name: "CmuxSpinner", package: "CmuxSpinner"), .product(name: "CmuxTheme", package: "CmuxTheme")], resources: [.process("Resources")]),
         // Push payloads, notification buttons, the App Group outbox and chat
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
