@@ -96,7 +96,7 @@ jobs:
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
     # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
-    # release guards 20 min, the cmux cloud CLI 15 min): 674 min with 57 shared steps (29 waves) and the setup and
+    # release guards 20 min, the cmux cloud CLI 15 min): 674 min with 58 shared steps (29 waves) and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
     timeout-minutes: 674
     permissions:
@@ -793,6 +793,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # The plan reads the head's earlier cmux/ios-fast statuses: a pass on the same iOS inputs is reused.
+      statuses: read
     outputs:
       run: ${{ steps.plan.outputs.run }}
       plan: ${{ steps.plan.outputs.plan }}
@@ -818,6 +820,9 @@ jobs:
           persist-credentials: false
       - name: Plan the changed iOS targets
         id: plan
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/ios_fast_verdict.py plan
       # Content-addressed skip (goal ci-runner-min-per-day-10k; Leo, 11-28: "im asking for 99% fewer minutes of ci
       # time, period."). The key (scripts/ci/job_input_fingerprint.py ios-fast-verdict) is every path the ios-kit
