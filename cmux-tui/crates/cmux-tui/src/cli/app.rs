@@ -35,8 +35,8 @@ pub(super) use run::{
 mod agent_open;
 mod batch;
 mod call;
-mod chat_page;
 mod chat_memory;
+mod chat_page;
 mod chat_perf;
 mod classic;
 mod events;
