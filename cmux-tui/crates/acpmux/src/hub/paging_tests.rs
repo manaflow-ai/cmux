@@ -975,12 +975,21 @@ fn subagent_page_perf() {
 
 /// The subagent pane's open as `readSubagentLog` makes it: the newest page of one subagent's own
 /// records, behind a long chat of the parent's and other subagents' lines. Before the newest read
-/// took the forward read's byte search it parsed every line back to the subagent's records. Run
+/// took the forward read's byte search it parsed every line back to the subagent's records. Prints
+/// p50 and p95 over `RUNS` opens per chat length and holds the newest open to its p95 budget. Run
 /// with `cargo test -p acpmux --release --lib -- --ignored --nocapture subagent_newest_page_perf`.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn subagent_newest_page_perf() {
-    for later in [2_000usize, 20_000, 100_000] {
+    const RUNS: usize = 40;
+    // p95 budget for one newest-page open, ms: (later parent lines, budget). Release build, with
+    // headroom for a loaded runner (the PR's duress table: 100k lines p95 ~117 ms with every core busy).
+    const BUDGET_MS: [(usize, f64); 3] = [(2_000, 25.0), (20_000, 100.0), (100_000, 250.0)];
+    let pct = |runs: &[f64], p: f64| {
+        runs[((runs.len() as f64 * p).ceil() as usize).clamp(1, runs.len()) - 1]
+    };
+    let mut over = Vec::new();
+    for (later, budget) in BUDGET_MS {
         let root = std::env::temp_dir()
             .join(format!("acpmux-subagent-newest-perf-{}", uuid::Uuid::now_v7()));
         let sessions = root.join("sessions");
@@ -1004,7 +1013,7 @@ fn subagent_newest_page_perf() {
         let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
         let filter = transcript(true).of_subagent(Some("sub-old"));
         let mut runs = Vec::new();
-        for _ in 0..5 {
+        for _ in 0..RUNS {
             let started = std::time::Instant::now();
             let page = hub
                 .events_page("c", 0, Some(seq + 1), OPEN_LIMIT, Some(256 * 1024), true, &filter)
@@ -1013,12 +1022,16 @@ fn subagent_newest_page_perf() {
             assert_eq!(page.events.len(), 20);
         }
         runs.sort_by(f64::total_cmp);
+        let (p50, p95) = (pct(&runs, 0.50), pct(&runs, 0.95));
         println!(
-            "subagent newest page after {later} later lines: median {:.1} ms (min {:.1})",
-            runs[2], runs[0]
+            "subagent newest page after {later} later lines: p50 {p50:.1} ms p95 {p95:.1} ms (n {RUNS}, budget p95 {budget:.0} ms)"
         );
+        if p95 > budget {
+            over.push(format!("{later} lines: p95 {p95:.1} ms > {budget:.0} ms"));
+        }
         std::fs::remove_dir_all(&root).ok();
     }
+    assert!(over.is_empty(), "subagent newest-page open over its p95 budget: {over:?}");
 }
 
 /// A subagent's newest page skips the chat's other lines unparsed and still holds exactly that
