@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46100096471",
+  "recorded_at": "2026-11-28T03:31:04Z",
+  "reason": "image inputs changed in 5c7aa302ec5a80658f525de8a78c53902726700c..1608b759eb74a718c6450cea1cd11c08b6f7af6a; cmux-tui 139abf15a012, the newest build published on HEAD (pinned 589544f1e56b; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "139abf15a0122968accba9c8004a41125b49aecb",
+  "fixes": [
+    {
+      "sha": "1608b759eb74a718c6450cea1cd11c08b6f7af6a",
+      "mergedAt": "2026-11-28T02:51:28Z",
+      "subject": "Cloud VM image: bake the fleet network baseline (200 ms first-SYN retry, IPv6-first gai, BBR) (#62624)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T03:31:04Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
