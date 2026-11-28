@@ -21,6 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # probed sizes stall), then its own bounded CI_TRUSTED_RUNNER pick: ephemeral labels only, never a probed size.
 REPAIR_LABEL = "cmux-gcp-repair-jit-x64"
 SECRET_JIT_LABEL = "cmux-gcp-secret-jit-x64"
+# The selector written out as the label it resolves to today (CI_REPAIR_SKIP_FLEET=1, CI_TRUSTED_RUNNER outside its
+# list): no variable can move the watch at all.
+WATCH_FROZEN = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}"
 WATCH_SELECTOR = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
     "vars.CI_REPAIR_SKIP_FLEET != '1' && '" + REPAIR_LABEL + "' || contains(fromJSON('"
@@ -188,7 +191,7 @@ class SigningDerivationTests(unittest.TestCase):
     def test_the_switch_and_checker_read_feat_cmux_next(self) -> None:
         for name in ("ci-cloud-overflow-probe.yml", "ci-repo-variables.yml"):
             text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
-            self.assertIn("ref: feat-cmux-next", text, name)
+            self.assertIn("ref: refs/heads/feat-cmux-next", text, name)
             self.assertIn(f"{signing.DIRS_ENV}: .signing-workflows/feat-cmux-next/.github/workflows", text, name)
 
     def test_a_derived_variable_never_gets_an_owned_failover(self) -> None:
@@ -312,7 +315,8 @@ class SigningVariableTests(unittest.TestCase):
         # Read from the workflows: this tree's signing jobs, and the feat-cmux-next one the fixture stands in for.
         derived = signing.signing_variables()
         self.assertIn("MACOS_RUNNER_26", derived)
-        self.assertIn("LINUX_RUNNER", derived)
+        # main's signing jobs name their Linux runner as a literal now, so LINUX_RUNNER is no signing variable here.
+        self.assertNotIn("LINUX_RUNNER", derived)
         self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED", derived)
 
     def test_no_failover_names_a_reused_machine_for_a_signing_variable(self) -> None:
@@ -326,7 +330,6 @@ class SigningVariableTests(unittest.TestCase):
                         self.assertTrue(signing.ephemeral_label(values[name]), (pin, override, name, values[name]))
                 if override:
                     self.assertTrue(any("MACOS_RUNNER_26" in p and "ignored" in p for p in problems))
-                    self.assertTrue(any("signing jobs run on LINUX_RUNNER" in p for p in problems))
         self.assertNotIn("MACOS_RUNNER_26", switch.failover_values(PIN, "")[0])
 
     def test_no_override_moves_macos_runner_26(self) -> None:
@@ -364,7 +367,10 @@ class SigningVariableTests(unittest.TestCase):
                               "Linux_Runner": {"before": None, "after": "cmux-linux-owned"}}}
         resumes = switch.plan_resume(record, {})
         self.assertEqual(len(resumes), 2)
-        self.assertTrue(all(item.skipped for item in resumes))
+        # No signing job on main reads LINUX_RUNNER any more (its runs-on values are written out), so only the
+        # macOS key is held back.
+        self.assertEqual({item.name.upper(): bool(item.skipped) for item in resumes},
+                         {"MACOS_RUNNER_26": True, "LINUX_RUNNER": False})
         self.assertFalse(signing.allowed_value("macos_runner_26", "glaeda-std-xcode-26.6"))
 
     def test_restore_still_puts_back_a_recorded_value(self) -> None:
@@ -1087,6 +1093,54 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.assertEqual(actions.calls, [])
         self.assertIn("`publish to R2` is running", summary)
 
+    def test_a_run_with_any_running_job_is_never_cancelled(self) -> None:
+        # Review BLOCK on cmux#27114: a force-cancel ends every job of the run, so any running job (not only a
+        # publish) would lose its work. Both rescues leave such a run for a later pass.
+        running = {"name": "unit tests", "status": "in_progress", "runner_name": "bs-9", "labels": []}
+        actions = self.stranded()
+        actions.run_jobs[10] = [self.DEAD_16, running]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("`unit tests` is running", summary)
+        runs = [{"id": 20, "status": "in_progress", "event": "push", "name": "CI", "created_at": ago(30)}]
+        actions = FakeActions(None, runs, {20: [self.DEAD_16, running]})
+        clock = Clock()
+        lines = switch.rescue_stuck_runs(actions, own_run_id=1, minutes=5, now=clock.now, sleep=clock.sleep,
+                                         log=lambda _: None, dry_run=False)
+        self.assertEqual(actions.calls, [])
+        self.assertTrue(any("`unit tests` is running" in line for line in lines), lines)
+
+    def test_a_job_that_started_after_the_listing_holds_the_cancel(self) -> None:
+        actions = self.stranded()
+        listed = {"n": 0}
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id != 10:
+                return before(run_id, attempt)
+            listed["n"] += 1
+            started = {"name": "lint", "status": "in_progress", "runner_name": "bs-3", "labels": []}
+            return [self.DEAD_16] + ([started] if listed["n"] > 1 else [])
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10: changed since it was listed", summary)
+
+    def test_an_incomplete_job_listing_is_never_acted_on(self) -> None:
+        actions = self.stranded()
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id == 10:
+                raise switch.GitHubError("GET /actions/runs/10/jobs incomplete (100 of 140 jobs)")
+            return before(run_id, attempt)
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10: could not list jobs", summary)
+
     def test_a_run_that_changed_since_the_listing_is_left_alone(self) -> None:
         actions = self.stranded()
         actions.run = lambda run_id: {"id": run_id, "status": "queued", "run_attempt": 2}  # type: ignore[method-assign]
@@ -1233,6 +1287,12 @@ class WorkflowTests(unittest.TestCase):
         # so the hosted light rescue it carries ran every 20-25 minutes (cmuxterm-hq#6671).
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
         runs_on, _, comment = runs_on.partition(" # ")
+        if runs_on == WATCH_FROZEN:
+            # Written out: one ephemeral label, never a probed size, read from no variable.
+            self.assertTrue(comment.startswith("ephemeral-required:"), comment)
+            self.assertEqual(runner_label_errors(runs_on), [])
+            self.assertNotIn("blacksmith-2vcpu-ubuntu-2404", switch.PROBE_LABELS)
+            return
         self.assertEqual(runs_on, WATCH_SELECTOR)
         self.assertTrue(comment.startswith("ephemeral-required:"), comment)
         self.assertEqual(runner_label_errors(runs_on), [])
@@ -1272,7 +1332,7 @@ class WorkflowTests(unittest.TestCase):
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
                 continue
-            if job["runs-on"] == WATCH_SELECTOR:
+            if job["runs-on"] in (WATCH_SELECTOR, WATCH_FROZEN):
                 continue
             self.assertNotIn("${{", job["runs-on"], name)
             self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
@@ -1288,7 +1348,8 @@ class WorkflowTests(unittest.TestCase):
                 moved.append(f"{path.name}:{name}")
                 self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
                 self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
-        self.assertIn("nightly-next-feed-watch.yml:watch", moved)
+        # nightly-next-feed-watch's watch, its last reader on main, names its runner as a literal now, so `moved`
+        # may be empty.
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a
@@ -1307,11 +1368,15 @@ class WorkflowTests(unittest.TestCase):
     def test_never_reads_a_lane_switch(self) -> None:
         # The switch never reads or changes a lane switch. One exception, read-only and outside the switch: the
         # pools step hands CI_OWNED_POOL_SLOTS to expected_wait.py, which judges an owned family's expected wait
-        # by its slots (cmuxterm-hq#16113 step 3) and never writes it.
-        [pools] = [step for step in yaml.safe_load(self.text)["jobs"]["watch"]["steps"] if step.get("id") == "pools"]
+        # by its slots (cmuxterm-hq#16113 step 3) and never writes it. The fast watch after it reruns that same pass
+        # (runner_pools.fast_watch()), so it hands the same value on.
+        steps = yaml.safe_load(self.text)["jobs"]["watch"]["steps"]
+        [pools] = [step for step in steps if step.get("id") == "pools"]
+        [watch] = [step for step in steps if "--fast-watch" in str(step.get("run", ""))]
         self.assertEqual(pools["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
+        self.assertEqual(watch["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
         slots_line = "          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}"
-        self.assertEqual(self.text.splitlines().count(slots_line), 1)
+        self.assertEqual(self.text.splitlines().count(slots_line), 2)
         code = "\n".join(line for line in self.text.splitlines()
                          if not line.lstrip().startswith("#") and line != slots_line)
         for name in LANE_SWITCHES:
@@ -1396,6 +1461,32 @@ class ReadTokenTests(unittest.TestCase):
         api.rerun(8)
         self.assertEqual([token for *_, token in sent], ["bot", "bot", "workflow", "workflow"])
 
+    def test_a_job_listing_is_complete_or_an_error(self) -> None:
+        def paged(pages: list[dict]) -> tuple[switch.GitHub, list[str]]:
+            api = switch.GitHub("bot", "manaflow-ai/cmux")
+            asked: list[str] = []
+
+            def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+                asked.append(path)
+                return pages[len(asked) - 1]
+            api._send = send  # type: ignore[method-assign]
+            return api, asked
+
+        full = [{"id": n} for n in range(100)]
+        # Read across pages until a short one.
+        api, asked = paged([{"total_count": 140, "jobs": full}, {"total_count": 140, "jobs": full[:40]}])
+        self.assertEqual(len(api.jobs(7)), 140)
+        self.assertEqual(asked, ["/actions/runs/7/jobs?per_page=100&page=1", "/actions/runs/7/jobs?per_page=100&page=2"])
+        # A short page while total_count says more: some jobs went unread.
+        api, _ = paged([{"total_count": 140, "jobs": full[:90]}])
+        with self.assertRaisesRegex(switch.GitHubError, "incomplete .90 of 140 jobs."):
+            api.jobs(7)
+        # Every page full: the rest past MAX_JOB_PAGES is unread.
+        api, asked = paged([{"jobs": full}] * switch.MAX_JOB_PAGES)
+        with self.assertRaisesRegex(switch.GitHubError, "incomplete"):
+            api.jobs(7, 2)
+        self.assertEqual(len(asked), switch.MAX_JOB_PAGES)
+
     def test_a_refused_read_is_not_asked_again_on_the_workflow_token(self) -> None:
         # The workflow token can never read a variable: its 403 hid the first refusal's cause.
         for code in (401, 403, 404, 429):
@@ -1468,8 +1559,11 @@ class ReadTokenTests(unittest.TestCase):
         [pools] = [s for s in steps if s.get("id") == "pools"]
         self.assertEqual(pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], "${{ steps.runners-token.outputs.token }}")
         self.assertLess(steps.index(mint), steps.index(pools))
+        # The fast watch reruns the pools step's pass (runner_pools.fast_watch()) with the same read.
+        [watch] = [s for s in steps if "--fast-watch" in str(s.get("run", ""))]
+        self.assertEqual(watch["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"])
         for other in steps:
-            if other is not pools:
+            if other is not pools and other is not watch:
                 self.assertNotIn("runners-token", json.dumps(other.get("env", {})), other.get("name"))
         [spill] = [s for s in steps if s.get("id") == "spill-tooling"]
         self.assertIn("f95bc766b1fc840ab8817e4d9bb61348a2084b07", spill["with"]["ref"])

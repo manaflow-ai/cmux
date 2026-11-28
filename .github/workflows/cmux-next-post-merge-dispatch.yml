@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout the tick logic from feat-cmux-next
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Fully qualified: a tag named feat-cmux-next must never be picked.
@@ -59,6 +59,10 @@ jobs:
       - name: Start one batch run when the tip is untested
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          # The other budget: post_merge_batch.py tries it on a read or write the App's spent budget refused.
+          # Before it, from 2026-11-27 23:55Z every tick for over 2 h ended "tick skipped: ... rate limit
+          # exceeded for installation" on the App alone and no batch ran. A script without GH_FALLBACK_TOKEN support ignores it.
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           NEXT_POST_MERGE_WINDOW_MINUTES: ${{ vars.NEXT_POST_MERGE_WINDOW_MINUTES }}
         run: |
           if [ ! -f scripts/ci/post_merge_batch.py ]; then

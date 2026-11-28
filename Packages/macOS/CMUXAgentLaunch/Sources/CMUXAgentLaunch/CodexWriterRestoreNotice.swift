@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 /// Sanitized recovery text shared by the native restore presentation and the CLI.
 public struct CodexWriterRestoreNotice: Sendable {

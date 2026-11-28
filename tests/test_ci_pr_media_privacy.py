@@ -388,6 +388,24 @@ class ScanTests(RepoCase):
         self.assertEqual([item["path"] for item in report["files"]], ["7/index.html"])
         self.assertNotIn("cmux3s", out)  # matched text is never printed
 
+    def test_budget_stops_at_a_chunk_and_moves_the_marker_there(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        first = self.commit({"1/a.png": "x"})
+        self.commit({"2/leak.png": "x"})
+        third = self.commit({"3/c.png": "x"})
+        env = {"PR_MEDIA_SCAN_CHUNK_COMMITS": "1", "PR_MEDIA_SCAN_BUDGET_SECONDS": "0.0001"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(privacy.time, "monotonic", side_effect=[0, 5, 10, 15, 20]):
+            report, out = self.scan(start, third, apply=False)
+        self.assertEqual(report["marker"], first)
+        self.assertTrue(report["partial"])
+        self.assertEqual(report["files"], [])
+        self.assertIn("time budget spent", out)
+        # The next run starts at the marker and reaches the tip, finding the leak.
+        report, _ = self.scan(first, third, apply=False)
+        self.assertEqual(report["marker"], third)
+        self.assertEqual([item["path"] for item in report["files"]], ["2/leak.png"])
+        self.assertEqual(privacy.chunk_boundaries(self.work, start, third)[-1], third)
+
     def test_no_marker_scans_nothing(self) -> None:
         end = self.commit({"5/leak.png": "x"})
         report, _ = self.scan(None, end, apply=True)
@@ -525,7 +543,7 @@ class WriterInventoryTests(unittest.TestCase):
                            ".github/workflows/pr-media.yml", ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", ".github/workflows/pr-media-privacy.yml",
-                    "scripts/ci/prune_pr_media.py", ".github/workflows/pr-media-prune.yml"}
+                    "scripts/ci/prune_pr_media.py"}
     # Names the files for CI routing; writes nothing.
     NOT_WRITERS = {"scripts/ci/workflow_guard_groups.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
@@ -908,8 +926,13 @@ class PublishWorkflowTests(unittest.TestCase):
 
     # workflow -> job id -> the script its publishing step runs
     WRITER_JOBS = {".github/workflows/pr-media.yml": {"publish": "scripts/ci/pr_media.py"}}
-    # Remove files or rewrite the retention index; they add no capture.
-    REMOVES_ONLY = {".github/workflows/pr-media-prune.yml", ".github/workflows/pr-media-privacy.yml"}
+    # Removal jobs rewrite the branch but do not capture media. Keep this exception
+    # job-scoped so another writer added to the shared maintenance workflow cannot
+    # bypass the publishing action checks.
+    REMOVES_ONLY_JOBS = {
+        (".github/workflows/storage-maintenance.yml", "pr-media"),
+        (".github/workflows/pr-media-privacy.yml", "scan"),
+    }
     # The 10-minute Vision rescan reads the repository's copy of the terms secret.
     RESCAN = (".github/workflows/pr-media-privacy.yml", "scan")
     ACTION_USE = "./.github/actions/pr-media-publish"
@@ -1000,9 +1023,9 @@ class PublishWorkflowTests(unittest.TestCase):
     def test_every_job_that_writes_pr_media_publishes_through_the_action(self) -> None:
         found = {}
         for workflow, loaded in self.workflows():
-            if workflow in self.REMOVES_ONLY:
-                continue
             for job_id, job in (loaded.get("jobs") or {}).items():
+                if (workflow, job_id) in self.REMOVES_ONLY_JOBS:
+                    continue
                 if not self.writes_pr_media(job):
                     continue
                 found.setdefault(workflow, set()).add(job_id)

@@ -5,10 +5,10 @@ Pull requests run a subset of the suite unless labeled `full-ci`, and the
 merge queue that used to run the full suite before landing is off. Without a
 full-suite run on main, a break outside that subset would never show.
 
-Runs are continuous, one at a time: a push to main starts one when none is in
-flight, and each run's completion starts the next on the newest HEAD. A red
-result therefore covers only the commits that landed during one run, instead
-of a three-hour window. The three-hour schedule stays as a backstop.
+Runs are batched, one at a time: a push to main starts one when none is in
+flight and the last one ended at least the batch gap (DEFAULT_GAP_MINUTES) ago,
+on the newest HEAD. A red result covers the commits that landed during one run
+and its gap. The every-30-minutes schedule is the gap's tail and a backstop.
 
 `gate` decides whether main's HEAD still needs a full-suite run. It holds when
 the run that just completed was already at HEAD, so an idle main never loops,
@@ -57,6 +57,12 @@ MAX_LOGGED_JOBS = 12
 MAX_LISTED_FAILURES = 20
 # Well past a full-suite run plus a long runner queue.
 STALE_IN_FLIGHT = timedelta(hours=6)
+# Batch gap (TAP / SubmitQueue style, goal ci-min-per-pr-14; Leo: "de facto, im asking for 99% fewer minutes
+# of ci time, period."): the next full-suite run starts this many minutes after the last one finished, on the
+# newest HEAD, so one run covers every merge since. Back to back, main ran 20 full suites a day (3,299 min on
+# 2026-11-26/27). The every-30-minutes schedule is the tail that checks the newest HEAD within the gap once it
+# passes. Repository variable MAIN_FULL_SUITE_GAP_MINUTES overrides it; 0 is back to back.
+DEFAULT_GAP_MINUTES = 30
 
 
 def is_main_full_suite_run(run: Mapping[str, object], branch: str) -> bool:
@@ -131,6 +137,39 @@ def latest_tested_run(runs: Iterable[Mapping[str, object]], branch: str = "main"
     ]
     tested.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
     return tested[0] if tested else None
+
+
+def parse_minutes(value: str | None, default: int = DEFAULT_GAP_MINUTES) -> int:
+    try:
+        return max(0, int(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def gap_reason(
+    runs: Iterable[Mapping[str, object]], gap_minutes: int, branch: str = "main", now: datetime | None = None,
+) -> str | None:
+    """Why the batch gap holds this dispatch, or None: the newest completed full-suite run (green, red or
+    cancelled) finished less than gap_minutes ago. No completed run in reach does not hold."""
+    if gap_minutes <= 0:
+        return None
+    done = [run for run in runs if is_main_full_suite_run(run, branch) and run.get("status") == "completed"]
+    finished = []
+    for run in done:
+        try:
+            finished.append((datetime.fromisoformat(str(run.get("updated_at") or run.get("created_at")).replace("Z", "+00:00")), run))
+        except ValueError:
+            continue
+    if not finished:
+        return None
+    end, last = max(finished, key=lambda item: item[0])
+    waited = ((now or datetime.now(timezone.utc)) - end).total_seconds() / 60
+    if waited >= gap_minutes:
+        return None
+    return (
+        f"run {last.get('id')} finished {waited:.0f} min ago, under the {gap_minutes} min batch gap; "
+        "the next push or the every-30-minutes schedule after the gap runs the newest HEAD"
+    )
 
 
 def failing_jobs(jobs: Iterable[Mapping[str, object]]) -> list[Mapping[str, object]]:
@@ -285,7 +324,8 @@ def command_gate(args: argparse.Namespace) -> int:
         )
     else:
         try:
-            held = in_flight_reason(list_runs(args.repo, args.branch, []), args.branch)
+            recent = list_runs(args.repo, args.branch, [])
+            held = in_flight_reason(recent, args.branch) or gap_reason(recent, args.gap_minutes, args.branch)
             if held is not None:
                 dispatch, reason = False, held
             else:
@@ -414,6 +454,8 @@ def main(argv: list[str]) -> int:
     gate.add_argument("--head-sha", required=True)
     gate.add_argument("--force", action="store_true")
     gate.add_argument("--completed-sha", help="head SHA of the full-suite run whose completion triggered this gate")
+    gate.add_argument("--gap-minutes", type=parse_minutes, default=parse_minutes(os.environ.get("MAIN_FULL_SUITE_GAP_MINUTES")),
+                      help=f"minutes after the last full-suite run ends before the next starts (default {DEFAULT_GAP_MINUTES})")
     gate.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
     gate.set_defaults(handler=command_gate)
 

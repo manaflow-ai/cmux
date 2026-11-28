@@ -1548,7 +1548,7 @@ class Backlog(unittest.TestCase):
         self.assertIn("CI_HOSTED_LIGHT_RESCUE_DISABLED", job_["if"])
         self.assertEqual(job_["permissions"], {"actions": "write", "contents": "read", "pull-requests": "read"})
         self.assertNotIn("ubuntu-24.04\",", job_["runs-on"])  # never queues behind the hosted backlog it drains
-        [checkout] = [s for s in job_["steps"] if s.get("with", {}).get("ref") == "main"]
+        [checkout] = [s for s in job_["steps"] if s.get("with", {}).get("ref") == "refs/heads/main"]
         self.assertFalse(checkout["with"]["persist-credentials"])
         [step] = [s for s in job_["steps"] if "hosted_light_rescue.py" in str(s.get("run", ""))]
         self.assertIn("--backlog", step["run"])
@@ -1556,6 +1556,59 @@ class Backlog(unittest.TestCase):
         self.assertIn("inputs.recover_since", step["env"]["BACKLOG_RECOVER_SINCE"])
         self.assertIn("inputs.run_ids", step["env"]["BACKLOG_RUN_IDS"])
         self.assertIn(rescue.BACKLOG_WORKFLOW, str(path))
+
+
+PR_CONTROL_JIT = "cmux-gcp-pr-control-jit-x64"
+GATE_JIT = "cmux-gcp-gate-jit-x64"
+
+
+class BacklogMovedJit(unittest.TestCase):
+    """--backlog also moves jobs left queued on a one-job JIT label after their route moved off it (cmux#49216)."""
+
+    def test_a_cmux_next_run_at_its_head_on_the_pr_control_label_is_cancelled_then_re_run(self):
+        # cmux-next.yml names the label on attempt 1 only, so the re-run (attempt 2) takes RUNNER_POOLS instead.
+        fake = BacklogFake([backlog_run(1, pr=11, workflow="cmux-next.yml")],
+                           {1: [job("cmux-next push head preflight", labels=(PR_CONTROL_JIT,), waited=3 * 3600)]},
+                           pulls={11: OPEN_AT_HEAD})
+        first, second = two_passes(fake, declared=())
+        self.assertEqual(backlog_mutations(fake), [("cancel", 1), ("rerun", 1)])
+        self.assertEqual((first["cancelled"], first["journalled"], second["recovered"]), (1, 1, 1))
+
+    def test_a_superseded_run_on_either_label_is_only_cancelled_whatever_its_workflow(self):
+        runs = [backlog_run(2, pr=12, workflow="pr-status.yml"), backlog_run(3, pr=13, workflow="backend-migrations.yml")]
+        moved = {"state": "open", "head": {"sha": "b" * 40}}
+        fake = BacklogFake(runs, {2: [job("status", labels=(PR_CONTROL_JIT,), waited=6000)],
+                                  3: [job("migrate", labels=(GATE_JIT,), waited=6000)]}, pulls={12: moved, 13: moved})
+        first, second = two_passes(fake, declared=())
+        self.assertEqual(sorted(backlog_mutations(fake)), [("cancel", 2), ("cancel", 3)])
+        self.assertEqual((first["cancelled"], first["superseded"], second["recovered"]), (2, 2, 0))
+
+    def test_a_run_at_its_head_whose_re_run_takes_the_same_label_stays_queued(self):
+        # pr-status.yml and backend-migrations.yml name their JIT label on every attempt: a re-run only loses its place.
+        runs = [backlog_run(4, pr=14, workflow="pr-status.yml"), backlog_run(5, pr=15, workflow="backend-migrations.yml"),
+                backlog_run(6, pr=16, workflow="cmux-next.yml")]
+        fake = BacklogFake(runs, {4: [job("status", labels=(PR_CONTROL_JIT,), waited=6000)],
+                                  5: [job("migrate", labels=(GATE_JIT,), waited=6000)],
+                                  6: [job("compile", labels=(GATE_JIT,), waited=6000)]},
+                           pulls={14: OPEN_AT_HEAD, 15: OPEN_AT_HEAD, 16: OPEN_AT_HEAD})
+        lines, counts = backlog(fake, declared=())
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertEqual((counts["stalled"], counts["stays"], counts["cancelled"]), (3, 3, 0))
+        self.assertTrue(any("run 4 " in line and f"would queue on {PR_CONTROL_JIT} again" in line for line in lines))
+
+    def test_a_jit_job_beside_another_label_or_under_thirty_minutes_is_not_stalled(self):
+        self.assertFalse(rescue.backlog_stalled(job("x", labels=(PR_CONTROL_JIT, "cmux-has-docker"), waited=6000), NOW))
+        self.assertFalse(rescue.backlog_stalled(job("x", labels=(PR_CONTROL_JIT,), waited=600), NOW))
+        self.assertFalse(rescue.backlog_stalled(job("x", labels=("cmux-gcp-nightly-jit-x64",), waited=6000), NOW))
+        self.assertTrue(rescue.backlog_stalled(job("x", labels=(GATE_JIT,), waited=6000), NOW))
+
+    def test_push_and_nightly_runs_on_the_label_are_never_touched(self):
+        runs = [backlog_run(7, event="push", pr=17, workflow="cmux-next.yml"),
+                backlog_run(8, pr=18, workflow="nightly.yml")]
+        fake = BacklogFake(runs, {r["id"]: [job("x", labels=(PR_CONTROL_JIT,), waited=6000)] for r in runs},
+                           pulls={17: OPEN_AT_HEAD, 18: {"state": "open", "head": {"sha": "b" * 40}}})
+        _, counts = backlog(fake, declared=())
+        self.assertEqual((backlog_mutations(fake), counts["read"]), ([], 0))
 
 
 if __name__ == "__main__":

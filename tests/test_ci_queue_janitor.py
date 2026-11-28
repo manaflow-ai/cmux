@@ -294,6 +294,32 @@ class ProtectionTests(unittest.TestCase):
             name="Xcode incremental generation canary", path=".github/workflows/incremental-state-canary.yml")))
 
 
+    CI_RUN_NAME = ("v1;sha=9523b2615f96056be6b556c4df331abac4856c59;ref=lane/qol-activity-agent-label;cache=r2;"
+                   "release=arm64;coverage=compile-only")
+
+    def test_a_ci_run_names_release_setting_does_not_protect_it(self):
+        # Run 46059745828: attempt 2 of ci.yml at merged PR #53898's head, ten macOS jobs queued 179 minutes.
+        run = make_run(name=self.CI_RUN_NAME, branch="lane/qol-activity-agent-label", attempt=2)
+        self.assertIsNone(janitor.protected_reason(run))
+        verdict = janitor.classify(run, janitor.macos_usage(mac_jobs(queued=10)), make_pr(state="MERGED"),
+                                   newer_ci_run_waiting=False, pull_request_policy="compile-only", now=NOW)
+        self.assertEqual(verdict[0], "stale-pr")
+        self.assertIn("merged", verdict[1])
+
+    def test_a_merged_pull_requests_ci_run_is_cancelled_on_a_backed_up_pool(self):
+        run = make_run(name=self.CI_RUN_NAME, branch="feature", attempt=2)
+        result = plan([run], {run["id"]: mac_jobs(queued=10)}, prs={"feature": [make_pr(state="MERGED")]})
+        self.assertEqual([(d.candidate.run["id"], d.action) for d in result.decisions], [(run["id"], "cancel")])
+
+    def test_release_words_outside_the_setting_still_protect(self):
+        for name, path in (("Release;release=arm64", ".github/workflows/ci.yml"),
+                           ("v1;release=arm64", ".github/workflows/release.yml"),
+                           ("release=arm64 build", ".github/workflows/ci.yml"),
+                           ("v1;sha=a;publish=1", ".github/workflows/ci.yml")):
+            with self.subTest(name=name, path=path):
+                self.assertIsNotNone(janitor.protected_reason(make_run(name=name, path=path)))
+
+
 class CategoryTests(unittest.TestCase):
     def classify(self, run, pr=None, *, jobs=None, newer=False, policy="compile-only"):
         usage = janitor.macos_usage(jobs if jobs is not None else mac_jobs(queued=2))
@@ -2578,11 +2604,13 @@ class ReadTokenSplitTests(unittest.TestCase):
     def test_under_the_floor_the_sweep_stops_instead_of_draining_the_read_installation(self):
         """2026-11-20 23:10-23:18Z: one sweep's 57 run pages and 2,000 job listings left glaeda-route at 872 of 5000,
         and the runner scaler, which mints on the same installation, read 0 left at 00:24Z with 396 lane-build and 200
-        gate creates waiting. Under READ_TOKEN_FLOOR a read is not sent: the sweep ends as a rate-limit skip, on
-        neither token."""
+        gate creates waiting. Under READ_TOKEN_FLOOR, with the sweep token at or under its own SWEEP_TOKEN_READ_FLOOR
+        too, a read is not sent: the sweep ends as a rate-limit skip, on neither token."""
         github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
         github.use_read_token("reader")
         github.read_token_floor = 3000
+        github.sweep_token_read_floor = 4000
+        github.rate_limits["core"] = {"remaining": 4000}
         sent = []
         left = iter(["3100", "3000"])
 
@@ -2600,6 +2628,65 @@ class ReadTokenSplitTests(unittest.TestCase):
             github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/cancel")
         self.assertEqual(sent, ["Bearer reader", "Bearer reader", "Bearer bot"])
         self.assertIn("READ_TOKEN_FLOOR", github.rate_limited)
+        self.assertIn("SWEEP_TOKEN_READ_FLOOR", github.rate_limited)
+
+    def test_under_the_read_floor_the_reads_move_to_the_sweep_token_while_it_has_room(self):
+        """2026-11-27 19:14Z-20:05Z: glaeda-route sat under READ_TOKEN_FLOOR (2,574 left at 19:22Z, 796 at 19:52Z, run
+        46059609305) while cmux-bot had over 8,000 left. Every sweep stopped at its first run page, ended green and
+        uploaded no macos-pool-load snapshot for 55 minutes. Now the reads go on the sweep's own token while that
+        token has more than SWEEP_TOKEN_READ_FLOOR left (read once from GET /rate_limit, which GitHub does not
+        count), the read installation keeps its floor, and the sweep stops only once both are at their floors."""
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        github.read_token_floor = 3000
+        github.sweep_token_read_floor = 4000
+        github.rate_limits["core (read token)"] = {"remaining": 2574}
+        sent = []
+        bot_left = iter(["4100", "4000"])
+
+        def urlopen(request, timeout=30):
+            sent.append((request.full_url.split("api.github.com", 1)[-1].split("?")[0],
+                         request.get_header("Authorization")))
+            if request.full_url.endswith("/rate_limit"):
+                return self.Response(json.dumps({"resources": {"core": {"limit": 12500, "remaining": 8488,
+                                                                         "used": 4012}}}).encode())
+            return self.Response(b'{"jobs": []}', self.budget(next(bot_left)))
+
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), mock.patch("builtins.print"):
+            github.jobs(1)  # cmux-bot unread: one free /rate_limit read says 8488 left, so the read goes on it
+            github.jobs(2)  # its answer said 4100 left, above 4000: on cmux-bot again; this one says 4000
+            with self.assertRaises(janitor.RateLimited):
+                github.jobs(3)  # both at their floors: not sent
+        self.assertEqual(sent, [("/rate_limit", "Bearer bot"), ("/repos/manaflow-ai/cmux/actions/runs/1/jobs", "Bearer bot"),
+                                ("/repos/manaflow-ai/cmux/actions/runs/2/jobs", "Bearer bot")])
+        self.assertIn("SWEEP_TOKEN_READ_FLOOR", github.moved_reads)
+        self.assertIn("SWEEP_TOKEN_READ_FLOOR", github.rate_limited)
+
+    def test_an_unread_sweep_token_budget_or_a_zero_floor_keeps_the_stop(self):
+        for floor, answer in ((4000, None), (0, b'{"resources": {"core": {"remaining": 9000}}}')):
+            with self.subTest(floor=floor):
+                github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+                github.use_read_token("reader")
+                github.read_token_floor = 3000
+                github.sweep_token_read_floor = floor
+                github.rate_limits["core (read token)"] = {"remaining": 10}
+                sent = []
+
+                def urlopen(request, timeout=30, answer=answer):
+                    sent.append(request.full_url)
+                    if answer is None:
+                        raise urllib.error.URLError("connection reset")
+                    return self.Response(answer)
+
+                with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), mock.patch("builtins.print"):
+                    with self.assertRaises(janitor.RateLimited):
+                        github.jobs(1)
+                self.assertTrue(all(url.endswith("/rate_limit") for url in sent), sent)
+
+    def test_the_sweep_token_keeps_a_4000_call_floor_by_default(self):
+        self.assertEqual(janitor.SWEEP_TOKEN_READ_FLOOR, 4000)
+        text = (ROOT / ".github/workflows/ci-queue-janitor.yml").read_text()
+        self.assertIn("SWEEP_TOKEN_READ_FLOOR: ${{ vars.CI_JANITOR_SWEEP_TOKEN_READ_FLOOR }}", text)
 
     def test_at_the_floor_a_capped_cancel_still_reads_its_run_and_cancels(self):
         """2026-11-24 19:05Z, sweep 45464022363: the listing left glaeda-route at READ_TOKEN_FLOOR, then each planned
@@ -2609,6 +2696,8 @@ class ReadTokenSplitTests(unittest.TestCase):
         github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
         github.use_read_token("reader")
         github.read_token_floor = 3000
+        # cmux-bot's reads below (7000 left) stay under this, so past the cancels the listing still stops.
+        github.sweep_token_read_floor = 8000
         github.rate_limits["core (read token)"] = {"remaining": 2900}
         run = make_run(status="queued")
         ghost = make_run(status="queued", age=60 * 48)
@@ -2858,7 +2947,7 @@ class BranchWorkflowCopyTests(unittest.TestCase):
         steps = workflow["jobs"]["sweep"]["steps"]
         checkout = next(step for step in steps if step.get("name") == "Check out feat-cmux-next's workflow files")
         self.assertEqual(checkout["uses"].split("@")[0], "actions/checkout")
-        self.assertEqual(checkout["with"]["ref"], "feat-cmux-next")
+        self.assertEqual(checkout["with"]["ref"], "refs/heads/feat-cmux-next")
         self.assertEqual(checkout["with"]["sparse-checkout"], ".github/workflows")
         self.assertIs(checkout["with"]["persist-credentials"], False)
         # A failed fetch only means that branch's runs are all listed, as before.
@@ -4444,6 +4533,32 @@ class FleetGatesTests(unittest.TestCase):
         self.assertEqual(gates, janitor.fleet_gates(json.dumps(gates_reading()))[0])
         self.assertEqual(gates["version"], 1)
         self.assertNotIn("disk", gates)
+
+    def test_the_dashboards_live_reading_with_an_owned_linux_label_is_read(self):
+        # The 2026-11-21 CI_FLEET_GATES carried `cmux-fleet-linux-x64` (native Linux listeners, owned fleet capacity
+        # beside the glaeda pools), with other_by and a disk inventory. This reader took glaeda- labels alone and
+        # refused that reading whole, so every starved-label page (cmux#55737, #55844) said "no fleet gate reading".
+        row = dict(gates_reading()["labels"]["glaeda-std-xcode-26.6"],
+                   held_offline={"total": 2, "units": 1, "cpu": 0, "livelock": 0, "other": 1,
+                                 "other_by": {"host_lock": 1, "memory": 0, "restart": 0, "rest": 0}})
+        linux = {"listening": 3, "busy": 40, "held_offline": {"total": 0, "units": 0, "cpu": 0, "livelock": 0,
+                                                              "other": 0}, "down": 2, "unreported": 0, "queued": 19,
+                 "oldest_queued_s": 900, "as_of": "2026-09-22T16:58:00Z"}
+        live = dict(gates_reading(), version=2, disk={"hosts": [{"host": "m1", "free_gib": 80}]},
+                    labels={"glaeda-std-xcode-26.6": row, "cmux-fleet-linux-x64": linux})
+        gates, why = janitor.fleet_gates(json.dumps(live))
+        self.assertIsNone(why)
+        self.assertEqual(sorted(gates["labels"]), ["cmux-fleet-linux-x64", "glaeda-std-xcode-26.6"])
+        self.assertEqual(gates["labels"]["cmux-fleet-linux-x64"]["busy"], 40)
+        self.assertNotIn("other_by", gates["labels"]["glaeda-std-xcode-26.6"]["held_offline"])
+        # the dashboard's cut body (no disk, other_by or per-label as_of) reads the same
+        cut = {"version": 2, "as_of": live["as_of"], "labels": {
+            label: {k: v for k, v in dict(r, held_offline={k: v for k, v in r["held_offline"].items()
+                                                           if k != "other_by"}).items() if k != "as_of"}
+            for label, r in live["labels"].items()}}
+        self.assertEqual(janitor.fleet_gates(json.dumps(cut)), (gates, None))
+        self.assertTrue(janitor.fleet_gates_label("cmux-fleet-linux-x64"))
+        self.assertFalse(janitor.fleet_gates_label("cmux-fleet-linux-x64-big"))
 
     def test_a_reading_out_of_shape_is_refused_whole(self):
         bad = {
@@ -6780,6 +6895,38 @@ class JoblessSweepTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [])
         self.assertFalse(any("/actions/workflows/" in path and "status" not in path for _, path in fake.log))
 
+
+
+class JobListingIsCompleteTests(unittest.TestCase):
+    """GitHub.jobs() answers every job of a run or raises: a listing cut short can hide a running job, and a cancel
+    made on it would cut that job (the review BLOCK on cmux#27114)."""
+
+    def jobs(self, pages):
+        github = janitor.GitHub("token", "manaflow-ai/cmux")
+        asked = []
+
+        def request(method, path, body=None):
+            asked.append(path)
+            return pages[len(asked) - 1]
+
+        github.request = request
+        return github, asked
+
+    def test_every_page_is_read_until_a_short_one(self):
+        full = [{"id": index} for index in range(100)]
+        github, asked = self.jobs([{"total_count": 140, "jobs": full}, {"total_count": 140, "jobs": full[:40]}])
+        self.assertEqual(len(github.jobs(7)), 140)
+        self.assertEqual(len(asked), 2)
+
+    def test_a_cut_listing_raises(self):
+        full = [{"id": index} for index in range(100)]
+        github, asked = self.jobs([{"jobs": full}] * janitor.MAX_JOB_PAGES)
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            github.jobs(7)
+        self.assertEqual(len(asked), janitor.MAX_JOB_PAGES)
+        github, _ = self.jobs([{"total_count": 140, "jobs": full[:90]}])
+        with self.assertRaisesRegex(RuntimeError, "90 of 140"):
+            github.jobs(7)
 
 if __name__ == "__main__":
     unittest.main()

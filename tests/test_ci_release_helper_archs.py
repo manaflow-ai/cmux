@@ -89,6 +89,11 @@ case "$1" in
   *) exit 2 ;;
 esac
 ''')
+        # The step logs `file` on each binary; some Linux guard runners (hetzner-1-16,
+        # run 46023799545) have no `file`, so the fixture brings its own like lipo and otool.
+        self.tool('bin/file', '''#!/bin/bash
+for f in "$@"; do printf '%s: Mach-O fixture\\n' "$f"; done
+''')
         self.tool('bin/otool', '''#!/bin/bash
 case "$2" in *ghostty-cli-helper*) sdk=15.5 ;; *) sdk=26.3 ;; esac
 printf 'cmd LC_BUILD_VERSION\\n sdk %s\\n' "$sdk"

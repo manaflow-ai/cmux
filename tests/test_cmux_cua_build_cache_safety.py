@@ -46,18 +46,23 @@ def fake_tool_environment(root: Path, sha: str) -> dict[str, str]:
         bin_dir / "git",
         f"""#!/bin/bash
 set -eu
-if [[ "${{1:-}}" == "clone" ]]; then
-  target="${{@: -1}}"
-  mkdir -p "$target/.git" "$target/libs/cmux-cua/rust"
-  : > "$target/libs/cmux-cua/rust/Cargo.toml"
-  : > "$target/LICENSE.md"
+if [[ "${{1:-}}" == "init" ]]; then
+  mkdir -p "${{@: -1}}/.git"
   exit 0
 fi
 if [[ "${{1:-}}" == "-C" ]]; then
+  dir="$2"
   shift 2
   case "${{1:-}}" in
-    cat-file|checkout|clean|fetch|apply) exit 0 ;;
+    fetch)
+      mkdir -p "$dir/libs/cmux-cua/rust"
+      : > "$dir/libs/cmux-cua/rust/Cargo.toml"
+      : > "$dir/LICENSE.md"
+      exit 0
+      ;;
+    cat-file|checkout|clean|apply) exit 0 ;;
     remote)
+      [[ "${{2:-}}" == "add" ]] && exit 0
       echo "fake://cmux-cua"
       exit 0
       ;;
@@ -225,12 +230,101 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
         ).is_file()
 
 
+def test_source_only_fetches_with_token_and_skips_cargo(sha: str) -> None:
+    # Main's run 45760337662: the build phase's anonymous `git clone` of
+    # cmux-cua got 403 on an owned Mac. CI now runs --source-only with the
+    # run's token before xcodebuild; the header rides on the clone alone and
+    # never lands in the cache's git config.
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-source-only-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        environment = fake_tool_environment(root, sha)
+        git_log = root / "git-auth.log"
+        real_git = root / "bin" / "git"
+        real_git.rename(root / "bin" / "git-fake")
+        write_executable(
+            real_git,
+            f"""#!/bin/bash
+header=""
+for ((i = 0; i < ${{GIT_CONFIG_COUNT:-0}}; i++)); do
+  key="GIT_CONFIG_KEY_$i"
+  value="GIT_CONFIG_VALUE_$i"
+  [[ "${{!key}}" == http.https://github.com/.extraheader ]] && header="${{!value}}"
+done
+args=("$@")
+[[ "${{1:-}}" == "-C" ]] && args=("${{@:3}}")
+printf '%s|%s\\n' "${{args[*]}}" "$header" >> "{git_log}"
+exec "{root / 'bin' / 'git-fake'}" "$@"
+""",
+        )
+        environment["CMUX_CUA_GIT_TOKEN"] = "test-token"
+        result = subprocess.run(
+            [str(BUILD_SCRIPT), "--source-only", "--cache-dir", str(cache_dir)],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        source_dir = cache_dir / f"src-{sha}"
+        assert (source_dir / ".cmux-cua-managed-source").is_file()
+        lines = git_log.read_text().splitlines()
+        # Main's run 45883792920: a full clone of cmux-cua's history ran ten
+        # minutes and died on `curl 18`. Only the pinned commit is fetched.
+        assert not [line for line in lines if line.startswith("clone")], lines
+        fetch = [line for line in lines if line.startswith("fetch ")]
+        assert fetch == [
+            f"fetch --quiet --depth 1 origin {sha}|AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46dGVzdC10b2tlbg=="
+        ], lines
+        # Local commands (init, checkout, clean, rev-parse) carry no header.
+        assert all(line.endswith("|") for line in lines if not line.startswith("fetch ")), lines
+        assert not (root / "output").exists()
+        assert not list(cache_dir.glob("build-src-*"))
+
+
+def test_a_dropped_fetch_is_retried(sha: str) -> None:
+    # Main's run 45883792920 lost compile admission to one dropped transfer
+    # (`curl 18 Transferred a partial file`). A second attempt fetches it.
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-fetch-retry-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        environment = fake_tool_environment(root, sha)
+        attempts = root / "fetch-attempts"
+        real_git = root / "bin" / "git"
+        real_git.rename(root / "bin" / "git-fake")
+        write_executable(
+            real_git,
+            f"""#!/bin/bash
+if [[ "${{1:-}}" == "-C" && "${{3:-}}" == "fetch" ]]; then
+  echo x >> "{attempts}"
+  if [[ "$(wc -l < "{attempts}")" -eq 1 ]]; then
+    echo "error: RPC failed; curl 18 Transferred a partial file" >&2
+    exit 128
+  fi
+fi
+exec "{root / 'bin' / 'git-fake'}" "$@"
+""",
+        )
+        environment["CMUX_CUA_FETCH_RETRY_DELAY_SECONDS"] = "0"
+        result = subprocess.run(
+            [str(BUILD_SCRIPT), "--source-only", "--cache-dir", str(cache_dir)],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert attempts.read_text().count("x") == 2
+        assert "attempt 1 of 3" in result.stderr, result.stderr
+        assert (cache_dir / f"src-{sha}" / ".cmux-cua-managed-source").is_file()
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
+    test_source_only_fetches_with_token_and_skips_cargo(sha)
+    test_a_dropped_fetch_is_retried(sha)
     print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 

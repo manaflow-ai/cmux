@@ -19,8 +19,11 @@ name: CI queue janitor watchdog
 # watchdog reads the label's live roster (scripts/ci/janitor_watchdog_roster.py):
 # an online runner on it means saturated (a warning, no starved issue, and a
 # starved issue this watchdog filed is closed); none online means starved; an
-# unreadable roster keeps the snapshot-only alert and names the roster unknown
-# (tests/test_ci_janitor_watchdog.py).
+# unreadable roster files nothing until the snapshot is UNREAD_ROSTER_SECONDS
+# old, then keeps the snapshot-only alert and names the roster unknown
+# (tests/test_ci_janitor_watchdog.py). 2026-11-22 23:13Z: GitHub's runner
+# listings answered 503 and timed out, and cmux#51120 filed cmux-fleet-linux-x64
+# "starved" at a 2816 s snapshot while 2215 of its runners were online.
 
 on:
   schedule:
@@ -58,11 +61,14 @@ jobs:
       # The sweep's label, from the same variable as ci-queue-janitor.yml's runs-on.
       LABEL: ${{ vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}
       STALE_SECONDS: "1800"
+      # An unread roster files only past this age: a GitHub outage that hides the roster also delays the sweep.
+      UNREAD_ROSTER_SECONDS: "3600"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/janitor_watchdog_roster.py
+            .github/actions/app-token-spread/
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -71,7 +77,7 @@ jobs:
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud. It follows the
       # workspace checkout above, whose clean would remove it.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -91,10 +97,12 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -135,6 +143,12 @@ jobs:
             for number in $ours; do
               gh issue close "$number" --comment "The janitor snapshot is ${age}s old, but \`$LABEL\` is saturated, not starved ($detail): the sweep waits behind that label's queue. Closing this snapshot-age alert."
             done
+            exit 0
+          fi
+          if [ "$state" = "unknown" ] && [ "$age" -lt "${UNREAD_ROSTER_SECONDS:-3600}" ]; then
+            # Unread is not starved: wait for a real read, or for the snapshot to pass UNREAD_ROSTER_SECONDS.
+            echo "::warning::Runner roster unread: $LABEL: no janitor snapshot for ${age}s; $detail; not filing before ${UNREAD_ROSTER_SECONDS:-3600}s"
+            echo "- Runner roster unread: $LABEL: no janitor snapshot for ${age}s; $detail; not filing before ${UNREAD_ROSTER_SECONDS:-3600}s" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [ "$state" = "starved" ]; then

@@ -1,0 +1,152 @@
+name: Customize copy-paste prompts (cold model, nightly)
+
+# Every copy-paste prompt in skills/cmux-extension-author/prompts/ handed, as a person would paste it, to a fresh
+# Claude Code in an empty folder (scripts/cmux-next/ext-recipe-cold-model.py --prompts). A prompt passes only when
+# the folder it leaves ends in a working customization: `cmux ext dev --once --headless --json` exits 0 (the real
+# QuickJS app host loads and renders it, no cmux running) and its scene shows the text the page's prompt-check names.
+#
+# Leo: "good docs for agents and good copy-paste prompts for agents"
+#
+# The schedule registers from main; the prompts, the script and the cmux client always come from feat-cmux-next.
+on:
+  schedule:
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+    inputs:
+      prompts:
+        description: space-separated prompt names (sidebar-show clone-app-flow ...); default every prompt
+        default: ""
+      model:
+        description: the Claude model the cold agent runs on
+        default: haiku
+
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+
+concurrency:
+  group: customize-prompts-cold-model
+  cancel-in-progress: false
+
+jobs:
+  prompts:
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Allow the tree publication wait (30 min), GitHub retry budget (60 min), and cold agent (60 min).
+    timeout-minutes: 165
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      id-token: write # The tailnet join for the Claude login pool (.github/actions/claude-pool).
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: refs/heads/feat-cmux-next
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+            .github/actions/claude-pool/
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Install feat-cmux-next's published cmux-tui client
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          # The client published for this tree (resolve-exact, as gateway-e2e.yml does), waited for up to 30 minutes.
+          resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=1800 CMUX_TUI_TREE_PUBLISHER_SHA="$head" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+          printf '%s\n' "$resolved"
+          client_commit="$(sed -n 's/^commit=//p' <<<"$resolved")"
+          [[ "$client_commit" =~ ^[0-9a-f]{40}$ ]]
+          source scripts/ci/ensure-gh-attestation.sh
+          base="https://files.cmux.com/cmux-tui/$client_commit"
+          bin="$(mktemp -d "$RUNNER_TEMP/cmux-linux.XXXXXX")"
+          manifest="$bin/manifest.json"
+          download=(curl --proto '=https' -fsSL --retry 3 --connect-timeout 10 --max-time 180)
+          "${download[@]}" "$base/manifest.json" -o "$manifest"
+          digest="$(sha256sum "$manifest" | cut -d' ' -f1)"
+          signer=(--repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml" --source-digest "$client_commit")
+          if ! { curl -fsS --connect-timeout 5 --max-time 30 "https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json" -o "$bin/bundle.json" &&
+                 gh attestation verify "$manifest" --bundle "$bin/bundle.json" "${signer[@]}"; }; then
+            gh_waiting_out_rate_limit attestation verify "$manifest" "${signer[@]}"
+          fi
+          jq -e --arg commit "$client_commit" '.commit == $commit' "$manifest" >/dev/null
+          target="$(uname -m)-unknown-linux-musl"
+          for name in cmux cmux-app-host; do
+            asset="${name/#cmux/cmux-tui}-$target"
+            expected="$(jq -er --arg asset "$asset" '.binaries[$asset] | select(type == "string" and test("^[0-9a-f]{64}$"))' "$manifest")"
+            "${download[@]}" "$base/$asset" -o "$bin/$name"
+            printf '%s  %s\n' "$expected" "$bin/$name" | sha256sum --check
+            chmod +x "$bin/$name"
+          done
+          "$bin/cmux" --version
+          "$bin/cmux" customize prompts >/dev/null
+          echo "$bin" >> "$GITHUB_PATH"
+      - name: Verify the command prompts against the installed client and app host
+        env:
+          CMUX_TEST_PROMPT_CLI: "1"
+        run: |
+          command -v cmux-app-host
+          python3 tests/test_ext_prompt_checks.py
+          python3 tests/test_ext_prompt_composer.py
+          python3 tests/test_ext_prompt_palette.py
+      - name: Install Claude Code
+        run: npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.gh-budget-tooling/.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
+      - name: Paste every prompt into a cold agent
+        timeout-minutes: 60
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_POOL_URL: ${{ steps.pool.outputs.base-url }}
+          PROMPTS: ${{ inputs.prompts }}
+          MODEL: ${{ inputs.model || 'haiku' }}
+        run: |
+          set -uo pipefail
+          if [ -n "${CLAUDE_POOL_URL:-}" ]; then export ANTHROPIC_BASE_URL="$CLAUDE_POOL_URL" ANTHROPIC_AUTH_TOKEN=subrouter2; unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; fi
+          picks=()
+          for name in $PROMPTS; do picks+=(--recipe "$name"); done
+          python3 scripts/cmux-next/ext-recipe-cold-model.py --prompts --headless --json --model "$MODEL" "${picks[@]}" \
+            > "$RUNNER_TEMP/prompts.json"
+          status=$?
+          python3 - "$RUNNER_TEMP/prompts.json" >> "$GITHUB_STEP_SUMMARY" <<'PY' || true
+          import json, sys
+          rows = json.load(open(sys.argv[1]))
+          print("| prompt | result | wall s | source reads | guesses | docs reads | why |\n|---|---|---|---|---|---|---|")
+          for r in rows:
+              print(f"| {r['recipe']} | {'pass' if r['passed'] else 'FAIL'} | {r.get('wallSeconds')} | {r.get('sourceReads')}"
+                    f" | {r.get('guesses')} | {r.get('docReads')} | {(r.get('why') or '').replace('|', '/')} |")
+          print("\nEvery source read and every guess is a docs bug: fix the page or `cmux customize docs`.")
+          PY
+          cat "$RUNNER_TEMP/prompts.json"
+          exit "$status"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: customize-prompts-cold-model
+          path: ${{ runner.temp }}/prompts.json
+          if-no-files-found: ignore
+          retention-days: 3  # retention-class: report

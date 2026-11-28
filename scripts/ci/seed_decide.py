@@ -60,6 +60,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import simple_pool_picker  # noqa: E402
 import warm_distance  # noqa: E402
 
 WORKFLOW = "seed-derived-data.yml"
@@ -195,16 +196,32 @@ def decide(
     fingerprint_of: Callable[[str, str], str] = fingerprint,
     tier_of: Callable[[str], str] = warm_tier,
     far: list[str] | None = None,
+    dead: Iterable[str] = (),
 ) -> tuple[list[str], list[str]]:
     """(pools to build, in order, one reason per pool) for (pool, Xcode) pairs.
 
     FAR, when given, receives the pools to build whose tier from their
     covering seed is not near (the far lane).
+
+    DEAD is the set of labels RUNNER_POOLS marks dead (dead_pools()). A seed is only cache warming, and a job
+    queued on a dead label waits forever (hosted#1015: seed (blacksmith-6vcpu-macos-15) queued for hours on
+    every push to main), so such a pool is skipped, and each skip is logged. A workflow_dispatch builds
+    what it is told to.
     """
     unique: list[tuple[str, str]] = []
+    skipped: list[str] = []
+    dead = set(dead)
     for pool, xcode in pools:
         if pool and pool not in [seen for seen, _ in unique]:
+            if event_name != "workflow_dispatch" and pool.partition("@")[0] in dead:
+                if pool not in [name.split(":")[0] for name in skipped]:
+                    skipped.append(f"{pool}: RUNNER_POOLS marks its label dead; skipping, a seed there would queue "
+                                   "forever and it is only cache warming.")
+                continue
             unique.append((pool, xcode))
+    if skipped:
+        build, reasons = decide(event_name, repository, unique, api, ancestors, fingerprint_of, tier_of, far)
+        return build, skipped + reasons
     if event_name == "workflow_dispatch":
         return [pool for pool, _ in unique], [f"{pool}: dispatched; building." for pool, _ in unique]
     try:
@@ -247,6 +264,17 @@ def lane_reason(seeds: Seeds, pool: str, history: list[str], tier_of: Callable[[
     return f"{'Far' if tier != 'near' else 'Near'} lane: {where}."
 
 
+def dead_pools(raw: str | None) -> set[str]:
+    """The labels the RUNNER_POOLS value marks dead (runner_pools.py's `_dead`, fresh within its TTL).
+
+    Unset, unreadable or malformed reads as none, so the pools build as they did before."""
+    try:
+        return simple_pool_picker.marked_dead(simple_pool_picker.runner_pools(raw))
+    except Exception as error:  # noqa: BLE001 - an unreadable signal must keep today's behaviour
+        print(f"Could not read RUNNER_POOLS' dead marks ({type(error).__name__}: {error}); skipping no pool.")
+        return set()
+
+
 def parse_pool(value: str) -> tuple[str, str]:
     pool, separator, xcode = value.partition("=")
     if not separator:
@@ -260,12 +288,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--pool", type=parse_pool, action="append", required=True)
     parser.add_argument("--event-name", default="push")
     parser.add_argument("--github-output")
+    parser.add_argument("--runner-pools", default="", help="the RUNNER_POOLS variable; pools on a label it marks dead are skipped")
     args = parser.parse_args(argv)
     for pool, _ in args.pool:
         if pool:
             lane(pool)
     far: list[str] = []
-    build, reasons = decide(args.event_name, args.repository, args.pool, far=far)
+    build, reasons = decide(args.event_name, args.repository, args.pool, far=far, dead=dead_pools(args.runner_pools))
     print("\n".join(reasons))
     if args.github_output:
         matrix = {"include": [lane(pool) for pool in build]}

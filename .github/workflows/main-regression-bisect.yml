@@ -47,7 +47,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -58,7 +58,18 @@ jobs:
             cmuxTests
             .github/workflows
 
+      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this recurring pass sends
+      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/job_token_floor.py main-regression-bisect/advance
+
       - name: Advance
+        if: steps.job-floor.outputs.held != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           # The job token cannot list repository variables; the dispatcher

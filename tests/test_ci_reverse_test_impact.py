@@ -480,7 +480,7 @@ class WorkflowGuardTests(unittest.TestCase):
         fork = ("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
                 " && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || ")
         self.assertIn(fork, jobs_line(self.jobs["changes"], "runs-on"))
-        self.assertEqual(self.job_line("runs-on"), "    runs-on: ${{ " + fork + "'cmux-linux' }}")
+        self.assertEqual(self.job_line("runs-on"), "    runs-on: ${{ " + fork + "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
 
     def test_the_report_job_writes_no_outputs(self) -> None:
         self.assertFalse(any(line.startswith("    outputs:") for line in self.job.splitlines()))
