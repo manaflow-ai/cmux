@@ -144,6 +144,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pendingFocus = false {
         didSet {
             guard pendingFocus != oldValue else { return }
+            // The ask is granted or taken back: nothing waits for its window to come on screen any more.
+            if !pendingFocus { runtime.asksAwaitingWindow[ObjectIdentifier(self)] = nil }
             if pendingFocus { pendingFocusSince = .now } else if let since = pendingFocusSince {
                 // How long the ask waited (a key typed meanwhile is held, ``BrowserTab/pageReady``): read from the input journal.
                 let waited = ContinuousClock.now - since
@@ -153,8 +155,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// When ``pendingFocus`` last became true.
     @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
-    /// Re-asks of a grant kept while the window was not on screen (`grantFocus`).
-    @ObservationIgnored var offscreenGrantRetries = 0
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
@@ -814,9 +814,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// focus: only a browser's creation used to replay the ask.
     func grantPendingFocusIfShown() {
         guard pendingFocus, isShown, pageWindowHostHasArea, !appearedThisTurn, !awaitsWindowMove, let browserID else { return }
-        // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
-        // the ask waits until this page's window has the keys again.
-        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }
+        // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted), or in a panel of
+        // this one (a popover, the tab-group editor, the palette): the ask waits until this page's window, or a page
+        // window of it, has the keys again (`CEFRuntime.windowBecameKey`). AppKit chrome (the full-screen titlebar
+        // window) counts as another window on purpose: the ask waits for the next key change of the window or a page.
+        if let key = keyWindows.keyWindow(), let owner = container.window, key !== owner,
+           key.parent !== owner || !WindowOverlayHost.isPageWindow(key) {
+            host.lifecycleTrace.record(id, "grant kept: another window is key")
+            runtime.asksAwaitingWindow[ObjectIdentifier(self)] = CEFAskAwaitingWindow(tab: self, window: owner)
+            return
+        }
         pendingFocus = false
         host.lifecycleTrace.record(id, "focus(pending) granted")
         grantFocus(browserID)

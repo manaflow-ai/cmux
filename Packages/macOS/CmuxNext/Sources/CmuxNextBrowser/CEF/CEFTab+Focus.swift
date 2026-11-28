@@ -79,17 +79,16 @@ extension CEFTab {
         // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
         // A window still being restored (Restart to Update shows its windows one per frame) cannot hold the keys: a grant
         // now made the page window key before its cmux window showed, and the app lost its key window. The ask is kept
-        // and re-asked after each frame commit (at most 120) until the window is on screen.
-        if let owner = container.window, !owner.isVisible || !owner.occlusionState.contains(.visible) {
-            guard offscreenGrantRetries < 120 else { return }
-            offscreenGrantRetries += 1
+        // until the window comes on screen (`CEFRuntime.windowOcclusionChanged`), however many frames that takes. A count
+        // of re-asks after frame commits ran back to back in one turn (each commit wakes the run loop) and dropped the
+        // ask after the last.
+        if let owner = container.window, !owner.showsOnScreen {
             host.lifecycleTrace.record(id, "grant kept: window not on screen")
             traceGrant("kept: window not on screen")
             pendingFocus = true
-            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+            runtime.asksAwaitingWindow[ObjectIdentifier(self)] = CEFAskAwaitingWindow(tab: self, window: owner)
             return
         }
-        offscreenGrantRetries = 0
         let hosting = host.hostView.layerHosting
         if hosting.holdsFirstFrame() {
             host.lifecycleTrace.record(id, "grant kept: first-frame hold")
@@ -151,4 +150,55 @@ extension CEFTab {
         guard let window = keyedPageWindow, window.parent != nil, window.parent === container.window else { return false }
         return keyWindows.keyWindow() === window
     }
+}
+
+/// A focus ask a page kept while its cmux window was not on screen (``CEFTab/grantFocus(_:)``) or another window had the
+/// keys (``CEFTab/grantPendingFocusIfShown()``): the page, which owns the ask (``CEFTab/pendingFocus``), and the window
+/// it waits for.
+struct CEFAskAwaitingWindow {
+    weak var tab: CEFTab?
+    weak var window: NSWindow?
+}
+
+extension CEFRuntime {
+    /// A window's occlusion changed (``windowGuard``, the app's one observer of it). The focus asks pages kept while
+    /// this window was not on screen are granted once it is, after this pass's frame commit, each once: the grant clears
+    /// the page's ask. Only the pages waiting for this window are told. A change that leaves it off screen tells none,
+    /// and a grant that finds it off screen again (it came on screen and left before the commit) keeps the ask for the
+    /// next change.
+    func windowOcclusionChanged(_ window: NSWindow) {
+        guard window.showsOnScreen else { return }
+        grantAsks(waitingFor: window)
+    }
+
+    /// A window became key (``windowGuard``). A window switch reports the window on screen before it reports it key, so
+    /// an ask re-asked when it came on screen found another window key and waited: it is granted now, as on screen. A
+    /// grant that finds the window off screen (key before it was ordered in) waits for its occlusion change. A page
+    /// window of a cmux window (its child) can take the keys without the cmux window becoming key (Cmd-` back to a
+    /// window whose page window had them); the hold counts a key page window as its window having the keys
+    /// (``CEFTab/grantPendingFocusIfShown()``), so the asks waiting for the parent are granted too. A panel of the
+    /// window (a popover, the tab-group editor, the palette) taking the keys is not: the person types in the panel,
+    /// and its parent becomes key when it closes.
+    func windowBecameKey(_ window: NSWindow) {
+        grantAsks(waitingFor: window)
+        if let parent = window.parent, WindowOverlayHost.isPageWindow(window) { grantAsks(waitingFor: parent) }
+    }
+
+    /// Grants, after this pass's frame commit, the asks that wait for `window`. Each is told once, then forgotten: a
+    /// grant that finds the window off screen or another window key records its ask again for the next change, and one
+    /// the page's own state stops (hidden, no area, moving) is asked again by that state's own change. An entry whose
+    /// page or window is gone is dropped on the way (nothing reports a gone window again); a page still asking is
+    /// re-asked, and its grant records the window it is in now.
+    private func grantAsks(waitingFor window: NSWindow) {
+        for (page, ask) in asksAwaitingWindow where ask.window === window || ask.tab == nil || ask.window == nil {
+            asksAwaitingWindow[page] = nil
+            guard let tab = ask.tab else { continue }
+            AfterFrameCommit().run { [weak tab] in tab?.grantPendingFocusIfShown() }
+        }
+    }
+}
+
+fileprivate extension NSWindow {
+    /// Ordered in and not fully covered: a window that can hold the keys.
+    var showsOnScreen: Bool { isVisible && occlusionState.contains(.visible) }
 }
